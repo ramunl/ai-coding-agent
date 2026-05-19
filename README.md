@@ -1,1 +1,40 @@
 # ai_agent
+
+Telegram coding agent for the Channel Cast Android repository.
+
+## Required environment
+
+Set these values in the systemd `EnvironmentFile`:
+
+- `TELEGRAM_BOT_TOKEN`
+- `YOUR_CHAT_ID`
+- `ANTHROPIC_API_KEY`
+- `REPO_PATH`
+- `GITHUB_TOKEN`
+
+Optional values:
+
+- `ANTHROPIC_MODEL`, defaults to `claude-sonnet-4-20250514`
+- `GITHUB_REPOSITORY`, defaults to `ramunl/com.randrgames.channelcast`
+- `GITHUB_BASE_BRANCH`, defaults to `main`
+- `COMMAND_TIMEOUT_SECONDS`, defaults to `120`
+- `CODEX_TIMEOUT_SECONDS`, defaults to `1800`
+- `CI_POLL_INTERVAL_SECONDS`, defaults to `30`
+- `CI_TIMEOUT_SECONDS`, defaults to `1800`
+
+`GITHUB_TOKEN` needs access to create pull requests and read GitHub Actions:
+
+- Contents: read/write
+- Pull requests: read/write
+- Actions: read
+
+## Commands
+
+- `/plan <feature>` - plan only.
+- `/implement <feature>` - plan and wait for `/confirm`.
+- `/confirm` - run Codex, commit/push branch, open PR, and poll GitHub Actions.
+- `/ci <pr-number>` - show current GitHub Actions result for a PR.
+- `/cancel` - discard the pending implementation.
+- `/branches` - list repository branches.
+- `/status` - show git status.
+- `/logs [lines]` - show recent service logs.
