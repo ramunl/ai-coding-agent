@@ -25,6 +25,14 @@ client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
 logger = logging.getLogger(__name__)
 
 
+def redact_sensitive(text: str) -> str:
+    redacted = text
+    for secret in (TELEGRAM_TOKEN, ANTHROPIC_KEY):
+        if secret:
+            redacted = redacted.replace(secret, "[redacted]")
+    return redacted
+
+
 @dataclass(frozen=True)
 class CommandResult:
     args: list[str]
@@ -47,6 +55,7 @@ async def reply_chunks(update: Update, text: str) -> None:
     if not update.message:
         return
 
+    text = redact_sensitive(text)
     if not text:
         await update.message.reply_text("(no output)")
         return
@@ -294,6 +303,7 @@ def main() -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         level=os.environ.get("LOG_LEVEL", "INFO"),
     )
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     app = Application.builder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", start))
