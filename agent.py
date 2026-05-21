@@ -30,6 +30,8 @@ CI_TIMEOUT_SECONDS = int(os.environ.get("CI_TIMEOUT_SECONDS", "1800"))
 MAX_TELEGRAM_MESSAGE_LENGTH = 3900
 MAX_LOG_LINES = 120
 GITHUB_API_URL = "https://api.github.com"
+ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
+ANTHROPIC_VERSION = "2023-06-01"
 
 client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
 logger = logging.getLogger(__name__)
@@ -139,6 +141,80 @@ def github_request(method: str, path: str, data: dict | None = None, query: dict
     if not response_body:
         return {}
     return json.loads(response_body)
+
+
+def anthropic_limit_headers() -> tuple[int, dict[str, str], str]:
+    payload = {
+        "model": ANTHROPIC_MODEL,
+        "max_tokens": 1,
+        "messages": [{"role": "user", "content": "Reply with OK."}],
+    }
+    headers = {
+        "anthropic-version": ANTHROPIC_VERSION,
+        "content-type": "application/json",
+        "x-api-key": ANTHROPIC_KEY,
+    }
+    request = urllib.request.Request(
+        ANTHROPIC_API_URL,
+        data=json.dumps(payload).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=COMMAND_TIMEOUT_SECONDS) as response:
+            body = response.read().decode("utf-8", errors="replace")
+            response_headers = {key.lower(): value for key, value in response.headers.items()}
+            return response.status, response_headers, body
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        response_headers = {key.lower(): value for key, value in exc.headers.items()}
+        return exc.code, response_headers, body
+
+
+def format_limit_row(headers: dict[str, str], key: str, label: str) -> str | None:
+    prefix = f"anthropic-ratelimit-{key}"
+    limit = headers.get(f"{prefix}-limit")
+    remaining = headers.get(f"{prefix}-remaining")
+    reset = headers.get(f"{prefix}-reset")
+    if not any((limit, remaining, reset)):
+        return None
+
+    parts = [label]
+    if remaining is not None and limit is not None:
+        parts.append(f"{remaining}/{limit} remaining")
+    elif remaining is not None:
+        parts.append(f"{remaining} remaining")
+    elif limit is not None:
+        parts.append(f"limit {limit}")
+    if reset is not None:
+        parts.append(f"resets {reset}")
+    return "- " + ", ".join(parts)
+
+
+def format_anthropic_limits(status: int, headers: dict[str, str], body: str) -> str:
+    rows = [
+        format_limit_row(headers, "requests", "Requests"),
+        format_limit_row(headers, "input-tokens", "Input tokens"),
+        format_limit_row(headers, "output-tokens", "Output tokens"),
+        format_limit_row(headers, "tokens", "Tokens"),
+    ]
+    rows = [row for row in rows if row]
+
+    message = [
+        f"Claude API limits for {ANTHROPIC_MODEL}:",
+        *(rows or ["No Anthropic rate-limit headers were returned."]),
+        "",
+        "This check consumes one tiny Claude API request.",
+    ]
+    if status >= 400:
+        message.extend(["", f"Anthropic returned HTTP {status}:", body[:1000]])
+    return "\n".join(message)
+
+
+def get_anthropic_limits() -> str:
+    status, headers, body = anthropic_limit_headers()
+    return format_anthropic_limits(status, headers, body)
 
 
 def slugify_branch_name(feature_description: str) -> str:
@@ -346,6 +422,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/confirm - run the pending implementation, open PR, and poll CI\n"
         "/cancel - discard the pending implementation\n"
         "/ci <pr-number> - show current GitHub Actions result for a PR\n"
+        "/limits - show remaining Claude API rate limits\n"
         "/branches - list branches\n"
         "/status - git status\n"
         "/logs [lines] - recent service logs\n"
@@ -380,6 +457,14 @@ async def logs(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         COMMAND_TIMEOUT_SECONDS,
     )
     await reply_chunks(update, f"Logs:\n{result.output}")
+
+
+async def limits(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not require_authorized(update):
+        return
+
+    result = await asyncio.to_thread(get_anthropic_limits)
+    await reply_chunks(update, result)
 
 
 async def plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -523,6 +608,7 @@ def main() -> None:
     app.add_handler(CommandHandler("confirm", confirm))
     app.add_handler(CommandHandler("cancel", cancel))
     app.add_handler(CommandHandler("ci", ci))
+    app.add_handler(CommandHandler("limits", limits))
     app.add_handler(CommandHandler("branches", branches))
     app.add_handler(CommandHandler("status", status))
     app.add_handler(CommandHandler("logs", logs))

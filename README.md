@@ -22,6 +22,9 @@ Optional values:
 - `CI_POLL_INTERVAL_SECONDS`, defaults to `30`
 - `CI_TIMEOUT_SECONDS`, defaults to `1800`
 
+`/limits` uses Anthropic response headers, so it shows Claude API rate-limit budgets for the configured
+`ANTHROPIC_API_KEY` and `ANTHROPIC_MODEL`. It consumes one tiny Claude API request each time it runs.
+
 `GITHUB_TOKEN` needs access to create pull requests and read GitHub Actions:
 
 - Contents: read/write
@@ -34,6 +37,7 @@ Optional values:
 - `/implement <feature>` - plan and wait for `/confirm`.
 - `/confirm` - run Codex, commit/push branch, open PR, and poll GitHub Actions.
 - `/ci <pr-number>` - show current GitHub Actions result for a PR.
+- `/limits` - show remaining Claude API rate limits.
 - `/cancel` - discard the pending implementation.
 - `/branches` - list repository branches.
 - `/status` - show git status.
