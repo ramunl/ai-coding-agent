@@ -22,6 +22,7 @@ from ai_agent.config import (
 from ai_agent.github import ensure_github_configured, github_request
 from ai_agent.planner import plan_feature
 from ai_agent.shell import run
+from ai_agent.test_runner import run_unit_tests
 from ai_agent.workflow import create_pull_request, implement, push, slugify_branch_name
 
 
@@ -66,6 +67,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/ci <pr-number> - show current GitHub Actions result for a PR\n"
         "/limits - show remaining Claude API rate limits\n"
         "/codex - show Codex CLI/login status\n"
+        "/test - run agent unit tests\n"
         "/branches - list branches\n"
         "/status - git status\n"
         "/logs [lines] - recent service logs\n"
@@ -115,6 +117,15 @@ async def codex_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
 
     result = await asyncio.to_thread(get_codex_status)
+    await reply_chunks(update, result)
+
+
+async def test(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not require_authorized(update):
+        return
+
+    await reply_chunks(update, "Running agent unit tests...")
+    result = await asyncio.to_thread(run_unit_tests)
     await reply_chunks(update, result)
 
 
@@ -256,6 +267,7 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("ci", ci))
     app.add_handler(CommandHandler("limits", limits))
     app.add_handler(CommandHandler("codex", codex_status))
+    app.add_handler(CommandHandler("test", test))
     app.add_handler(CommandHandler("branches", branches))
     app.add_handler(CommandHandler("status", status))
     app.add_handler(CommandHandler("logs", logs))

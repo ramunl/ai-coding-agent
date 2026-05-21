@@ -41,6 +41,7 @@ by the Codex CLI or a public API.
 - `/ci <pr-number>` - show current GitHub Actions result for a PR.
 - `/limits` - show remaining Claude API rate limits.
 - `/codex` - show Codex CLI/login status.
+- `/test` - run agent unit tests.
 - `/cancel` - discard the pending implementation.
 - `/branches` - list repository branches.
 - `/status` - show git status.

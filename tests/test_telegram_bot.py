@@ -104,6 +104,7 @@ class TelegramBotTests(unittest.TestCase):
                 "ci",
                 "limits",
                 "codex",
+                "test",
                 "branches",
                 "status",
                 "logs",
