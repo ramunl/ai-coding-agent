@@ -45,3 +45,11 @@ by the Codex CLI or a public API.
 - `/branches` - list repository branches.
 - `/status` - show git status.
 - `/logs [lines]` - show recent service logs.
+
+## Tests
+
+Run the unit tests with dummy environment values:
+
+```bash
+TELEGRAM_BOT_TOKEN=t YOUR_CHAT_ID=1 ANTHROPIC_API_KEY=k python -m unittest discover -v
+```
