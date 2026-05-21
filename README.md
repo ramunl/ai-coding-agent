@@ -24,6 +24,8 @@ Optional values:
 
 `/limits` uses Anthropic response headers, so it shows Claude API rate-limit budgets for the configured
 `ANTHROPIC_API_KEY` and `ANTHROPIC_MODEL`. It consumes one tiny Claude API request each time it runs.
+`/codex` reports local Codex CLI/login status only; Codex ChatGPT plan limits remaining are not exposed
+by the Codex CLI or a public API.
 
 `GITHUB_TOKEN` needs access to create pull requests and read GitHub Actions:
 
@@ -38,6 +40,7 @@ Optional values:
 - `/confirm` - run Codex, commit/push branch, open PR, and poll GitHub Actions.
 - `/ci <pr-number>` - show current GitHub Actions result for a PR.
 - `/limits` - show remaining Claude API rate limits.
+- `/codex` - show Codex CLI/login status.
 - `/cancel` - discard the pending implementation.
 - `/branches` - list repository branches.
 - `/status` - show git status.

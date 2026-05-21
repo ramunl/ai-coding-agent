@@ -217,6 +217,19 @@ def get_anthropic_limits() -> str:
     return format_anthropic_limits(status, headers, body)
 
 
+def get_codex_status() -> str:
+    version = run(["codex", "--version"], Path("/"), COMMAND_TIMEOUT_SECONDS).output.strip()
+    login_status = run(["codex", "login", "status"], Path("/"), COMMAND_TIMEOUT_SECONDS).output.strip()
+
+    return (
+        "Codex status:\n"
+        f"- CLI: {version or 'installed'}\n"
+        f"- Login: {login_status or 'unknown'}\n"
+        "- Plan limits remaining: not exposed by the Codex CLI/API\n\n"
+        "Check remaining Codex plan usage in the Codex/OpenAI UI when a usage banner appears."
+    )
+
+
 def slugify_branch_name(feature_description: str) -> str:
     slug = feature_description.lower().strip()
     slug = re.sub(r"[^a-z0-9._/-]+", "-", slug)
@@ -423,6 +436,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/cancel - discard the pending implementation\n"
         "/ci <pr-number> - show current GitHub Actions result for a PR\n"
         "/limits - show remaining Claude API rate limits\n"
+        "/codex - show Codex CLI/login status\n"
         "/branches - list branches\n"
         "/status - git status\n"
         "/logs [lines] - recent service logs\n"
@@ -464,6 +478,14 @@ async def limits(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     result = await asyncio.to_thread(get_anthropic_limits)
+    await reply_chunks(update, result)
+
+
+async def codex_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not require_authorized(update):
+        return
+
+    result = await asyncio.to_thread(get_codex_status)
     await reply_chunks(update, result)
 
 
@@ -609,6 +631,7 @@ def main() -> None:
     app.add_handler(CommandHandler("cancel", cancel))
     app.add_handler(CommandHandler("ci", ci))
     app.add_handler(CommandHandler("limits", limits))
+    app.add_handler(CommandHandler("codex", codex_status))
     app.add_handler(CommandHandler("branches", branches))
     app.add_handler(CommandHandler("status", status))
     app.add_handler(CommandHandler("logs", logs))
