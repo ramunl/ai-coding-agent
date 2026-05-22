@@ -21,13 +21,15 @@ Optional values:
 - `CODEX_TIMEOUT_SECONDS`, defaults to `1800`
 - `CI_POLL_INTERVAL_SECONDS`, defaults to `30`
 - `CI_TIMEOUT_SECONDS`, defaults to `1800`
+- `LINK_ALLOWED_DOMAINS`, comma-separated generic web domains to fetch, defaults to
+  `developer.android.com,docs.github.com,kotlinlang.org,stackoverflow.com`
 
 `/limits` uses Anthropic response headers, so it shows Claude API rate-limit budgets for the configured
 `ANTHROPIC_API_KEY` and `ANTHROPIC_MODEL`. It consumes one tiny Claude API request each time it runs.
 `/codex` reports local Codex CLI/login status only; Codex ChatGPT plan limits remaining are not exposed
 by the Codex CLI or a public API.
-`/plan` and `/implement` can include GitHub issue or pull request links. The agent fetches the linked
-title, body, and recent comments before asking Claude to plan the work.
+`/plan` and `/implement` can include GitHub issue, pull request, file, or commit links. The agent also
+fetches generic web links from `LINK_ALLOWED_DOMAINS` before asking Claude to plan the work.
 
 `GITHUB_TOKEN` needs access to create pull requests and read GitHub Actions:
 
@@ -54,6 +56,8 @@ GitHub links can be included directly:
 ```text
 /plan fix https://github.com/ramunl/com.randrgames.channelcast/issues/12
 /implement https://github.com/ramunl/com.randrgames.channelcast/pull/34
+/plan update API usage from https://developer.android.com/guide
+/plan inspect https://github.com/ramunl/com.randrgames.channelcast/blob/main/app/build.gradle.kts
 ```
 
 ## Tests

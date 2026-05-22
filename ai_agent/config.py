@@ -19,6 +19,14 @@ MAX_LOG_LINES = 120
 GITHUB_API_URL = "https://api.github.com"
 ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
 ANTHROPIC_VERSION = "2023-06-01"
+LINK_ALLOWED_DOMAINS = tuple(
+    domain.strip().lower()
+    for domain in os.environ.get(
+        "LINK_ALLOWED_DOMAINS",
+        "developer.android.com,docs.github.com,kotlinlang.org,stackoverflow.com",
+    ).split(",")
+    if domain.strip()
+)
 
 
 def redact_sensitive(text: str) -> str:
