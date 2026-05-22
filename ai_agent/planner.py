@@ -1,6 +1,7 @@
 import anthropic
 
 from ai_agent.config import ANTHROPIC_KEY, ANTHROPIC_MODEL, REPO_PATH
+from ai_agent.github_links import enrich_feature_description
 
 
 client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
@@ -20,6 +21,7 @@ def kotlin_file_sample() -> str:
 
 def plan_feature(feature_description: str) -> str:
     context = kotlin_file_sample()
+    enriched_feature_description = enrich_feature_description(feature_description)
 
     response = client.messages.create(
         model=ANTHROPIC_MODEL,
@@ -40,7 +42,7 @@ Project modules:
 Project files sample:
 {context}
 
-Feature request: {feature_description}
+Feature request: {enriched_feature_description}
 
 Produce:
 1. Branch name (feature/xxx)

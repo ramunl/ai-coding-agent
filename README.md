@@ -26,6 +26,8 @@ Optional values:
 `ANTHROPIC_API_KEY` and `ANTHROPIC_MODEL`. It consumes one tiny Claude API request each time it runs.
 `/codex` reports local Codex CLI/login status only; Codex ChatGPT plan limits remaining are not exposed
 by the Codex CLI or a public API.
+`/plan` and `/implement` can include GitHub issue or pull request links. The agent fetches the linked
+title, body, and recent comments before asking Claude to plan the work.
 
 `GITHUB_TOKEN` needs access to create pull requests and read GitHub Actions:
 
@@ -46,6 +48,13 @@ by the Codex CLI or a public API.
 - `/branches` - list repository branches.
 - `/status` - show git status.
 - `/logs [lines]` - show recent service logs.
+
+GitHub links can be included directly:
+
+```text
+/plan fix https://github.com/ramunl/com.randrgames.channelcast/issues/12
+/implement https://github.com/ramunl/com.randrgames.channelcast/pull/34
+```
 
 ## Tests
 
