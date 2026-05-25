@@ -54,3 +54,20 @@ Produce:
         ],
     )
     return response.content[0].text
+
+
+def build_bugfix_prompt(bug_description: str) -> str:
+    enriched_bug_description = enrich_feature_description(bug_description)
+    return f"""
+Fix this bug in the Channel Cast Android repository.
+
+Bug report:
+{enriched_bug_description}
+
+Requirements:
+1. Inspect the existing implementation before changing code.
+2. Keep the fix focused on the reported bug.
+3. Add or update focused tests when practical.
+4. Run the relevant tests or compilation checks available in the repository.
+5. Do not make unrelated refactors.
+    """.strip()

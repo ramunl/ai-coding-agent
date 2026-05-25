@@ -20,7 +20,7 @@ from ai_agent.config import (
     redact_sensitive,
 )
 from ai_agent.github import ensure_github_configured, github_request
-from ai_agent.planner import plan_feature
+from ai_agent.planner import build_bugfix_prompt, plan_feature
 from ai_agent.shell import run
 from ai_agent.test_runner import run_unit_tests
 from ai_agent.workflow import create_pull_request, implement, push, slugify_branch_name
@@ -62,6 +62,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "Commands:\n"
         "/plan <feature> - plan only, no implementation\n"
         "/implement <feature> - plan and wait for /confirm before Codex, PR, and CI watch\n"
+        "/bugfix <bug> - wait for /confirm, then fix a bug on a bugfix branch\n"
         "/confirm - run the pending implementation, open PR, and poll CI\n"
         "/cancel - discard the pending implementation\n"
         "/ci <pr-number> - show current GitHub Actions result for a PR\n"
@@ -155,9 +156,12 @@ async def implement_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     branch_name = slugify_branch_name(feature)
 
     context.user_data["pending_implementation"] = {
-        "feature": feature,
-        "plan": plan_text,
+        "change": feature,
+        "codex_prompt": plan_text,
         "branch_name": branch_name,
+        "commit_type": "feat",
+        "pr_body_label": "Plan",
+        "confirmation_label": "implementation",
     }
 
     await reply_chunks(
@@ -168,35 +172,73 @@ async def implement_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     )
 
 
+async def bugfix_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not require_authorized(update):
+        return
+    bug = " ".join(context.args).strip()
+    if not bug:
+        await reply_chunks(update, "Usage: /bugfix <bug description>")
+        return
+
+    await reply_chunks(update, "Preparing bug fix prompt...")
+    bugfix_prompt = await asyncio.to_thread(build_bugfix_prompt, bug)
+    branch_name = slugify_branch_name(bug, "bugfix")
+
+    context.user_data["pending_implementation"] = {
+        "change": bug,
+        "codex_prompt": bugfix_prompt,
+        "branch_name": branch_name,
+        "commit_type": "fix",
+        "pr_body_label": "Bug fix prompt",
+        "confirmation_label": "bug fix",
+    }
+
+    await reply_chunks(
+        update,
+        f"Pending bug fix branch: {branch_name}\n"
+        "Send /confirm to run Codex and push, or /cancel to discard this request.",
+    )
+
+
 async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not require_authorized(update):
         return
 
     pending = context.user_data.get("pending_implementation")
     if not pending:
-        await reply_chunks(update, "No pending implementation. Use /implement <feature> first.")
+        await reply_chunks(update, "No pending implementation. Use /implement <feature> or /bugfix <bug> first.")
         return
 
-    feature = pending["feature"]
-    plan_text = pending["plan"]
+    change = pending["change"]
+    codex_prompt = pending["codex_prompt"]
     branch_name = pending["branch_name"]
+    commit_type = pending.get("commit_type", "feat")
+    pr_body_label = pending.get("pr_body_label", "Plan")
+    confirmation_label = pending.get("confirmation_label", "implementation")
 
     await asyncio.to_thread(ensure_github_configured)
 
     await reply_chunks(update, f"Running Codex on {branch_name}...")
-    await asyncio.to_thread(implement, plan_text, branch_name)
+    await asyncio.to_thread(implement, codex_prompt, branch_name)
 
     await reply_chunks(update, "Committing and pushing branch...")
-    commit_sha = await asyncio.to_thread(push, branch_name, feature)
+    commit_sha = await asyncio.to_thread(push, branch_name, change, commit_type)
 
     await reply_chunks(update, "Opening GitHub PR...")
-    pull_request = await asyncio.to_thread(create_pull_request, branch_name, feature, plan_text)
+    pull_request = await asyncio.to_thread(
+        create_pull_request,
+        branch_name,
+        change,
+        codex_prompt,
+        commit_type,
+        pr_body_label,
+    )
     await reply_chunks(update, f"PR opened: {pull_request.url}\nHead: {pull_request.head_sha or commit_sha}")
 
     await watch_ci(update, pull_request.head_sha or commit_sha)
 
     context.user_data.pop("pending_implementation", None)
-    await reply_chunks(update, f"Done.\nBranch: {branch_name}\nPR: {pull_request.url}")
+    await reply_chunks(update, f"Done with {confirmation_label}.\nBranch: {branch_name}\nPR: {pull_request.url}")
 
 
 async def watch_ci(update: Update, head_sha: str) -> None:
@@ -262,6 +304,7 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("help", start))
     app.add_handler(CommandHandler("plan", plan))
     app.add_handler(CommandHandler("implement", implement_cmd))
+    app.add_handler(CommandHandler("bugfix", bugfix_cmd))
     app.add_handler(CommandHandler("confirm", confirm))
     app.add_handler(CommandHandler("cancel", cancel))
     app.add_handler(CommandHandler("ci", ci))

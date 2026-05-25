@@ -28,8 +28,9 @@ Optional values:
 `ANTHROPIC_API_KEY` and `ANTHROPIC_MODEL`. It consumes one tiny Claude API request each time it runs.
 `/codex` reports local Codex CLI/login status only; Codex ChatGPT plan limits remaining are not exposed
 by the Codex CLI or a public API.
-`/plan` and `/implement` can include GitHub issue, pull request, file, or commit links. The agent also
-fetches generic web links from `LINK_ALLOWED_DOMAINS` before asking Claude to plan the work.
+`/plan`, `/implement`, and `/bugfix` can include GitHub issue, pull request, file, or commit links. The
+agent also fetches generic web links from `LINK_ALLOWED_DOMAINS`; `/plan` and `/implement` pass that
+context through Claude planning, while `/bugfix` sends it directly to Codex without a planning step.
 
 `GITHUB_TOKEN` needs access to create pull requests and read GitHub Actions:
 
@@ -41,6 +42,7 @@ fetches generic web links from `LINK_ALLOWED_DOMAINS` before asking Claude to pl
 
 - `/plan <feature>` - plan only.
 - `/implement <feature>` - plan and wait for `/confirm`.
+- `/bugfix <bug>` - wait for `/confirm`, then fix a bug on a `bugfix/` branch.
 - `/confirm` - run Codex, commit/push branch, open PR, and poll GitHub Actions.
 - `/ci <pr-number>` - show current GitHub Actions result for a PR.
 - `/limits` - show remaining Claude API rate limits.
@@ -56,6 +58,7 @@ GitHub links can be included directly:
 ```text
 /plan fix https://github.com/ramunl/com.randrgames.channelcast/issues/12
 /implement https://github.com/ramunl/com.randrgames.channelcast/pull/34
+/bugfix crash when opening https://github.com/ramunl/com.randrgames.channelcast/issues/12
 /plan update API usage from https://developer.android.com/guide
 /plan inspect https://github.com/ramunl/com.randrgames.channelcast/blob/main/app/build.gradle.kts
 ```

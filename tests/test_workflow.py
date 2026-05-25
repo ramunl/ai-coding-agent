@@ -14,6 +14,11 @@ class WorkflowTests(unittest.TestCase):
 
         self.assertEqual(branch, "feature/change")
 
+    def test_slugify_branch_name_accepts_bugfix_prefix(self) -> None:
+        branch = slugify_branch_name("Player crashes after rotation", "bugfix")
+
+        self.assertEqual(branch, "bugfix/player-crashes-after-rotation")
+
     def test_validate_branch_name_rejects_invalid_names(self) -> None:
         invalid_names = [
             "/feature/start",

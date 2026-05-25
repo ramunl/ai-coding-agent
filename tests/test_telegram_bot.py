@@ -99,6 +99,7 @@ class TelegramBotTests(unittest.TestCase):
                 "help",
                 "plan",
                 "implement",
+                "bugfix",
                 "confirm",
                 "cancel",
                 "ci",
