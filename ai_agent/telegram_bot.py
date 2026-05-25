@@ -20,7 +20,7 @@ from ai_agent.config import (
     redact_sensitive,
 )
 from ai_agent.github import ensure_github_configured, github_request
-from ai_agent.planner import build_bugfix_prompt, plan_feature
+from ai_agent.planner import assess_bugfix_report, build_bugfix_prompt, bugfix_questions, plan_feature
 from ai_agent.shell import run
 from ai_agent.test_runner import run_unit_tests
 from ai_agent.workflow import create_pull_request, implement, push, slugify_branch_name
@@ -62,7 +62,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "Commands:\n"
         "/plan <feature> - plan only, no implementation\n"
         "/implement <feature> - plan and wait for /confirm before Codex, PR, and CI watch\n"
-        "/bugfix <bug> - wait for /confirm, then fix a bug on a bugfix branch\n"
+        "/bugfix <bug> - clarify if needed, then wait for /confirm on a bugfix branch\n"
+        "/answer <details> - answer pending bugfix clarification questions\n"
         "/confirm - run the pending implementation, open PR, and poll CI\n"
         "/cancel - discard the pending implementation\n"
         "/ci <pr-number> - show current GitHub Actions result for a PR\n"
@@ -180,9 +181,57 @@ async def bugfix_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         await reply_chunks(update, "Usage: /bugfix <bug description>")
         return
 
-    await reply_chunks(update, "Preparing bug fix prompt...")
+    await reply_chunks(update, "Checking whether the bug report is actionable...")
+    questions = await asyncio.to_thread(get_bugfix_questions, bug)
+    if questions:
+        context.user_data["pending_bugfix_clarification"] = {"bug": bug, "branch_source": bug}
+        await reply_chunks(
+            update,
+            f"I need a bit more detail before running Codex:\n{questions}\n\n"
+            "Reply with /answer <details>, or /cancel to discard this request.",
+        )
+        return
+
+    await prepare_bugfix(update, context, bug, bug)
+
+
+async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not require_authorized(update):
+        return
+    pending = context.user_data.get("pending_bugfix_clarification")
+    if not pending:
+        await reply_chunks(update, "No pending bugfix questions. Use /bugfix <bug> first.")
+        return
+
+    details = " ".join(context.args).strip()
+    if not details:
+        await reply_chunks(update, "Usage: /answer <details>")
+        return
+
+    combined_bug = f"{pending['bug']}\n\nUser clarification:\n{details}"
+    branch_source = pending.get("branch_source", pending["bug"])
+    await reply_chunks(update, "Checking the updated bug report...")
+    questions = await asyncio.to_thread(get_bugfix_questions, combined_bug)
+    if questions:
+        context.user_data["pending_bugfix_clarification"] = {"bug": combined_bug, "branch_source": branch_source}
+        await reply_chunks(
+            update,
+            f"I still need more detail:\n{questions}\n\n"
+            "Reply with /answer <details>, or /cancel to discard this request.",
+        )
+        return
+
+    context.user_data.pop("pending_bugfix_clarification", None)
+    await prepare_bugfix(update, context, combined_bug, branch_source)
+
+
+def get_bugfix_questions(bug: str) -> str | None:
+    return bugfix_questions(assess_bugfix_report(bug))
+
+
+async def prepare_bugfix(update: Update, context: ContextTypes.DEFAULT_TYPE, bug: str, branch_source: str) -> None:
     bugfix_prompt = await asyncio.to_thread(build_bugfix_prompt, bug)
-    branch_name = slugify_branch_name(bug, "bugfix")
+    branch_name = slugify_branch_name(branch_source, "bugfix")
 
     context.user_data["pending_implementation"] = {
         "change": bug,
@@ -286,7 +335,8 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not require_authorized(update):
         return
     context.user_data.pop("pending_implementation", None)
-    await reply_chunks(update, "Pending implementation discarded.")
+    context.user_data.pop("pending_bugfix_clarification", None)
+    await reply_chunks(update, "Pending request discarded.")
 
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -305,6 +355,7 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("plan", plan))
     app.add_handler(CommandHandler("implement", implement_cmd))
     app.add_handler(CommandHandler("bugfix", bugfix_cmd))
+    app.add_handler(CommandHandler("answer", answer))
     app.add_handler(CommandHandler("confirm", confirm))
     app.add_handler(CommandHandler("cancel", cancel))
     app.add_handler(CommandHandler("ci", ci))

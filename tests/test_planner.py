@@ -69,6 +69,22 @@ class PlannerTests(unittest.TestCase):
         self.assertIn("Bug report:\nenriched bug", prompt)
         self.assertIn("Do not make unrelated refactors", prompt)
 
+    def test_assess_bugfix_report_uses_enriched_bug_description(self) -> None:
+        planner = importlib.import_module("ai_agent.planner")
+
+        with patch("ai_agent.planner.enrich_feature_description", return_value="enriched bug"):
+            result = planner.assess_bugfix_report("original bug")
+
+        prompt = planner.client.messages.kwargs["messages"][0]["content"]
+        self.assertEqual(result, "planned")
+        self.assertIn("Bug report:\nenriched bug", prompt)
+
+    def test_bugfix_questions_parses_ready_and_questions(self) -> None:
+        planner = importlib.import_module("ai_agent.planner")
+
+        self.assertIsNone(planner.bugfix_questions("READY"))
+        self.assertEqual(planner.bugfix_questions("QUESTIONS:\n1. Steps?"), "1. Steps?")
+
 
 if __name__ == "__main__":
     unittest.main()

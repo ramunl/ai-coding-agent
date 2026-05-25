@@ -71,3 +71,48 @@ Requirements:
 4. Run the relevant tests or compilation checks available in the repository.
 5. Do not make unrelated refactors.
     """.strip()
+
+
+def assess_bugfix_report(bug_description: str) -> str:
+    enriched_bug_description = enrich_feature_description(bug_description)
+
+    response = client.messages.create(
+        model=ANTHROPIC_MODEL,
+        max_tokens=800,
+        messages=[
+            {
+                "role": "user",
+                "content": f"""
+You are triaging a bug report for an Android coding agent.
+
+Bug report:
+{enriched_bug_description}
+
+Decide whether a coding agent can start a focused fix without asking the user for more information.
+
+Return exactly one of these formats:
+
+READY
+
+or
+
+QUESTIONS:
+1. <short necessary question>
+2. <short necessary question>
+
+Ask at most 3 questions. Only ask for information that is necessary to avoid likely wrong code changes.
+                """,
+            }
+        ],
+    )
+    return response.content[0].text.strip()
+
+
+def bugfix_questions(assessment: str) -> str | None:
+    text = assessment.strip()
+    if text.upper().startswith("READY"):
+        return None
+    if text.upper().startswith("QUESTIONS:"):
+        questions = text.split(":", 1)[1].strip()
+        return questions or "Please provide more details about the bug."
+    return text or "Please provide more details about the bug."

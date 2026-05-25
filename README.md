@@ -30,7 +30,8 @@ Optional values:
 by the Codex CLI or a public API.
 `/plan`, `/implement`, and `/bugfix` can include GitHub issue, pull request, file, or commit links. The
 agent also fetches generic web links from `LINK_ALLOWED_DOMAINS`; `/plan` and `/implement` pass that
-context through Claude planning, while `/bugfix` sends it directly to Codex without a planning step.
+context through Claude planning, while `/bugfix` first asks clarification questions when needed and then
+sends the bug-fix prompt directly to Codex without a planning step.
 
 `GITHUB_TOKEN` needs access to create pull requests and read GitHub Actions:
 
@@ -42,7 +43,8 @@ context through Claude planning, while `/bugfix` sends it directly to Codex with
 
 - `/plan <feature>` - plan only.
 - `/implement <feature>` - plan and wait for `/confirm`.
-- `/bugfix <bug>` - wait for `/confirm`, then fix a bug on a `bugfix/` branch.
+- `/bugfix <bug>` - ask clarification questions if needed, then wait for `/confirm` on a `bugfix/` branch.
+- `/answer <details>` - answer pending `/bugfix` clarification questions.
 - `/confirm` - run Codex, commit/push branch, open PR, and poll GitHub Actions.
 - `/ci <pr-number>` - show current GitHub Actions result for a PR.
 - `/limits` - show remaining Claude API rate limits.
@@ -59,6 +61,7 @@ GitHub links can be included directly:
 /plan fix https://github.com/ramunl/com.randrgames.channelcast/issues/12
 /implement https://github.com/ramunl/com.randrgames.channelcast/pull/34
 /bugfix crash when opening https://github.com/ramunl/com.randrgames.channelcast/issues/12
+/answer happens after rotating the screen; expected playback to continue
 /plan update API usage from https://developer.android.com/guide
 /plan inspect https://github.com/ramunl/com.randrgames.channelcast/blob/main/app/build.gradle.kts
 ```
