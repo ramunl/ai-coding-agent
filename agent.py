@@ -1,11 +1,24 @@
+import asyncio
 import logging
 import os
 
-from ai_agent.config import ANTHROPIC_MODEL, REPO_PATH
+from telegram import Update
+from telegram.ext import CommandHandler, ContextTypes
+
+from ai_agent.config import ANTHROPIC_MODEL, CHAT_ID, REPO_PATH
 from ai_agent.telegram_bot import build_application
+from ai_agent.version import get_runtime_version
 
 
 logger = logging.getLogger(__name__)
+
+
+async def version(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.effective_chat or update.effective_chat.id != CHAT_ID or not update.message:
+        return
+
+    result = await asyncio.to_thread(get_runtime_version)
+    await update.message.reply_text(result)
 
 
 def main() -> None:
@@ -15,6 +28,7 @@ def main() -> None:
     )
     logging.getLogger("httpx").setLevel(logging.WARNING)
     app = build_application()
+    app.add_handler(CommandHandler("version", version))
     logger.info("Agent running with repo_path=%s model=%s", REPO_PATH, ANTHROPIC_MODEL)
     app.run_polling()
 
