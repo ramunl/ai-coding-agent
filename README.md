@@ -73,3 +73,27 @@ Run the unit tests with dummy environment values:
 ```bash
 TELEGRAM_BOT_TOKEN=t YOUR_CHAT_ID=1 ANTHROPIC_API_KEY=k python -m unittest discover -v
 ```
+
+## Deployment
+
+This repo auto-deploys from `main` through GitHub Actions and the server webhook.
+
+Flow:
+
+```text
+git push origin main
+-> GitHub Actions deploy workflow
+-> http://161.35.17.201:9000/hooks/ai-agent-update?secret=...
+-> /usr/local/sbin/update-ai-agent
+-> git pull, install requirements, restart ai-agent.service
+```
+
+The server uses the distro `webhook.service` with `/etc/webhook.conf`. It listens on `*:9000`, and UFW must allow `9000/tcp` for GitHub-hosted runners to reach it.
+
+Details are in [docs/deployment.md](docs/deployment.md).
+
+## Maintenance Rules
+
+- When adding or changing a feature, update the relevant markdown docs in the same change.
+- Keep `README.md` current for user-facing behavior, commands, configuration, and deployment notes.
+- Keep `docs/*.md` current for module-level behavior and operational details.
