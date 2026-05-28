@@ -11,7 +11,6 @@ jobs:
 
     steps:
       - name: Call deploy webhook
-        run: curl -X POST "$DEPLOY_WEBHOOK_URL" -H "Authorization: Bearer $DEPLOY_TOKEN"
+        run: curl --fail --show-error --silent -X POST "$DEPLOY_WEBHOOK_URL"
         env:
           DEPLOY_WEBHOOK_URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
-          DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
