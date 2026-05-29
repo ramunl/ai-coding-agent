@@ -1,3 +1,4 @@
+import json
 import re
 
 import anthropic
@@ -189,7 +190,7 @@ def assess_bugfix_report(bug_description: str) -> str:
 
     response = client.messages.create(
         model=ANTHROPIC_MODEL,
-        max_tokens=800,
+        max_tokens=500,
         messages=[
             {
                 "role": "user",
@@ -205,21 +206,19 @@ Local codebase context:
 Decide whether the coding agent can start a focused fix without asking the user for more information.
 
 Important policy:
-- Default to READY when the missing details can be discovered by searching the codebase.
+- Default to ready when the missing details can be discovered by searching the codebase.
 - Do NOT ask where a button, method, file, URL builder, state holder, or current implementation is located. The coding agent must inspect the repository for that.
 - Do NOT ask what method/API to call unless there are multiple externally visible product behaviors and the codebase cannot disambiguate them.
 - Ask questions only for missing product behavior that cannot be inferred from the bug report or code, such as a business rule, UX choice, or acceptance criterion.
-- If the bug is reproducible from the description and the expected behavior is clear, return READY.
+- If the bug is reproducible from the description and the expected behavior is clear, return ready.
 
-Return exactly one of these formats:
+Return valid JSON only. No explanation, no markdown, no prose.
 
-READY
+Ready response:
+{{"status":"ready","questions":[]}}
 
-or
-
-QUESTIONS:
-1. <short necessary product/UX question>
-2. <short necessary product/UX question>
+Questions response:
+{{"status":"questions","questions":["short necessary product/UX question"]}}
 
 Ask at most 2 questions.
                 """,
@@ -229,15 +228,55 @@ Ask at most 2 questions.
     return response.content[0].text.strip()
 
 
+def _extract_json_object(text: str) -> dict | None:
+    stripped = text.strip()
+    try:
+        value = json.loads(stripped)
+    except json.JSONDecodeError:
+        match = re.search(r"\{.*\}", stripped, re.DOTALL)
+        if not match:
+            return None
+        try:
+            value = json.loads(match.group(0))
+        except json.JSONDecodeError:
+            return None
+    return value if isinstance(value, dict) else None
+
+
+def _looks_ready(text: str) -> bool:
+    normalized = text.upper()
+    has_ready = bool(re.search(r"\bREADY\b", normalized))
+    has_questions_marker = bool(re.search(r"\bQUESTIONS\s*:", normalized))
+    return has_ready and not has_questions_marker
+
+
 def bugfix_questions(assessment: str) -> str | None:
     text = assessment.strip()
-    if text.upper().startswith("READY"):
+    assessment_json = _extract_json_object(text)
+    if assessment_json:
+        status = str(assessment_json.get("status", "")).strip().lower()
+        if status == "ready":
+            return None
+        if status == "questions":
+            questions_value = assessment_json.get("questions", [])
+            if isinstance(questions_value, list):
+                questions = "\n".join(str(question).strip() for question in questions_value if str(question).strip())
+            else:
+                questions = str(questions_value).strip()
+            return _filter_product_questions(questions)
+
+    if _looks_ready(text):
         return None
+
     if text.upper().startswith("QUESTIONS:"):
         questions = text.split(":", 1)[1].strip()
     else:
         questions = text
 
+    return _filter_product_questions(questions)
+
+
+def _filter_product_questions(questions: str) -> str | None:
     if not questions:
         return "Please provide the missing expected product behavior."
 
