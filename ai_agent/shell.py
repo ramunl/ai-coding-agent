@@ -16,12 +16,13 @@ class CommandResult:
     output: str
 
 
-def run(args: list[str], cwd: Path = REPO_PATH, timeout: int = COMMAND_TIMEOUT_SECONDS) -> CommandResult:
-    logger.info("Running command: %s cwd=%s timeout=%s", args, cwd, timeout)
+def run(args: list[str], cwd: Path = REPO_PATH, timeout: int = COMMAND_TIMEOUT_SECONDS, interactive: bool = False) -> CommandResult:
+    logger.info("Running command: %s cwd=%s timeout=%s interactive=%s", args, cwd, timeout, interactive)
     try:
         result = subprocess.run(
             args,
-            capture_output=True,
+            capture_output=not interactive,
+            stdin=None if interactive else subprocess.DEVNULL,
             check=False,
             cwd=cwd,
             text=True,
@@ -31,7 +32,7 @@ def run(args: list[str], cwd: Path = REPO_PATH, timeout: int = COMMAND_TIMEOUT_S
         output = (exc.stdout or "") + (exc.stderr or "")
         raise RuntimeError(f"Command timed out after {timeout}s: {' '.join(args)}\n{output}") from exc
 
-    output = result.stdout + result.stderr
+    output = (result.stdout or "") + (result.stderr or "") if not interactive else ""
     if result.returncode != 0:
         raise RuntimeError(f"Command failed ({result.returncode}): {' '.join(args)}\n{output}")
     return CommandResult(args=args, returncode=result.returncode, output=output)
