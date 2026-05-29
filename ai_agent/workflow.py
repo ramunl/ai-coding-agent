@@ -41,7 +41,7 @@ def implement(plan: str, branch_name: str) -> None:
     run(["git", "checkout", "main"])
     run(["git", "pull", "origin", "main"])
     run(["git", "checkout", "-b", branch_name])
-    run(["codex", plan], timeout=CODEX_TIMEOUT_SECONDS)
+    run(["codex", plan], timeout=CODEX_TIMEOUT_SECONDS, interactive=True)
 
 
 def has_changes() -> bool:
