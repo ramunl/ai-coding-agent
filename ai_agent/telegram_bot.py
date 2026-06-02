@@ -244,6 +244,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "2. /discuss <feedback> as needed\n"
         "3. /approve\n"
         "4. /confirm\n\n"
+        "Existing PR repair:\n"
+        "/fixpr <pr-number> - repair failed CI on an existing same-repository PR branch\n\n"
         "Commands:\n"
         "/plan <feature> - create a plan for discussion\n"
         "/discuss <feedback> - revise the current plan\n"

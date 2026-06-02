@@ -148,6 +148,26 @@ class TelegramBotTests(unittest.TestCase):
         self.assertIs(app.concurrent_updates_value, True)
         self.assertIs(app.post_init_value, telegram_bot.configure_bot_commands)
 
+    def test_help_text_includes_fixpr_description(self) -> None:
+        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
+
+        class FakeMessage:
+            def __init__(self) -> None:
+                self.replies = []
+
+            async def reply_text(self, text: str) -> None:
+                self.replies.append(text)
+
+        message = FakeMessage()
+        update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=message)
+        context = types.SimpleNamespace(user_data={})
+
+        asyncio.run(telegram_bot.start(update, context))
+
+        help_text = "\n".join(message.replies)
+        self.assertIn("/fixpr <pr-number>", help_text)
+        self.assertIn("repair failed CI on an existing same-repository PR branch", help_text)
+
     def test_configure_bot_commands_includes_fixpr(self) -> None:
         telegram_bot = importlib.import_module("ai_agent.telegram_bot")
         app = telegram_bot.build_application()
