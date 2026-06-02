@@ -60,7 +60,8 @@ BOT_COMMANDS = [
     BotCommand("implement", "Plan and wait for confirm"),
     BotCommand("bugfix", "Prepare a bugfix branch"),
     BotCommand("answer", "Answer bugfix questions"),
-    BotCommand("confirm", "Run approved work and repair CI"),
+    BotCommand("confirm", "Queue approved work and run tasks"),
+    BotCommand("queue", "Show queued work"),
     BotCommand("fixpr", "Repair failed CI on an existing PR"),
     BotCommand("cancel", "Discard pending work"),
     BotCommand("ci", "Show PR CI status"),
@@ -115,6 +116,52 @@ def set_pending_from_plan(context: ContextTypes.DEFAULT_TYPE, plan_state) -> Non
         "pr_body_label": f"Plan revision {plan_state.revision}",
         "confirmation_label": "implementation",
     }
+
+
+def next_task_id(context: ContextTypes.DEFAULT_TYPE) -> int:
+    task_id = int(context.user_data.get("next_task_id", 1))
+    context.user_data["next_task_id"] = task_id + 1
+    return task_id
+
+
+def task_queue(context: ContextTypes.DEFAULT_TYPE) -> list[dict]:
+    queue = context.user_data.get("task_queue")
+    if not isinstance(queue, list):
+        queue = []
+        context.user_data["task_queue"] = queue
+    return queue
+
+
+def enqueue_pending_implementation(context: ContextTypes.DEFAULT_TYPE, pending: dict) -> dict:
+    task = {
+        "id": next_task_id(context),
+        "change": pending["change"],
+        "codex_prompt": pending["codex_prompt"],
+        "branch_name": pending["branch_name"],
+        "commit_type": pending.get("commit_type", "feat"),
+        "pr_body_label": pending.get("pr_body_label", "Plan"),
+        "confirmation_label": pending.get("confirmation_label", "implementation"),
+    }
+    task_queue(context).append(task)
+    return task
+
+
+def render_task_queue(context: ContextTypes.DEFAULT_TYPE) -> str:
+    queue = task_queue(context)
+    active_text = active_execution_text(context)
+    if not queue and not active_text:
+        return "Task queue is empty."
+
+    lines = ["Task queue:"]
+    if active_text:
+        active = context.user_data.get("active_execution") or {}
+        lines.extend(["", f"Running: {active.get('branch', 'unknown')}", f"Phase: {active.get('phase', 'working')}"])
+    if queue:
+        lines.append("")
+        lines.append("Pending:")
+        for index, task in enumerate(queue, 1):
+            lines.append(f"{index}. #{task['id']} {task['branch_name']} ({task.get('confirmation_label', 'implementation')})")
+    return "\n".join(lines)
 
 
 def forget_pending_implementation(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -255,13 +302,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/implement <feature> - shortcut: plan, approve, then wait for /confirm\n"
         "/bugfix <bug> - clarify if needed, then wait for /confirm on a bugfix branch\n"
         "/answer <details> - answer pending bugfix clarification questions\n"
-        "/confirm - run approved work quietly, open PR, poll CI, and repair failed CI\n"
+        "/confirm - add approved work to the FIFO queue and run queued tasks\n"
+        "/queue - show the running task and pending FIFO queue\n"
         "/verbosity concise|normal|debug - set output detail\n"
         "/diff - show changed files and line counts from the last run\n"
         "/show <file-number> - show a specific file diff from the last run\n"
         "/logs [lines] - last run logs in debug mode, or service logs when no run exists\n"
         "/pr - show the last PR URL\n"
-        "/cancel - discard the pending implementation\n"
+        "/cancel [task-id] - discard pending work or remove a queued task\n"
         "/ci <pr-number> - show current GitHub Actions result for a PR\n"
         "/fixpr <pr-number> - repair failed CI on an existing same-repository PR\n"
         "/limits - show remaining Claude API rate limits\n"
@@ -284,11 +332,17 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not require_authorized(update):
         return
     active_text = active_execution_text(context)
-    if active_text:
-        await reply_chunks(update, active_text)
+    if active_text or task_queue(context):
+        await reply_chunks(update, render_task_queue(context))
         return
     result = await asyncio.to_thread(run, ["git", "status"])
     await reply_chunks(update, f"Status:\n{result.output}")
+
+
+async def queue_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not require_authorized(update):
+        return
+    await reply_chunks(update, render_task_queue(context))
 
 
 async def logs(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -388,7 +442,7 @@ async def approve(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     context.user_data["pending_plan"] = plan_state
     set_pending_from_plan(context, plan_state)
     document = parse_plan_document(plan_state.plan_text, plan_state.feature)
-    await reply_chunks(update, f"Plan approved.\n\nBranch:\n{document.branch}\n\nCommands:\n- /confirm\n- /cancel")
+    await reply_chunks(update, f"Plan approved.\n\nBranch:\n{document.branch}\n\nCommands:\n- /confirm to enqueue\n- /cancel")
 
 
 async def showplan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -446,7 +500,7 @@ async def implement_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         f"{render_plan(plan_state)}\n\n"
         "Plan approved for the existing /implement flow.\n\n"
         f"Pending branch: {document.branch}\n"
-        "Send /confirm to run Codex and push, or /cancel to discard this request.",
+        "Send /confirm to enqueue this task, or /cancel to discard this request.",
     )
 
 
@@ -522,17 +576,12 @@ async def prepare_bugfix(update: Update, context: ContextTypes.DEFAULT_TYPE, bug
     await reply_chunks(
         update,
         f"Pending bug fix branch: {branch_name}\n"
-        "Send /confirm to run Codex and push, or /cancel to discard this request.",
+        "Send /confirm to enqueue this task, or /cancel to discard this request.",
     )
 
 
 async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not require_authorized(update):
-        return
-
-    active_text = active_execution_text(context)
-    if active_text:
-        await reply_chunks(update, f"An implementation is already running.\n\n{active_text}")
         return
 
     pending = context.user_data.get("pending_implementation")
@@ -547,19 +596,44 @@ async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await reply_chunks(update, "No pending implementation. Use /implement <feature> or /bugfix <bug> first.")
         return
 
-    change = pending["change"]
-    codex_prompt = pending["codex_prompt"]
-    branch_name = pending["branch_name"]
-    commit_type = pending.get("commit_type", "feat")
-    pr_body_label = pending.get("pr_body_label", "Plan")
-    confirmation_label = pending.get("confirmation_label", "implementation")
+    task = enqueue_pending_implementation(context, pending)
+    context.user_data.pop("pending_implementation", None)
+    if plan_state:
+        context.user_data.pop("pending_plan", None)
+
+    position = len(task_queue(context))
+    await reply_chunks(update, f"Queued task #{task['id']} at position {position}.\n\nBranch:\n{task['branch_name']}")
+
+    if context.user_data.get("queue_runner_active"):
+        return
+
+    await run_task_queue(update, context)
+
+
+async def run_task_queue(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    context.user_data["queue_runner_active"] = True
+    try:
+        while task_queue(context):
+            task = task_queue(context).pop(0)
+            await run_queued_implementation(update, context, task)
+    finally:
+        context.user_data.pop("queue_runner_active", None)
+
+
+async def run_queued_implementation(update: Update, context: ContextTypes.DEFAULT_TYPE, task: dict) -> None:
+    change = task["change"]
+    codex_prompt = task["codex_prompt"]
+    branch_name = task["branch_name"]
+    commit_type = task.get("commit_type", "feat")
+    pr_body_label = task.get("pr_body_label", "Plan")
+    confirmation_label = task.get("confirmation_label", "implementation")
 
     try:
         set_active_execution(context, branch_name, "Checking GitHub configuration")
         await asyncio.to_thread(ensure_github_configured)
 
         set_active_execution(context, branch_name, "Running Codex")
-        await reply_chunks(update, f"Task started.\n\nBranch:\n{branch_name}\n\nStatus:\nRUNNING")
+        await reply_chunks(update, f"Task #{task['id']} started.\n\nBranch:\n{branch_name}\n\nStatus:\nRUNNING")
         implementation_result = await asyncio.to_thread(implement, codex_prompt, branch_name)
 
         set_active_execution(context, branch_name, "Committing and pushing branch")
@@ -627,9 +701,6 @@ async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 tests=tests,
             )
 
-        context.user_data.pop("pending_implementation", None)
-        if plan_state:
-            context.user_data.pop("pending_plan", None)
         execution = last_execution(context)
         if execution:
             if ci_result.state == "failed":
@@ -839,10 +910,21 @@ async def pr(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not require_authorized(update):
         return
+    if context.args and context.args[0].isdigit():
+        task_id = int(context.args[0])
+        queue = task_queue(context)
+        for index, task in enumerate(queue):
+            if int(task.get("id", 0)) == task_id:
+                removed = queue.pop(index)
+                await reply_chunks(update, f"Queued task #{task_id} removed.\n\nBranch:\n{removed['branch_name']}")
+                return
+        await reply_chunks(update, f"No queued task #{task_id}. Running tasks cannot be cancelled.")
+        return
+
     context.user_data.pop("pending_implementation", None)
     context.user_data.pop("pending_plan", None)
     context.user_data.pop("pending_bugfix_clarification", None)
-    await reply_chunks(update, "Pending request discarded.")
+    await reply_chunks(update, "Pending request discarded. Use /cancel <task-id> to remove a queued task.")
 
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -877,6 +959,7 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("bugfix", bugfix_cmd))
     app.add_handler(CommandHandler("answer", answer))
     app.add_handler(CommandHandler("confirm", confirm))
+    app.add_handler(CommandHandler("queue", queue_cmd))
     app.add_handler(CommandHandler("cancel", cancel))
     app.add_handler(CommandHandler("ci", ci))
     app.add_handler(CommandHandler("fixpr", fixpr))

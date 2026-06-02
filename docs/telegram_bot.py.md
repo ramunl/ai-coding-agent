@@ -44,8 +44,9 @@ Displays available commands and their usage.
 - /implement \<feature\> - Plan and wait for /confirm
 - /bugfix \<bug\> - Clarify if needed, then wait for /confirm
 - /answer \<details\> - Answer pending clarification
-- /confirm - Run implementation, open PR, watch CI
-- /cancel - Discard pending work
+- /confirm - Add pending work to the FIFO queue and run queued tasks
+- /queue - Show running task and pending FIFO queue
+- /cancel \[task-id\] - Discard pending work or remove a queued task
 - /ci \<pr-number\> - Show CI status for PR
 - /limits - Show Claude API limits
 - /codex - Show Codex CLI status
@@ -136,17 +137,20 @@ Internal function - prepares bugfix for confirmation.
   - confirmation_label: "bug fix"
 
 #### `/confirm`
-Executes pending implementation (feature or bugfix).
+Enqueues the pending implementation (feature or bugfix) and drains queued work in FIFO order.
 
 **Process**:
 1. Requires `pending_implementation` context
-2. Ensures GitHub is configured
-3. Runs Codex: `implement(codex_prompt, branch_name)` (runs: `codex {prompt}`)
-4. Commits and pushes: `push(branch_name, change, commit_type)`
-5. Creates PR: `create_pull_request(branch_name, change, codex_prompt, commit_type, pr_body_label)`
-6. Watches CI: `watch_ci(head_sha)`
-7. If CI fails, repairs and pushes the branch up to `CI_FIX_ATTEMPTS`, polling each repair commit
-8. Sends a passing completion or a failed completion when the final polled CI result is failed
+2. Appends the pending task to `task_queue`
+3. Returns immediately if another queue runner is already active
+4. Otherwise drains `task_queue` from oldest to newest
+5. For each task, ensures GitHub is configured
+6. Runs Codex: `implement(codex_prompt, branch_name)` (runs: `codex {prompt}`)
+7. Commits and pushes: `push(branch_name, change, commit_type)`
+8. Creates PR: `create_pull_request(branch_name, change, codex_prompt, commit_type, pr_body_label)`
+9. Watches CI: `watch_ci(head_sha)`
+10. If CI fails, repairs and pushes the branch up to `CI_FIX_ATTEMPTS`, polling each repair commit
+11. Sends a passing completion or a failed completion when the final polled CI result is failed
 
 **Error Handling**:
 - GitHub configuration errors caught early
@@ -156,8 +160,15 @@ Executes pending implementation (feature or bugfix).
 - Exhausted CI repair attempts are reported as a failed implementation, not a successful completion
 
 #### `/cancel`
-Discards pending implementation or bugfix clarification.
-- Clears `pending_implementation` and `pending_bugfix_clarification` from context
+Discards pending implementation or bugfix clarification, or removes a queued task by ID.
+- Without arguments, clears `pending_implementation`, `pending_plan`, and `pending_bugfix_clarification`
+- With `/cancel <task-id>`, removes a queued task that has not started
+- Running tasks are not cancelled
+
+#### `/queue`
+Shows the currently running task and pending FIFO tasks.
+- Uses `active_execution` for the running task
+- Uses `task_queue` for pending tasks
 
 ### CI Polling
 

@@ -44,11 +44,15 @@ The default feature workflow is plan-first:
 ```
 
 `/plan` creates an editable pending plan. `/discuss` revises it and increments the revision. `/approve`
-marks the current revision as ready but does not start implementation. `/confirm` runs Codex, pushes the
-branch, opens a PR, and polls CI. If CI fails, the agent reads the build failure context, runs Codex on
-the same pushed branch to repair the errors, pushes the fix, and polls CI again. If the final repair
+marks the current revision as ready but does not start implementation. `/confirm` adds the approved work
+to a FIFO queue and starts draining queued tasks when no runner is active. Each task runs Codex, pushes
+the branch, opens a PR, and polls CI. If CI fails, the agent reads the build failure context, runs Codex
+on the same pushed branch to repair the errors, pushes the fix, and polls CI again. If the final repair
 attempt still fails, the bot reports the exhausted repair count and marks the implementation as failed.
 `/implement` keeps the old shortcut behavior by creating an approved plan and waiting for `/confirm`.
+
+The queue is intentionally sequential because the bot uses one git working tree. `/queue` shows the
+running task and pending FIFO tasks. `/cancel <task-id>` removes a queued task that has not started.
 
 Implementation output is quiet by default. The bot sends concise status and completion messages, then
 keeps diffs and logs available through `/diff`, `/show`, `/logs`, and `/pr`.
@@ -76,9 +80,10 @@ Planning and implementation:
 - `/implement <feature>` - plan, approve, and wait for `/confirm`.
 - `/bugfix <bug>` - ask clarification questions if needed, then wait for `/confirm` on a `bugfix/` branch.
 - `/answer <details>` - answer pending `/bugfix` clarification questions.
-- `/confirm` - run approved work quietly, commit/push branch, open PR, poll GitHub Actions, and auto-repair failed CI up to `CI_FIX_ATTEMPTS`.
+- `/confirm` - enqueue approved work, run queued tasks quietly, open PRs, poll GitHub Actions, and auto-repair failed CI up to `CI_FIX_ATTEMPTS`.
+- `/queue` - show the running task and pending FIFO queue.
 - `/fixpr <pr-number>` - repair failed CI on an existing same-repository PR branch.
-- `/cancel` - discard the pending implementation or plan.
+- `/cancel [task-id]` - discard the pending implementation or plan, or remove a queued task.
 
 Output detail and inspection:
 
@@ -95,7 +100,7 @@ Utilities:
 - `/codex` - show Codex CLI/login status.
 - `/test` - run agent unit tests.
 - `/branches` - list repository branches.
-- `/status` - show the active implementation branch/phase, or git status when idle.
+- `/status` - show the running task and pending queue, or git status when idle.
 
 ## Verbosity
 
@@ -113,6 +118,13 @@ Plan, revise, approve, and run:
 /showplan
 /approve
 /confirm
+```
+
+Inspect or adjust queued work:
+
+```text
+/queue
+/cancel 2
 ```
 
 Inspect the last run only when needed:

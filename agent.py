@@ -20,8 +20,9 @@ Commands:
 /implement <feature> - plan and wait for /confirm before Codex, PR, and CI watch
 /bugfix <bug> - clarify only when product behavior is missing, then wait for /confirm
 /answer <details> - answer pending bugfix clarification questions
-/confirm - run the pending implementation, open PR, and poll CI
-/cancel - discard the pending implementation
+/confirm - add pending work to the FIFO queue and run queued tasks
+/queue - show the running task and pending FIFO queue
+/cancel [task-id] - discard pending work or remove a queued task
 /ci <pr-number> - show current GitHub Actions result for a PR
 /fixpr <pr-number> - repair failed CI on an existing same-repository PR
 /limits - show remaining Claude API rate limits
@@ -29,7 +30,7 @@ Commands:
 /version - show running bot version, branch, and commit
 /test - run agent unit tests
 /branches - list branches
-/status - git status
+/status - queue status, or git status when idle
 /logs [lines] - recent service logs
 /help - show this help"""
 

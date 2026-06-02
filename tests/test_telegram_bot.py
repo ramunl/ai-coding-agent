@@ -132,6 +132,7 @@ class TelegramBotTests(unittest.TestCase):
                 "bugfix",
                 "answer",
                 "confirm",
+                "queue",
                 "cancel",
                 "ci",
                 "fixpr",
@@ -169,12 +170,14 @@ class TelegramBotTests(unittest.TestCase):
         help_text = "\n".join(message.replies)
         self.assertIn("/fixpr <pr-number>", help_text)
         self.assertIn("repair failed CI on an existing same-repository PR branch", help_text)
+        self.assertIn("/queue", help_text)
 
     def test_entrypoint_help_text_includes_fixpr_description(self) -> None:
         agent = importlib.import_module("agent")
 
         self.assertIn("/fixpr <pr-number>", agent.HELP_TEXT)
         self.assertIn("repair failed CI on an existing same-repository PR", agent.HELP_TEXT)
+        self.assertIn("/queue", agent.HELP_TEXT)
 
     def test_configure_bot_commands_includes_fixpr(self) -> None:
         telegram_bot = importlib.import_module("ai_agent.telegram_bot")
@@ -184,6 +187,7 @@ class TelegramBotTests(unittest.TestCase):
 
         command_names = [command.command for command in app.commands]
         self.assertIn("fixpr", command_names)
+        self.assertIn("queue", command_names)
 
     def test_redact_sensitive_replaces_configured_secrets(self) -> None:
         config = importlib.import_module("ai_agent.config")
@@ -202,6 +206,61 @@ class TelegramBotTests(unittest.TestCase):
             telegram_bot.active_execution_text(context),
             "Implementation status:\nRUNNING\n\nBranch:\nbugfix/example\n\nPhase:\nRunning Codex",
         )
+
+    def test_queue_command_lists_running_and_pending_tasks(self) -> None:
+        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
+
+        class FakeMessage:
+            def __init__(self) -> None:
+                self.replies = []
+
+            async def reply_text(self, text: str) -> None:
+                self.replies.append(text)
+
+        message = FakeMessage()
+        update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=message)
+        context = types.SimpleNamespace(
+            args=[],
+            user_data={
+                "active_execution": {"branch": "feature/running", "phase": "Polling CI", "status": "RUNNING"},
+                "task_queue": [
+                    {"id": 3, "branch_name": "feature/queued", "confirmation_label": "implementation"},
+                ],
+            },
+        )
+
+        asyncio.run(telegram_bot.queue_cmd(update, context))
+
+        output = "\n".join(message.replies)
+        self.assertIn("Running: feature/running", output)
+        self.assertIn("#3 feature/queued", output)
+
+    def test_cancel_removes_queued_task_by_id(self) -> None:
+        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
+
+        class FakeMessage:
+            def __init__(self) -> None:
+                self.replies = []
+
+            async def reply_text(self, text: str) -> None:
+                self.replies.append(text)
+
+        message = FakeMessage()
+        update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=message)
+        context = types.SimpleNamespace(
+            args=["7"],
+            user_data={
+                "task_queue": [
+                    {"id": 7, "branch_name": "feature/remove", "confirmation_label": "implementation"},
+                    {"id": 8, "branch_name": "feature/keep", "confirmation_label": "implementation"},
+                ]
+            },
+        )
+
+        asyncio.run(telegram_bot.cancel(update, context))
+
+        self.assertIn("Queued task #7 removed", message.replies[0])
+        self.assertEqual([task["id"] for task in context.user_data["task_queue"]], [8])
 
     def test_build_ci_repair_prompt_includes_original_prompt_and_failure_context(self) -> None:
         telegram_bot = importlib.import_module("ai_agent.telegram_bot")
@@ -222,7 +281,7 @@ class TelegramBotTests(unittest.TestCase):
         self.assertIn("compile failed", prompt)
         self.assertIn("Do not create a new branch", prompt)
 
-    def test_confirm_reports_existing_active_execution(self) -> None:
+    def test_confirm_queues_pending_work_when_runner_is_active(self) -> None:
         telegram_bot = importlib.import_module("ai_agent.telegram_bot")
 
         class FakeMessage:
@@ -236,19 +295,29 @@ class TelegramBotTests(unittest.TestCase):
         update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=message)
         context = types.SimpleNamespace(
             user_data={
+                "pending_implementation": {
+                    "change": "fix build",
+                    "codex_prompt": "original prompt",
+                    "branch_name": "bugfix/fix-build",
+                    "commit_type": "fix",
+                    "pr_body_label": "Bug fix prompt",
+                    "confirmation_label": "bug fix",
+                },
                 "active_execution": {
                     "branch": "bugfix/example",
                     "phase": "Running Codex",
                     "status": "RUNNING",
-                }
+                },
+                "queue_runner_active": True,
             }
         )
 
         asyncio.run(telegram_bot.confirm(update, context))
 
         self.assertEqual(len(message.replies), 1)
-        self.assertIn("already running", message.replies[0])
-        self.assertIn("bugfix/example", message.replies[0])
+        self.assertIn("Queued task #1", message.replies[0])
+        self.assertEqual(context.user_data["task_queue"][0]["branch_name"], "bugfix/fix-build")
+        self.assertNotIn("pending_implementation", context.user_data)
 
     def test_confirm_repairs_failed_ci_and_polls_repair_commit(self) -> None:
         telegram_bot = importlib.import_module("ai_agent.telegram_bot")
@@ -320,6 +389,83 @@ class TelegramBotTests(unittest.TestCase):
         mock_repair.assert_called_once()
         self.assertNotIn("pending_implementation", context.user_data)
         self.assertEqual(context.user_data["last_execution"].tests, "PASS")
+
+    def test_confirm_drains_existing_queue_before_new_task_fifo(self) -> None:
+        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
+
+        class FakeMessage:
+            def __init__(self) -> None:
+                self.replies = []
+
+            async def reply_text(self, text: str) -> None:
+                self.replies.append(text)
+
+        async def fake_watch_ci(_update, head_sha):
+            watched_shas.append(head_sha)
+            return types.SimpleNamespace(state="passed", summary="CI passed", url=f"https://example.test/{head_sha}")
+
+        async def fake_to_thread(func, *args, **kwargs):
+            return func(*args, **kwargs)
+
+        def fake_implement(_prompt, branch_name):
+            implemented_branches.append(branch_name)
+            return types.SimpleNamespace(files_changed=[f"{branch_name}.kt"], diff="diff", output=f"implemented {branch_name}")
+
+        implemented_branches = []
+        watched_shas = []
+        message = FakeMessage()
+        update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=message)
+        context = types.SimpleNamespace(
+            user_data={
+                "next_task_id": 2,
+                "task_queue": [
+                    {
+                        "id": 1,
+                        "change": "first task",
+                        "codex_prompt": "first prompt",
+                        "branch_name": "feature/first",
+                        "commit_type": "feat",
+                        "pr_body_label": "Plan",
+                        "confirmation_label": "implementation",
+                    }
+                ],
+                "pending_implementation": {
+                    "change": "second task",
+                    "codex_prompt": "second prompt",
+                    "branch_name": "feature/second",
+                    "commit_type": "feat",
+                    "pr_body_label": "Plan",
+                    "confirmation_label": "implementation",
+                },
+            }
+        )
+
+        original_watch_ci = telegram_bot.watch_ci
+        telegram_bot.watch_ci = fake_watch_ci
+        try:
+            with (
+                patch.object(telegram_bot.asyncio, "to_thread", side_effect=fake_to_thread),
+                patch.object(telegram_bot, "ensure_github_configured"),
+                patch.object(telegram_bot, "implement", side_effect=fake_implement),
+                patch.object(telegram_bot, "push", side_effect=["first-sha", "second-sha"]),
+                patch.object(
+                    telegram_bot,
+                    "create_pull_request",
+                    side_effect=[
+                        types.SimpleNamespace(number=1, url="https://example.test/pr/1", head_sha="first-sha"),
+                        types.SimpleNamespace(number=2, url="https://example.test/pr/2", head_sha="second-sha"),
+                    ],
+                ),
+            ):
+                asyncio.run(telegram_bot.confirm(update, context))
+        finally:
+            telegram_bot.watch_ci = original_watch_ci
+
+        self.assertEqual(implemented_branches, ["feature/first", "feature/second"])
+        self.assertEqual(watched_shas, ["first-sha", "second-sha"])
+        self.assertEqual(context.user_data["task_queue"], [])
+        self.assertNotIn("queue_runner_active", context.user_data)
+        self.assertIn("Queued task #2 at position 2", "\n".join(message.replies))
 
     def test_confirm_reports_failed_ci_after_repair_attempts_are_exhausted(self) -> None:
         telegram_bot = importlib.import_module("ai_agent.telegram_bot")
