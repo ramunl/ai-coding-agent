@@ -33,6 +33,7 @@ class TelegramBotTests(unittest.TestCase):
             sys.modules.pop(name, None)
 
         telegram_module = types.ModuleType("telegram")
+        telegram_module.BotCommand = lambda command, description: types.SimpleNamespace(command=command, description=description)
         telegram_module.Update = type("Update", (), {})
 
         ext_module = types.ModuleType("telegram.ext")
@@ -41,6 +42,8 @@ class TelegramBotTests(unittest.TestCase):
             def __init__(self) -> None:
                 self.handlers = []
                 self.error_handlers = []
+                self.bot = types.SimpleNamespace(set_my_commands=self.set_my_commands)
+                self.commands = None
 
             @classmethod
             def builder(cls):
@@ -52,9 +55,13 @@ class TelegramBotTests(unittest.TestCase):
             def add_error_handler(self, handler) -> None:
                 self.error_handlers.append(handler)
 
+            async def set_my_commands(self, commands) -> None:
+                self.commands = commands
+
         class FakeBuilder:
             def __init__(self) -> None:
                 self.concurrent_updates_value = None
+                self.post_init_value = None
 
             def token(self, token: str):
                 self.token_value = token
@@ -64,9 +71,14 @@ class TelegramBotTests(unittest.TestCase):
                 self.concurrent_updates_value = value
                 return self
 
+            def post_init(self, callback):
+                self.post_init_value = callback
+                return self
+
             def build(self):
                 app = FakeApplication()
                 app.concurrent_updates_value = self.concurrent_updates_value
+                app.post_init_value = self.post_init_value
                 return app
 
         class FakeCommandHandler:
@@ -134,6 +146,16 @@ class TelegramBotTests(unittest.TestCase):
         )
         self.assertEqual(len(app.error_handlers), 1)
         self.assertIs(app.concurrent_updates_value, True)
+        self.assertIs(app.post_init_value, telegram_bot.configure_bot_commands)
+
+    def test_configure_bot_commands_includes_fixpr(self) -> None:
+        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
+        app = telegram_bot.build_application()
+
+        asyncio.run(telegram_bot.configure_bot_commands(app))
+
+        command_names = [command.command for command in app.commands]
+        self.assertIn("fixpr", command_names)
 
     def test_redact_sensitive_replaces_configured_secrets(self) -> None:
         config = importlib.import_module("ai_agent.config")

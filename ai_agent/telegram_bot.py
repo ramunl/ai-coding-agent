@@ -2,7 +2,7 @@ import asyncio
 import logging
 from pathlib import Path
 
-from telegram import Update
+from telegram import BotCommand, Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 from ai_agent.anthropic_limits import get_anthropic_limits
@@ -48,6 +48,32 @@ from ai_agent.workflow import (
 
 
 logger = logging.getLogger(__name__)
+
+BOT_COMMANDS = [
+    BotCommand("start", "Show help"),
+    BotCommand("help", "Show help"),
+    BotCommand("plan", "Create a plan for discussion"),
+    BotCommand("discuss", "Revise the current plan"),
+    BotCommand("approve", "Approve the current plan"),
+    BotCommand("showplan", "Show the current plan"),
+    BotCommand("history", "Show plan revisions"),
+    BotCommand("implement", "Plan and wait for confirm"),
+    BotCommand("bugfix", "Prepare a bugfix branch"),
+    BotCommand("answer", "Answer bugfix questions"),
+    BotCommand("confirm", "Run approved work and repair CI"),
+    BotCommand("fixpr", "Repair failed CI on an existing PR"),
+    BotCommand("cancel", "Discard pending work"),
+    BotCommand("ci", "Show PR CI status"),
+    BotCommand("diff", "Show last changed files"),
+    BotCommand("show", "Show one file diff"),
+    BotCommand("pr", "Show the last PR URL"),
+    BotCommand("logs", "Show logs"),
+    BotCommand("limits", "Show Claude API limits"),
+    BotCommand("codex", "Show Codex status"),
+    BotCommand("test", "Run agent unit tests"),
+    BotCommand("branches", "List branches"),
+    BotCommand("status", "Show active or git status"),
+]
 
 
 def is_authorized(update: Update) -> bool:
@@ -116,6 +142,10 @@ def active_execution_text(context: ContextTypes.DEFAULT_TYPE) -> str | None:
     phase = execution.get("phase") or "working"
     status_text = execution.get("status") or "RUNNING"
     return f"Implementation status:\n{status_text}\n\nBranch:\n{branch}\n\nPhase:\n{phase}"
+
+
+async def configure_bot_commands(app: Application) -> None:
+    await app.bot.set_my_commands(BOT_COMMANDS)
 
 
 def build_ci_repair_prompt(original_prompt: str, failure_context: str) -> str:
@@ -816,6 +846,8 @@ def build_application() -> Application:
     builder = Application.builder().token(TELEGRAM_TOKEN)
     if hasattr(builder, "concurrent_updates"):
         builder = builder.concurrent_updates(True)
+    if hasattr(builder, "post_init"):
+        builder = builder.post_init(configure_bot_commands)
     app = builder.build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", start))
