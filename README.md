@@ -86,7 +86,7 @@ Utilities:
 - `/codex` - show Codex CLI/login status.
 - `/test` - run agent unit tests.
 - `/branches` - list repository branches.
-- `/status` - show git status.
+- `/status` - show the active implementation branch/phase, or git status when idle.
 
 ## Verbosity
 

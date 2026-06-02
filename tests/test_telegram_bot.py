@@ -3,6 +3,7 @@ import os
 import sys
 import types
 import unittest
+import asyncio
 
 
 class TelegramBotTests(unittest.TestCase):
@@ -51,12 +52,21 @@ class TelegramBotTests(unittest.TestCase):
                 self.error_handlers.append(handler)
 
         class FakeBuilder:
+            def __init__(self) -> None:
+                self.concurrent_updates_value = None
+
             def token(self, token: str):
                 self.token_value = token
                 return self
 
+            def concurrent_updates(self, value: bool):
+                self.concurrent_updates_value = value
+                return self
+
             def build(self):
-                return FakeApplication()
+                app = FakeApplication()
+                app.concurrent_updates_value = self.concurrent_updates_value
+                return app
 
         class FakeCommandHandler:
             def __init__(self, command: str, callback) -> None:
@@ -121,6 +131,7 @@ class TelegramBotTests(unittest.TestCase):
             ],
         )
         self.assertEqual(len(app.error_handlers), 1)
+        self.assertIs(app.concurrent_updates_value, True)
 
     def test_redact_sensitive_replaces_configured_secrets(self) -> None:
         config = importlib.import_module("ai_agent.config")
@@ -128,6 +139,45 @@ class TelegramBotTests(unittest.TestCase):
         redacted = config.redact_sensitive("telegram-secret anthropic-secret visible")
 
         self.assertEqual(redacted, "[redacted] [redacted] visible")
+
+    def test_active_execution_text_reports_running_phase(self) -> None:
+        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
+        context = types.SimpleNamespace(user_data={})
+
+        telegram_bot.set_active_execution(context, "bugfix/example", "Running Codex")
+
+        self.assertEqual(
+            telegram_bot.active_execution_text(context),
+            "Implementation status:\nRUNNING\n\nBranch:\nbugfix/example\n\nPhase:\nRunning Codex",
+        )
+
+    def test_confirm_reports_existing_active_execution(self) -> None:
+        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
+
+        class FakeMessage:
+            def __init__(self) -> None:
+                self.replies = []
+
+            async def reply_text(self, text: str) -> None:
+                self.replies.append(text)
+
+        message = FakeMessage()
+        update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=message)
+        context = types.SimpleNamespace(
+            user_data={
+                "active_execution": {
+                    "branch": "bugfix/example",
+                    "phase": "Running Codex",
+                    "status": "RUNNING",
+                }
+            }
+        )
+
+        asyncio.run(telegram_bot.confirm(update, context))
+
+        self.assertEqual(len(message.replies), 1)
+        self.assertIn("already running", message.replies[0])
+        self.assertIn("bugfix/example", message.replies[0])
 
 
 if __name__ == "__main__":

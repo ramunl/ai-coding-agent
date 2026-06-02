@@ -91,6 +91,24 @@ def last_execution(context: ContextTypes.DEFAULT_TYPE) -> ExecutionState | None:
     return execution if isinstance(execution, ExecutionState) else None
 
 
+def set_active_execution(context: ContextTypes.DEFAULT_TYPE, branch: str, phase: str, status_text: str = "RUNNING") -> None:
+    context.user_data["active_execution"] = {
+        "branch": branch,
+        "phase": phase,
+        "status": status_text,
+    }
+
+
+def active_execution_text(context: ContextTypes.DEFAULT_TYPE) -> str | None:
+    execution = context.user_data.get("active_execution")
+    if not isinstance(execution, dict):
+        return None
+    branch = execution.get("branch") or "unknown"
+    phase = execution.get("phase") or "working"
+    status_text = execution.get("status") or "RUNNING"
+    return f"Implementation status:\n{status_text}\n\nBranch:\n{branch}\n\nPhase:\n{phase}"
+
+
 def extract_file_diff(diff_text: str, file_name: str) -> str:
     chunks = []
     current = []
@@ -141,7 +159,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/codex - show Codex CLI/login status\n"
         "/test - run agent unit tests\n"
         "/branches - list branches\n"
-        "/status - git status\n"
+        "/status - running implementation status, or git status when idle\n"
         "/help - show this help",
     )
 
@@ -155,6 +173,10 @@ async def branches(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not require_authorized(update):
+        return
+    active_text = active_execution_text(context)
+    if active_text:
+        await reply_chunks(update, active_text)
         return
     result = await asyncio.to_thread(run, ["git", "status"])
     await reply_chunks(update, f"Status:\n{result.output}")
@@ -399,6 +421,11 @@ async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not require_authorized(update):
         return
 
+    active_text = active_execution_text(context)
+    if active_text:
+        await reply_chunks(update, f"An implementation is already running.\n\n{active_text}")
+        return
+
     pending = context.user_data.get("pending_implementation")
     plan_state = context.user_data.get("pending_plan")
     if not pending and plan_state and plan_state.approved:
@@ -418,59 +445,67 @@ async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     pr_body_label = pending.get("pr_body_label", "Plan")
     confirmation_label = pending.get("confirmation_label", "implementation")
 
-    await asyncio.to_thread(ensure_github_configured)
+    try:
+        set_active_execution(context, branch_name, "Checking GitHub configuration")
+        await asyncio.to_thread(ensure_github_configured)
 
-    await reply_chunks(update, f"Task started.\n\nBranch:\n{branch_name}\n\nStatus:\nRUNNING")
-    implementation_result = await asyncio.to_thread(implement, codex_prompt, branch_name)
+        set_active_execution(context, branch_name, "Running Codex")
+        await reply_chunks(update, f"Task started.\n\nBranch:\n{branch_name}\n\nStatus:\nRUNNING")
+        implementation_result = await asyncio.to_thread(implement, codex_prompt, branch_name)
 
-    await reply_chunks(update, "Committing and pushing branch...")
-    commit_sha = await asyncio.to_thread(push, branch_name, change, commit_type)
+        set_active_execution(context, branch_name, "Committing and pushing branch")
+        await reply_chunks(update, "Committing and pushing branch...")
+        commit_sha = await asyncio.to_thread(push, branch_name, change, commit_type)
 
-    await reply_chunks(update, "Opening GitHub PR...")
-    pull_request = await asyncio.to_thread(
-        create_pull_request,
-        branch_name,
-        change,
-        codex_prompt,
-        commit_type,
-        pr_body_label,
-    )
-    context.user_data["last_execution"] = ExecutionState(
-        branch=branch_name,
-        files_changed=implementation_result.files_changed,
-        diff_summary=render_diff_summary(implementation_result.diff, implementation_result.files_changed),
-        full_diff=implementation_result.diff,
-        logs=implementation_result.output,
-        pr_url=pull_request.url,
-        tests="PENDING",
-    )
-
-    if get_verbosity(context) != Verbosity.CONCISE:
-        await reply_chunks(update, f"PR opened: {pull_request.url}\nHead: {pull_request.head_sha or commit_sha}")
-
-    ci_result = await watch_ci(update, pull_request.head_sha or commit_sha)
-
-    execution = last_execution(context)
-    if execution:
-        tests = "PASS" if ci_result.state == "passed" else "FAIL" if ci_result.state == "failed" else "UNKNOWN"
+        set_active_execution(context, branch_name, "Opening GitHub PR")
+        await reply_chunks(update, "Opening GitHub PR...")
+        pull_request = await asyncio.to_thread(
+            create_pull_request,
+            branch_name,
+            change,
+            codex_prompt,
+            commit_type,
+            pr_body_label,
+        )
         context.user_data["last_execution"] = ExecutionState(
-            branch=execution.branch,
-            files_changed=execution.files_changed,
-            diff_summary=execution.diff_summary,
-            full_diff=execution.full_diff,
-            logs=execution.logs,
-            pr_url=execution.pr_url,
-            tests=tests,
+            branch=branch_name,
+            files_changed=implementation_result.files_changed,
+            diff_summary=render_diff_summary(implementation_result.diff, implementation_result.files_changed),
+            full_diff=implementation_result.diff,
+            logs=implementation_result.output,
+            pr_url=pull_request.url,
+            tests="PENDING",
         )
 
-    context.user_data.pop("pending_implementation", None)
-    if plan_state:
-        context.user_data.pop("pending_plan", None)
-    execution = last_execution(context)
-    if execution:
-        await reply_chunks(update, render_completion(execution, get_verbosity(context)))
-    else:
-        await reply_chunks(update, f"Done with {confirmation_label}.\nBranch: {branch_name}\nPR: {pull_request.url}")
+        if get_verbosity(context) != Verbosity.CONCISE:
+            await reply_chunks(update, f"PR opened: {pull_request.url}\nHead: {pull_request.head_sha or commit_sha}")
+
+        set_active_execution(context, branch_name, "Polling CI")
+        ci_result = await watch_ci(update, pull_request.head_sha or commit_sha)
+
+        execution = last_execution(context)
+        if execution:
+            tests = "PASS" if ci_result.state == "passed" else "FAIL" if ci_result.state == "failed" else "UNKNOWN"
+            context.user_data["last_execution"] = ExecutionState(
+                branch=execution.branch,
+                files_changed=execution.files_changed,
+                diff_summary=execution.diff_summary,
+                full_diff=execution.full_diff,
+                logs=execution.logs,
+                pr_url=execution.pr_url,
+                tests=tests,
+            )
+
+        context.user_data.pop("pending_implementation", None)
+        if plan_state:
+            context.user_data.pop("pending_plan", None)
+        execution = last_execution(context)
+        if execution:
+            await reply_chunks(update, render_completion(execution, get_verbosity(context)))
+        else:
+            await reply_chunks(update, f"Done with {confirmation_label}.\nBranch: {branch_name}\nPR: {pull_request.url}")
+    finally:
+        context.user_data.pop("active_execution", None)
 
 
 async def watch_ci(update: Update, head_sha: str):
@@ -586,7 +621,10 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 def build_application() -> Application:
-    app = Application.builder().token(TELEGRAM_TOKEN).build()
+    builder = Application.builder().token(TELEGRAM_TOKEN)
+    if hasattr(builder, "concurrent_updates"):
+        builder = builder.concurrent_updates(True)
+    app = builder.build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", start))
     app.add_handler(CommandHandler("plan", plan))
