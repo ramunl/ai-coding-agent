@@ -144,7 +144,8 @@ def render_diff_summary(diff_text: str, files: list[str]) -> str:
 
 
 def render_completion(execution: ExecutionState, verbosity: Verbosity) -> str:
-    lines = ["Implementation completed.", "", f"Files changed: {len(execution.files_changed)}", f"Tests: {execution.tests}"]
+    heading = "Implementation failed." if execution.tests == "FAIL" else "Implementation completed."
+    lines = [heading, "", f"Files changed: {len(execution.files_changed)}", f"Tests: {execution.tests}"]
     if execution.pr_url:
         lines.append(f"PR: {execution.pr_url}")
     if verbosity in {Verbosity.NORMAL, Verbosity.DEBUG} and execution.files_changed:

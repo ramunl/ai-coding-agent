@@ -21,7 +21,7 @@ Optional values:
 - `CODEX_TIMEOUT_SECONDS`, defaults to `1800`
 - `CI_POLL_INTERVAL_SECONDS`, defaults to `30`
 - `CI_TIMEOUT_SECONDS`, defaults to `1800`
-- `CI_FIX_ATTEMPTS`, defaults to `1`
+- `CI_FIX_ATTEMPTS`, defaults to `3`
 - `LINK_ALLOWED_DOMAINS`, comma-separated generic web domains to fetch, defaults to
   `developer.android.com,docs.github.com,kotlinlang.org,stackoverflow.com`
 
@@ -46,15 +46,17 @@ The default feature workflow is plan-first:
 `/plan` creates an editable pending plan. `/discuss` revises it and increments the revision. `/approve`
 marks the current revision as ready but does not start implementation. `/confirm` runs Codex, pushes the
 branch, opens a PR, and polls CI. If CI fails, the agent reads the build failure context, runs Codex on
-the same pushed branch to repair the errors, pushes the fix, and polls CI again. `/implement` keeps the
-old shortcut behavior by creating an approved plan and waiting for `/confirm`.
+the same pushed branch to repair the errors, pushes the fix, and polls CI again. If the final repair
+attempt still fails, the bot reports the exhausted repair count and marks the implementation as failed.
+`/implement` keeps the old shortcut behavior by creating an approved plan and waiting for `/confirm`.
 
 Implementation output is quiet by default. The bot sends concise status and completion messages, then
 keeps diffs and logs available through `/diff`, `/show`, `/logs`, and `/pr`.
 
 Use `/fixpr <pr-number>` when an existing open PR in the configured repository is already failing CI.
 The bot checks the PR head commit, repairs failures on that PR branch, pushes a fix commit, and polls
-the new build status. PRs from forks are rejected because the bot can only push to branches on `origin`.
+the new build status. If the repair attempt budget is exhausted, the bot reports that CI is still
+failing. PRs from forks are rejected because the bot can only push to branches on `origin`.
 
 `GITHUB_TOKEN` needs access to create pull requests and read GitHub Actions:
 

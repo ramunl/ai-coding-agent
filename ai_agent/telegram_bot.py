@@ -632,6 +632,8 @@ async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             context.user_data.pop("pending_plan", None)
         execution = last_execution(context)
         if execution:
+            if ci_result.state == "failed":
+                await reply_chunks(update, failed_ci_exhausted_message(ci_result, repair_attempt))
             await reply_chunks(update, render_completion(execution, get_verbosity(context)))
         else:
             await reply_chunks(update, f"Done with {confirmation_label}.\nBranch: {branch_name}\nPR: {pull_request.url}")
@@ -721,6 +723,8 @@ async def fixpr(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 pr_url=repaired_execution.pr_url,
                 tests=tests,
             )
+            if ci_result.state == "failed":
+                await reply_chunks(update, failed_ci_exhausted_message(ci_result, repair_attempt))
             await reply_chunks(update, render_completion(context.user_data["last_execution"], get_verbosity(context)))
             return
 
@@ -753,6 +757,16 @@ async def watch_ci(update: Update, head_sha: str):
             return result
 
         await asyncio.sleep(CI_POLL_INTERVAL_SECONDS)
+
+
+def failed_ci_exhausted_message(ci_result, repair_attempt: int) -> str:
+    if CI_FIX_ATTEMPTS <= 0:
+        message = "CI is still failing. Automatic CI repair is disabled."
+    else:
+        message = f"CI is still failing after {repair_attempt}/{CI_FIX_ATTEMPTS} repair attempts."
+    if ci_result.url:
+        message = f"{message}\n{ci_result.url}"
+    return message
 
 
 async def ci(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

@@ -321,6 +321,76 @@ class TelegramBotTests(unittest.TestCase):
         self.assertNotIn("pending_implementation", context.user_data)
         self.assertEqual(context.user_data["last_execution"].tests, "PASS")
 
+    def test_confirm_reports_failed_ci_after_repair_attempts_are_exhausted(self) -> None:
+        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
+
+        class FakeMessage:
+            def __init__(self) -> None:
+                self.replies = []
+
+            async def reply_text(self, text: str) -> None:
+                self.replies.append(text)
+
+        async def fake_watch_ci(_update, head_sha):
+            watched_shas.append(head_sha)
+            return types.SimpleNamespace(state="failed", summary="CI failed", url=f"https://example.test/{head_sha}")
+
+        async def fake_to_thread(func, *args, **kwargs):
+            return func(*args, **kwargs)
+
+        watched_shas = []
+        message = FakeMessage()
+        update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=message)
+        context = types.SimpleNamespace(
+            user_data={
+                "pending_implementation": {
+                    "change": "fix build",
+                    "codex_prompt": "original prompt",
+                    "branch_name": "bugfix/fix-build",
+                    "commit_type": "fix",
+                    "pr_body_label": "Bug fix prompt",
+                    "confirmation_label": "bug fix",
+                }
+            }
+        )
+
+        original_watch_ci = telegram_bot.watch_ci
+        telegram_bot.watch_ci = fake_watch_ci
+        try:
+            with (
+                patch.object(telegram_bot, "CI_FIX_ATTEMPTS", 1),
+                patch.object(telegram_bot.asyncio, "to_thread", side_effect=fake_to_thread),
+                patch.object(telegram_bot, "ensure_github_configured"),
+                patch.object(
+                    telegram_bot,
+                    "implement",
+                    return_value=types.SimpleNamespace(files_changed=["App.kt"], diff="diff1", output="implemented"),
+                ),
+                patch.object(telegram_bot, "push", side_effect=["initial-sha", "repair-sha"]) as mock_push,
+                patch.object(
+                    telegram_bot,
+                    "create_pull_request",
+                    return_value=types.SimpleNamespace(number=42, url="https://example.test/pr", head_sha="stale-or-pr-sha"),
+                ),
+                patch.object(telegram_bot, "build_failure_context", return_value="compile failed"),
+                patch.object(
+                    telegram_bot,
+                    "repair_implementation",
+                    return_value=types.SimpleNamespace(files_changed=["App.kt"], diff="diff2", output="repaired"),
+                ),
+            ):
+                asyncio.run(telegram_bot.confirm(update, context))
+        finally:
+            telegram_bot.watch_ci = original_watch_ci
+
+        self.assertEqual(watched_shas, ["initial-sha", "repair-sha"])
+        self.assertEqual(mock_push.call_count, 2)
+        self.assertEqual(context.user_data["last_execution"].tests, "FAIL")
+        joined_replies = "\n\n".join(message.replies)
+        self.assertIn("CI is still failing after 1/1 repair attempts.", joined_replies)
+        self.assertIn("Implementation failed.", joined_replies)
+        self.assertNotIn("Implementation completed.", joined_replies)
+
     def test_fixpr_repairs_same_repository_pr_and_polls_repair_commit(self) -> None:
         telegram_bot = importlib.import_module("ai_agent.telegram_bot")
 

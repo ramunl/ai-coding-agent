@@ -145,13 +145,15 @@ Executes pending implementation (feature or bugfix).
 4. Commits and pushes: `push(branch_name, change, commit_type)`
 5. Creates PR: `create_pull_request(branch_name, change, codex_prompt, commit_type, pr_body_label)`
 6. Watches CI: `watch_ci(head_sha)`
-7. Sends final confirmation
+7. If CI fails, repairs and pushes the branch up to `CI_FIX_ATTEMPTS`, polling each repair commit
+8. Sends a passing completion or a failed completion when the final polled CI result is failed
 
 **Error Handling**:
 - GitHub configuration errors caught early
 - Codex errors from implementation failure
 - Git errors from push failure
 - PR creation errors
+- Exhausted CI repair attempts are reported as a failed implementation, not a successful completion
 
 #### `/cancel`
 Discards pending implementation or bugfix clarification.

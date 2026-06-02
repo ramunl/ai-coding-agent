@@ -59,6 +59,22 @@ class PlanStateTests(unittest.TestCase):
         self.assertNotIn("verbose output", output)
         self.assertNotIn("diff --git", output)
 
+    def test_render_completion_reports_failed_ci_as_failure(self) -> None:
+        execution = ExecutionState(
+            branch="feature/example",
+            files_changed=["A.kt"],
+            diff_summary="Modified files:\n1. A.kt",
+            full_diff="diff --git a/A.kt b/A.kt",
+            logs="verbose output",
+            pr_url="https://github.example/pr/1",
+            tests="FAIL",
+        )
+
+        output = render_completion(execution, Verbosity.CONCISE)
+
+        self.assertIn("Implementation failed.", output)
+        self.assertNotIn("Implementation completed.", output)
+
 
 if __name__ == "__main__":
     unittest.main()
