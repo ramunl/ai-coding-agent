@@ -36,7 +36,15 @@ from ai_agent.plan_state import (
 from ai_agent.planner import assess_bugfix_report, build_bugfix_prompt, bugfix_questions, plan_feature, revise_feature_plan
 from ai_agent.shell import run
 from ai_agent.test_runner import run_unit_tests
-from ai_agent.workflow import create_pull_request, implement, push, repair_implementation, slugify_branch_name
+from ai_agent.workflow import (
+    create_pull_request,
+    implement,
+    push,
+    repair_implementation,
+    repair_pull_request_branch,
+    slugify_branch_name,
+    validate_branch_name,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -132,6 +140,31 @@ Requirements:
     """.strip()
 
 
+def build_fix_pr_repair_prompt(pr_number: int, title: str, body: str, failure_context: str) -> str:
+    return f"""
+An existing GitHub pull request is failing CI.
+
+Fix the build/test errors on the current PR branch.
+
+Pull request:
+#{pr_number} {title}
+
+Description:
+{body or "(no description)"}
+
+CI failure context:
+{failure_context}
+
+Requirements:
+1. Inspect the current branch before editing.
+2. Fix only the errors needed to make CI pass.
+3. Preserve the pull request's intended behavior.
+4. Add or update focused tests when practical.
+5. Run the relevant local build or test command before finishing when available.
+6. Do not create a new branch.
+    """.strip()
+
+
 def update_last_execution(
     context: ContextTypes.DEFAULT_TYPE,
     branch_name: str,
@@ -198,6 +231,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/pr - show the last PR URL\n"
         "/cancel - discard the pending implementation\n"
         "/ci <pr-number> - show current GitHub Actions result for a PR\n"
+        "/fixpr <pr-number> - repair failed CI on an existing same-repository PR\n"
         "/limits - show remaining Claude API rate limits\n"
         "/codex - show Codex CLI/login status\n"
         "/test - run agent unit tests\n"
@@ -573,6 +607,99 @@ async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         context.user_data.pop("active_execution", None)
 
 
+async def fixpr(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not require_authorized(update):
+        return
+
+    active_text = active_execution_text(context)
+    if active_text:
+        await reply_chunks(update, f"An implementation is already running.\n\n{active_text}")
+        return
+
+    if not context.args or not context.args[0].isdigit():
+        await reply_chunks(update, "Usage: /fixpr <pr-number>")
+        return
+
+    pr_number = int(context.args[0])
+    branch_name = ""
+    pr_url = ""
+    try:
+        set_active_execution(context, f"PR #{pr_number}", "Checking GitHub configuration")
+        await asyncio.to_thread(ensure_github_configured)
+
+        pull_data = await asyncio.to_thread(github_request, "GET", f"/repos/{GITHUB_REPOSITORY}/pulls/{pr_number}")
+        if pull_data.get("state") != "open":
+            await reply_chunks(update, f"PR #{pr_number} is not open.")
+            return
+
+        head = pull_data.get("head") or {}
+        head_repo = (head.get("repo") or {}).get("full_name")
+        branch_name = str(head.get("ref") or "")
+        validate_branch_name(branch_name)
+        if head_repo != GITHUB_REPOSITORY:
+            await reply_chunks(
+                update,
+                f"PR #{pr_number} is from {head_repo or 'an unknown repository'}.\n"
+                f"/fixpr can only push to branches in {GITHUB_REPOSITORY}.",
+            )
+            return
+
+        pr_url = str(pull_data.get("html_url") or "")
+        head_sha = str(head.get("sha") or "")
+        title = str(pull_data.get("title") or f"PR #{pr_number}")
+        body = str(pull_data.get("body") or "")
+
+        set_active_execution(context, branch_name, "Polling PR CI")
+        await reply_chunks(update, f"Checking CI for PR #{pr_number}.\n\nBranch:\n{branch_name}")
+        ci_result = await watch_ci(update, head_sha)
+
+        repair_attempt = 0
+        repaired_execution: ExecutionState | None = None
+        while ci_result.state == "failed" and repair_attempt < CI_FIX_ATTEMPTS:
+            repair_attempt += 1
+            set_active_execution(context, branch_name, f"Repairing PR CI failure (attempt {repair_attempt}/{CI_FIX_ATTEMPTS})")
+            await reply_chunks(update, f"CI failed. Running PR repair attempt {repair_attempt}/{CI_FIX_ATTEMPTS}...")
+            failure_context = await asyncio.to_thread(build_failure_context, pr_number, ci_result)
+            repair_prompt = build_fix_pr_repair_prompt(pr_number, title, body, failure_context)
+            repair_result = await asyncio.to_thread(repair_pull_request_branch, repair_prompt, branch_name)
+
+            set_active_execution(context, branch_name, f"Pushing PR repair (attempt {repair_attempt}/{CI_FIX_ATTEMPTS})")
+            commit_sha = await asyncio.to_thread(push, branch_name, f"PR #{pr_number} CI repair", "fix")
+            update_last_execution(
+                context,
+                branch_name,
+                repair_result.files_changed,
+                repair_result.diff,
+                repair_result.output,
+                pr_url,
+            )
+            repaired_execution = last_execution(context)
+
+            set_active_execution(context, branch_name, f"Polling CI after PR repair (attempt {repair_attempt}/{CI_FIX_ATTEMPTS})")
+            ci_result = await watch_ci(update, commit_sha)
+
+        if repaired_execution:
+            tests = "PASS" if ci_result.state == "passed" else "FAIL" if ci_result.state == "failed" else "UNKNOWN"
+            context.user_data["last_execution"] = ExecutionState(
+                branch=repaired_execution.branch,
+                files_changed=repaired_execution.files_changed,
+                diff_summary=repaired_execution.diff_summary,
+                full_diff=repaired_execution.full_diff,
+                logs=repaired_execution.logs,
+                pr_url=repaired_execution.pr_url,
+                tests=tests,
+            )
+            await reply_chunks(update, render_completion(context.user_data["last_execution"], get_verbosity(context)))
+            return
+
+        if ci_result.state == "passed":
+            await reply_chunks(update, f"PR #{pr_number} CI is already passing.\n{pr_url}")
+        else:
+            await reply_chunks(update, f"PR #{pr_number} CI did not fail within the polling window.\n{pr_url}")
+    finally:
+        context.user_data.pop("active_execution", None)
+
+
 async def watch_ci(update: Update, head_sha: str):
     deadline = asyncio.get_running_loop().time() + CI_TIMEOUT_SECONDS
     last_summary = None
@@ -704,6 +831,7 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("confirm", confirm))
     app.add_handler(CommandHandler("cancel", cancel))
     app.add_handler(CommandHandler("ci", ci))
+    app.add_handler(CommandHandler("fixpr", fixpr))
     app.add_handler(CommandHandler("diff", diff))
     app.add_handler(CommandHandler("show", show))
     app.add_handler(CommandHandler("pr", pr))

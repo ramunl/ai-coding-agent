@@ -120,6 +120,7 @@ class TelegramBotTests(unittest.TestCase):
                 "confirm",
                 "cancel",
                 "ci",
+                "fixpr",
                 "diff",
                 "show",
                 "pr",
@@ -159,6 +160,16 @@ class TelegramBotTests(unittest.TestCase):
 
         self.assertIn("original task", prompt)
         self.assertIn("e: compile failed", prompt)
+        self.assertIn("Do not create a new branch", prompt)
+
+    def test_build_fix_pr_repair_prompt_includes_pr_and_failure_context(self) -> None:
+        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
+
+        prompt = telegram_bot.build_fix_pr_repair_prompt(7, "Fix player", "body text", "compile failed")
+
+        self.assertIn("#7 Fix player", prompt)
+        self.assertIn("body text", prompt)
+        self.assertIn("compile failed", prompt)
         self.assertIn("Do not create a new branch", prompt)
 
     def test_confirm_reports_existing_active_execution(self) -> None:
@@ -258,6 +269,68 @@ class TelegramBotTests(unittest.TestCase):
         mock_failure_context.assert_called_once()
         mock_repair.assert_called_once()
         self.assertNotIn("pending_implementation", context.user_data)
+        self.assertEqual(context.user_data["last_execution"].tests, "PASS")
+
+    def test_fixpr_repairs_same_repository_pr_and_polls_repair_commit(self) -> None:
+        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
+
+        class FakeMessage:
+            def __init__(self) -> None:
+                self.replies = []
+
+            async def reply_text(self, text: str) -> None:
+                self.replies.append(text)
+
+        async def fake_watch_ci(_update, head_sha):
+            watched_shas.append(head_sha)
+            if head_sha == "initial-sha":
+                return types.SimpleNamespace(state="failed", summary="CI failed", url="https://example.test/run")
+            return types.SimpleNamespace(state="passed", summary="CI passed", url="https://example.test/run2")
+
+        async def fake_to_thread(func, *args, **kwargs):
+            return func(*args, **kwargs)
+
+        watched_shas = []
+        message = FakeMessage()
+        update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=message)
+        context = types.SimpleNamespace(args=["7"], user_data={})
+        pull_data = {
+            "number": 7,
+            "state": "open",
+            "html_url": "https://example.test/pr/7",
+            "title": "Fix player",
+            "body": "PR body",
+            "head": {
+                "ref": "bugfix/player",
+                "sha": "initial-sha",
+                "repo": {"full_name": telegram_bot.GITHUB_REPOSITORY},
+            },
+        }
+
+        original_watch_ci = telegram_bot.watch_ci
+        telegram_bot.watch_ci = fake_watch_ci
+        try:
+            with (
+                patch.object(telegram_bot, "CI_FIX_ATTEMPTS", 1),
+                patch.object(telegram_bot.asyncio, "to_thread", side_effect=fake_to_thread),
+                patch.object(telegram_bot, "ensure_github_configured"),
+                patch.object(telegram_bot, "github_request", return_value=pull_data),
+                patch.object(telegram_bot, "build_failure_context", return_value="compile failed") as mock_failure_context,
+                patch.object(
+                    telegram_bot,
+                    "repair_pull_request_branch",
+                    return_value=types.SimpleNamespace(files_changed=["App.kt"], diff="diff", output="repaired"),
+                ) as mock_repair,
+                patch.object(telegram_bot, "push", return_value="repair-sha") as mock_push,
+            ):
+                asyncio.run(telegram_bot.fixpr(update, context))
+        finally:
+            telegram_bot.watch_ci = original_watch_ci
+
+        self.assertEqual(watched_shas, ["initial-sha", "repair-sha"])
+        mock_failure_context.assert_called_once()
+        mock_repair.assert_called_once()
+        mock_push.assert_called_once_with("bugfix/player", "PR #7 CI repair", "fix")
         self.assertEqual(context.user_data["last_execution"].tests, "PASS")
 
 

@@ -52,6 +52,10 @@ old shortcut behavior by creating an approved plan and waiting for `/confirm`.
 Implementation output is quiet by default. The bot sends concise status and completion messages, then
 keeps diffs and logs available through `/diff`, `/show`, `/logs`, and `/pr`.
 
+Use `/fixpr <pr-number>` when an existing open PR in the configured repository is already failing CI.
+The bot checks the PR head commit, repairs failures on that PR branch, pushes a fix commit, and polls
+the new build status. PRs from forks are rejected because the bot can only push to branches on `origin`.
+
 `GITHUB_TOKEN` needs access to create pull requests and read GitHub Actions:
 
 - Contents: read/write
@@ -71,6 +75,7 @@ Planning and implementation:
 - `/bugfix <bug>` - ask clarification questions if needed, then wait for `/confirm` on a `bugfix/` branch.
 - `/answer <details>` - answer pending `/bugfix` clarification questions.
 - `/confirm` - run approved work quietly, commit/push branch, open PR, poll GitHub Actions, and auto-repair failed CI up to `CI_FIX_ATTEMPTS`.
+- `/fixpr <pr-number>` - repair failed CI on an existing same-repository PR branch.
 - `/cancel` - discard the pending implementation or plan.
 
 Output detail and inspection:
