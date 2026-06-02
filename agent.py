@@ -23,6 +23,7 @@ Commands:
 /confirm - run the pending implementation, open PR, and poll CI
 /cancel - discard the pending implementation
 /ci <pr-number> - show current GitHub Actions result for a PR
+/fixpr <pr-number> - repair failed CI on an existing same-repository PR
 /limits - show remaining Claude API rate limits
 /codex - show Codex CLI/login status
 /version - show running bot version, branch, and commit

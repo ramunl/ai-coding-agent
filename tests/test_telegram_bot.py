@@ -24,6 +24,7 @@ class TelegramBotTests(unittest.TestCase):
                 "telegram",
                 "telegram.ext",
                 "anthropic",
+                "agent",
                 "ai_agent.config",
                 "ai_agent.planner",
                 "ai_agent.telegram_bot",
@@ -37,6 +38,7 @@ class TelegramBotTests(unittest.TestCase):
         telegram_module.Update = type("Update", (), {})
 
         ext_module = types.ModuleType("telegram.ext")
+        ext_module.ApplicationHandlerStop = type("ApplicationHandlerStop", (Exception,), {})
 
         class FakeApplication:
             def __init__(self) -> None:
@@ -167,6 +169,12 @@ class TelegramBotTests(unittest.TestCase):
         help_text = "\n".join(message.replies)
         self.assertIn("/fixpr <pr-number>", help_text)
         self.assertIn("repair failed CI on an existing same-repository PR branch", help_text)
+
+    def test_entrypoint_help_text_includes_fixpr_description(self) -> None:
+        agent = importlib.import_module("agent")
+
+        self.assertIn("/fixpr <pr-number>", agent.HELP_TEXT)
+        self.assertIn("repair failed CI on an existing same-repository PR", agent.HELP_TEXT)
 
     def test_configure_bot_commands_includes_fixpr(self) -> None:
         telegram_bot = importlib.import_module("ai_agent.telegram_bot")
