@@ -57,6 +57,17 @@ def implement(plan: str, branch_name: str) -> ImplementationResult:
     return ImplementationResult(output=codex_result.output, files_changed=files_changed, diff=diff)
 
 
+def repair_implementation(prompt: str, branch_name: str) -> ImplementationResult:
+    validate_branch_name(branch_name)
+    run(["git", "checkout", branch_name])
+    run(["git", "pull", "origin", branch_name])
+    codex_result = run(["codex", "exec", prompt], timeout=CODEX_TIMEOUT_SECONDS)
+    run(["git", "add", "-N", "."])
+    files_changed = changed_files()
+    diff = run(["git", "diff", "--no-ext-diff"]).output
+    return ImplementationResult(output=codex_result.output, files_changed=files_changed, diff=diff)
+
+
 def changed_files() -> list[str]:
     output = run(["git", "status", "--porcelain"]).output
     names = [line[3:].strip() for line in output.splitlines() if len(line) > 3]

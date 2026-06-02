@@ -6,10 +6,11 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 from ai_agent.anthropic_limits import get_anthropic_limits
-from ai_agent.ci import evaluate_ci
+from ai_agent.ci import build_failure_context, evaluate_ci
 from ai_agent.codex_status import get_codex_status
 from ai_agent.config import (
     CHAT_ID,
+    CI_FIX_ATTEMPTS,
     CI_POLL_INTERVAL_SECONDS,
     CI_TIMEOUT_SECONDS,
     COMMAND_TIMEOUT_SECONDS,
@@ -35,7 +36,7 @@ from ai_agent.plan_state import (
 from ai_agent.planner import assess_bugfix_report, build_bugfix_prompt, bugfix_questions, plan_feature, revise_feature_plan
 from ai_agent.shell import run
 from ai_agent.test_runner import run_unit_tests
-from ai_agent.workflow import create_pull_request, implement, push, slugify_branch_name
+from ai_agent.workflow import create_pull_request, implement, push, repair_implementation, slugify_branch_name
 
 
 logger = logging.getLogger(__name__)
@@ -109,6 +110,48 @@ def active_execution_text(context: ContextTypes.DEFAULT_TYPE) -> str | None:
     return f"Implementation status:\n{status_text}\n\nBranch:\n{branch}\n\nPhase:\n{phase}"
 
 
+def build_ci_repair_prompt(original_prompt: str, failure_context: str) -> str:
+    return f"""
+The previous implementation was pushed, but CI failed.
+
+Fix the build/test errors on the current branch.
+
+Original implementation prompt:
+{original_prompt}
+
+CI failure context:
+{failure_context}
+
+Requirements:
+1. Inspect the current branch before editing.
+2. Fix only the errors needed to make CI pass.
+3. Keep the original requested behavior intact.
+4. Add or update focused tests when practical.
+5. Run the relevant local build or test command before finishing when available.
+6. Do not create a new branch.
+    """.strip()
+
+
+def update_last_execution(
+    context: ContextTypes.DEFAULT_TYPE,
+    branch_name: str,
+    files_changed: list[str],
+    diff: str,
+    logs: str,
+    pr_url: str,
+    tests: str = "PENDING",
+) -> None:
+    context.user_data["last_execution"] = ExecutionState(
+        branch=branch_name,
+        files_changed=files_changed,
+        diff_summary=render_diff_summary(diff, files_changed),
+        full_diff=diff,
+        logs=logs,
+        pr_url=pr_url,
+        tests=tests,
+    )
+
+
 def extract_file_diff(diff_text: str, file_name: str) -> str:
     chunks = []
     current = []
@@ -147,7 +190,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/implement <feature> - shortcut: plan, approve, then wait for /confirm\n"
         "/bugfix <bug> - clarify if needed, then wait for /confirm on a bugfix branch\n"
         "/answer <details> - answer pending bugfix clarification questions\n"
-        "/confirm - run approved work quietly, open PR, and poll CI\n"
+        "/confirm - run approved work quietly, open PR, poll CI, and repair failed CI\n"
         "/verbosity concise|normal|debug - set output detail\n"
         "/diff - show changed files and line counts from the last run\n"
         "/show <file-number> - show a specific file diff from the last run\n"
@@ -467,21 +510,43 @@ async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             commit_type,
             pr_body_label,
         )
-        context.user_data["last_execution"] = ExecutionState(
-            branch=branch_name,
-            files_changed=implementation_result.files_changed,
-            diff_summary=render_diff_summary(implementation_result.diff, implementation_result.files_changed),
-            full_diff=implementation_result.diff,
-            logs=implementation_result.output,
-            pr_url=pull_request.url,
-            tests="PENDING",
+        update_last_execution(
+            context,
+            branch_name,
+            implementation_result.files_changed,
+            implementation_result.diff,
+            implementation_result.output,
+            pull_request.url,
         )
 
         if get_verbosity(context) != Verbosity.CONCISE:
             await reply_chunks(update, f"PR opened: {pull_request.url}\nHead: {pull_request.head_sha or commit_sha}")
 
         set_active_execution(context, branch_name, "Polling CI")
-        ci_result = await watch_ci(update, pull_request.head_sha or commit_sha)
+        ci_result = await watch_ci(update, commit_sha)
+
+        repair_attempt = 0
+        while ci_result.state == "failed" and repair_attempt < CI_FIX_ATTEMPTS:
+            repair_attempt += 1
+            set_active_execution(context, branch_name, f"Repairing CI failure (attempt {repair_attempt}/{CI_FIX_ATTEMPTS})")
+            await reply_chunks(update, f"CI failed. Running repair attempt {repair_attempt}/{CI_FIX_ATTEMPTS}...")
+            failure_context = await asyncio.to_thread(build_failure_context, pull_request.number, ci_result)
+            repair_prompt = build_ci_repair_prompt(codex_prompt, failure_context)
+            repair_result = await asyncio.to_thread(repair_implementation, repair_prompt, branch_name)
+
+            set_active_execution(context, branch_name, f"Pushing CI repair (attempt {repair_attempt}/{CI_FIX_ATTEMPTS})")
+            commit_sha = await asyncio.to_thread(push, branch_name, f"{change} CI repair", "fix")
+            update_last_execution(
+                context,
+                branch_name,
+                repair_result.files_changed,
+                repair_result.diff,
+                repair_result.output,
+                pull_request.url,
+            )
+
+            set_active_execution(context, branch_name, f"Polling CI after repair (attempt {repair_attempt}/{CI_FIX_ATTEMPTS})")
+            ci_result = await watch_ci(update, commit_sha)
 
         execution = last_execution(context)
         if execution:

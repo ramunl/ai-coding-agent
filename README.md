@@ -21,6 +21,7 @@ Optional values:
 - `CODEX_TIMEOUT_SECONDS`, defaults to `1800`
 - `CI_POLL_INTERVAL_SECONDS`, defaults to `30`
 - `CI_TIMEOUT_SECONDS`, defaults to `1800`
+- `CI_FIX_ATTEMPTS`, defaults to `1`
 - `LINK_ALLOWED_DOMAINS`, comma-separated generic web domains to fetch, defaults to
   `developer.android.com,docs.github.com,kotlinlang.org,stackoverflow.com`
 
@@ -44,8 +45,9 @@ The default feature workflow is plan-first:
 
 `/plan` creates an editable pending plan. `/discuss` revises it and increments the revision. `/approve`
 marks the current revision as ready but does not start implementation. `/confirm` runs Codex, pushes the
-branch, opens a PR, and polls CI. `/implement` keeps the old shortcut behavior by creating an approved
-plan and waiting for `/confirm`.
+branch, opens a PR, and polls CI. If CI fails, the agent reads the build failure context, runs Codex on
+the same pushed branch to repair the errors, pushes the fix, and polls CI again. `/implement` keeps the
+old shortcut behavior by creating an approved plan and waiting for `/confirm`.
 
 Implementation output is quiet by default. The bot sends concise status and completion messages, then
 keeps diffs and logs available through `/diff`, `/show`, `/logs`, and `/pr`.
@@ -68,7 +70,7 @@ Planning and implementation:
 - `/implement <feature>` - plan, approve, and wait for `/confirm`.
 - `/bugfix <bug>` - ask clarification questions if needed, then wait for `/confirm` on a `bugfix/` branch.
 - `/answer <details>` - answer pending `/bugfix` clarification questions.
-- `/confirm` - run approved work quietly, commit/push branch, open PR, and poll GitHub Actions.
+- `/confirm` - run approved work quietly, commit/push branch, open PR, poll GitHub Actions, and auto-repair failed CI up to `CI_FIX_ATTEMPTS`.
 - `/cancel` - discard the pending implementation or plan.
 
 Output detail and inspection:

@@ -4,6 +4,7 @@ import sys
 import types
 import unittest
 import asyncio
+from unittest.mock import patch
 
 
 class TelegramBotTests(unittest.TestCase):
@@ -151,6 +152,15 @@ class TelegramBotTests(unittest.TestCase):
             "Implementation status:\nRUNNING\n\nBranch:\nbugfix/example\n\nPhase:\nRunning Codex",
         )
 
+    def test_build_ci_repair_prompt_includes_original_prompt_and_failure_context(self) -> None:
+        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
+
+        prompt = telegram_bot.build_ci_repair_prompt("original task", "e: compile failed")
+
+        self.assertIn("original task", prompt)
+        self.assertIn("e: compile failed", prompt)
+        self.assertIn("Do not create a new branch", prompt)
+
     def test_confirm_reports_existing_active_execution(self) -> None:
         telegram_bot = importlib.import_module("ai_agent.telegram_bot")
 
@@ -178,6 +188,77 @@ class TelegramBotTests(unittest.TestCase):
         self.assertEqual(len(message.replies), 1)
         self.assertIn("already running", message.replies[0])
         self.assertIn("bugfix/example", message.replies[0])
+
+    def test_confirm_repairs_failed_ci_and_polls_repair_commit(self) -> None:
+        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
+
+        class FakeMessage:
+            def __init__(self) -> None:
+                self.replies = []
+
+            async def reply_text(self, text: str) -> None:
+                self.replies.append(text)
+
+        async def fake_watch_ci(_update, head_sha):
+            watched_shas.append(head_sha)
+            if head_sha == "initial-sha":
+                return types.SimpleNamespace(state="failed", summary="CI failed", url="https://example.test/run")
+            return types.SimpleNamespace(state="passed", summary="CI passed", url="https://example.test/run2")
+
+        async def fake_to_thread(func, *args, **kwargs):
+            return func(*args, **kwargs)
+
+        watched_shas = []
+        message = FakeMessage()
+        update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=message)
+        context = types.SimpleNamespace(
+            user_data={
+                "pending_implementation": {
+                    "change": "fix build",
+                    "codex_prompt": "original prompt",
+                    "branch_name": "bugfix/fix-build",
+                    "commit_type": "fix",
+                    "pr_body_label": "Bug fix prompt",
+                    "confirmation_label": "bug fix",
+                }
+            }
+        )
+
+        original_watch_ci = telegram_bot.watch_ci
+        telegram_bot.watch_ci = fake_watch_ci
+        try:
+            with (
+                patch.object(telegram_bot, "CI_FIX_ATTEMPTS", 1),
+                patch.object(telegram_bot.asyncio, "to_thread", side_effect=fake_to_thread),
+                patch.object(telegram_bot, "ensure_github_configured"),
+                patch.object(
+                    telegram_bot,
+                    "implement",
+                    return_value=types.SimpleNamespace(files_changed=["App.kt"], diff="diff1", output="implemented"),
+                ),
+                patch.object(telegram_bot, "push", side_effect=["initial-sha", "repair-sha"]) as mock_push,
+                patch.object(
+                    telegram_bot,
+                    "create_pull_request",
+                    return_value=types.SimpleNamespace(number=42, url="https://example.test/pr", head_sha="stale-or-pr-sha"),
+                ),
+                patch.object(telegram_bot, "build_failure_context", return_value="compile failed") as mock_failure_context,
+                patch.object(
+                    telegram_bot,
+                    "repair_implementation",
+                    return_value=types.SimpleNamespace(files_changed=["App.kt"], diff="diff2", output="repaired"),
+                ) as mock_repair,
+            ):
+                asyncio.run(telegram_bot.confirm(update, context))
+        finally:
+            telegram_bot.watch_ci = original_watch_ci
+
+        self.assertEqual(watched_shas, ["initial-sha", "repair-sha"])
+        self.assertEqual(mock_push.call_count, 2)
+        mock_failure_context.assert_called_once()
+        mock_repair.assert_called_once()
+        self.assertNotIn("pending_implementation", context.user_data)
+        self.assertEqual(context.user_data["last_execution"].tests, "PASS")
 
 
 if __name__ == "__main__":

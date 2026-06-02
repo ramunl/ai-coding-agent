@@ -82,3 +82,23 @@ def evaluate_ci(head_sha: str) -> CiResult:
         return CiResult("passed", f"CI passed: {names}", successful[0].get("html_url"))
 
     return CiResult("waiting", "CI status is not final yet")
+
+
+def build_failure_context(pr_number: int, result: CiResult, max_chars: int = 3500) -> str:
+    comments = github_request(
+        "GET",
+        f"/repos/{GITHUB_REPOSITORY}/issues/{pr_number}/comments",
+        query={"per_page": "30"},
+    )
+    failure_comments = [
+        str(comment.get("body", "")).strip()
+        for comment in comments
+        if "Build failed" in str(comment.get("body", ""))
+    ]
+    parts = [result.summary]
+    if result.url:
+        parts.append(result.url)
+    if failure_comments:
+        parts.extend(["Recent build failure comment:", failure_comments[-1]])
+    context = "\n\n".join(part for part in parts if part)
+    return context[:max_chars]

@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from ai_agent.ci import evaluate_ci, summarize_failed_jobs
+from ai_agent.ci import CiResult, build_failure_context, evaluate_ci, summarize_failed_jobs
 
 
 class CiTests(unittest.TestCase):
@@ -51,6 +51,20 @@ class CiTests(unittest.TestCase):
 
         self.assertIn("compile (Kotlin compile)", summary)
         self.assertIn("https://example.test/job", summary)
+
+    @patch(
+        "ai_agent.ci.github_request",
+        return_value=[
+            {"body": "unrelated comment"},
+            {"body": "**Build failed**\n\n```\ne: compile failed\n```"},
+        ],
+    )
+    def test_build_failure_context_includes_latest_build_failure_comment(self, _mock_request) -> None:
+        context = build_failure_context(12, CiResult("failed", "CI failed: build", "https://example.test/run"))
+
+        self.assertIn("CI failed: build", context)
+        self.assertIn("https://example.test/run", context)
+        self.assertIn("e: compile failed", context)
 
 
 if __name__ == "__main__":

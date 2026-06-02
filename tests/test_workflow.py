@@ -1,6 +1,8 @@
 import unittest
+from unittest.mock import patch
 
-from ai_agent.workflow import slugify_branch_name, validate_branch_name
+from ai_agent.shell import CommandResult
+from ai_agent.workflow import repair_implementation, slugify_branch_name, validate_branch_name
 
 
 class WorkflowTests(unittest.TestCase):
@@ -39,6 +41,24 @@ class WorkflowTests(unittest.TestCase):
             with self.subTest(branch_name=branch_name):
                 with self.assertRaises(ValueError):
                     validate_branch_name(branch_name)
+
+    @patch("ai_agent.workflow.run")
+    def test_repair_implementation_runs_codex_on_existing_branch(self, mock_run) -> None:
+        def fake_run(args, *unused_args, **unused_kwargs):
+            if args == ["git", "status", "--porcelain"]:
+                return CommandResult(args, 0, " M File.kt\n")
+            if args == ["git", "diff", "--no-ext-diff"]:
+                return CommandResult(args, 0, "diff --git a/File.kt b/File.kt\n")
+            return CommandResult(args, 0, "ok\n")
+
+        mock_run.side_effect = fake_run
+
+        result = repair_implementation("fix compile error", "bugfix/example")
+
+        calls = [call.args[0] for call in mock_run.call_args_list]
+        self.assertIn(["git", "checkout", "bugfix/example"], calls)
+        self.assertIn(["codex", "exec", "fix compile error"], calls)
+        self.assertEqual(result.files_changed, ["File.kt"])
 
 
 if __name__ == "__main__":
