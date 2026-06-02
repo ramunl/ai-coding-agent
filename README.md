@@ -33,6 +33,23 @@ agent also fetches generic web links from `LINK_ALLOWED_DOMAINS`; `/plan` and `/
 context through Claude planning, while `/bugfix` first asks clarification questions when needed and then
 sends the bug-fix prompt directly to Codex without a planning step.
 
+The default feature workflow is plan-first:
+
+```text
+/plan <feature>
+/discuss <feedback>
+/approve
+/confirm
+```
+
+`/plan` creates an editable pending plan. `/discuss` revises it and increments the revision. `/approve`
+marks the current revision as ready but does not start implementation. `/confirm` runs Codex, pushes the
+branch, opens a PR, and polls CI. `/implement` keeps the old shortcut behavior by creating an approved
+plan and waiting for `/confirm`.
+
+Implementation output is quiet by default. The bot sends concise status and completion messages, then
+keeps diffs and logs available through `/diff`, `/show`, `/logs`, and `/pr`.
+
 `GITHUB_TOKEN` needs access to create pull requests and read GitHub Actions:
 
 - Contents: read/write
@@ -41,19 +58,63 @@ sends the bug-fix prompt directly to Codex without a planning step.
 
 ## Commands
 
-- `/plan <feature>` - plan only.
-- `/implement <feature>` - plan and wait for `/confirm`.
+Planning and implementation:
+
+- `/plan <feature>` - create an editable implementation plan.
+- `/discuss <feedback>` - revise the current pending plan.
+- `/approve` - approve the current plan without implementing it.
+- `/showplan` - show the current pending plan.
+- `/history` - show previous plan revisions.
+- `/implement <feature>` - plan, approve, and wait for `/confirm`.
 - `/bugfix <bug>` - ask clarification questions if needed, then wait for `/confirm` on a `bugfix/` branch.
 - `/answer <details>` - answer pending `/bugfix` clarification questions.
-- `/confirm` - run Codex, commit/push branch, open PR, and poll GitHub Actions.
+- `/confirm` - run approved work quietly, commit/push branch, open PR, and poll GitHub Actions.
+- `/cancel` - discard the pending implementation or plan.
+
+Output detail and inspection:
+
+- `/verbosity concise|normal|debug` - control output detail, defaults to `concise`.
+- `/diff` - show the changed-file list and line counts from the last implementation.
+- `/show <file-number>` - show one file diff from the last implementation.
+- `/pr` - show the last PR URL.
+- `/logs [lines]` - show last implementation logs in debug mode, or service logs when no run exists.
+
+Utilities:
+
 - `/ci <pr-number>` - show current GitHub Actions result for a PR.
 - `/limits` - show remaining Claude API rate limits.
 - `/codex` - show Codex CLI/login status.
 - `/test` - run agent unit tests.
-- `/cancel` - discard the pending implementation.
 - `/branches` - list repository branches.
 - `/status` - show git status.
-- `/logs [lines]` - show recent service logs.
+
+## Verbosity
+
+- `concise` - completion summary only. Hides raw code, diffs, logs, and Codex output.
+- `normal` - includes changed file names in completion messages. Still hides raw code and logs.
+- `debug` - includes Codex output, logs, and full diff details for troubleshooting.
+
+## Examples
+
+Plan, revise, approve, and run:
+
+```text
+/plan Add Chromecast queue support
+/discuss Use Google Cast MediaQueue instead of a custom queue manager
+/showplan
+/approve
+/confirm
+```
+
+Inspect the last run only when needed:
+
+```text
+/diff
+/show 1
+/verbosity debug
+/logs
+/pr
+```
 
 GitHub links can be included directly:
 

@@ -19,6 +19,11 @@ class WorkflowTests(unittest.TestCase):
 
         self.assertEqual(branch, "bugfix/player-crashes-after-rotation")
 
+    def test_slugify_branch_name_replaces_reserved_path_characters(self) -> None:
+        branch = slugify_branch_name("Channel proxy on/off restarts cast (TV): [bad]?")
+
+        self.assertEqual(branch, "feature/channel-proxy-on-off-restarts-cast-tv-bad")
+
     def test_validate_branch_name_rejects_invalid_names(self) -> None:
         invalid_names = [
             "/feature/start",

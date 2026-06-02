@@ -1,14 +1,23 @@
 import re
+from dataclasses import dataclass
 
 from ai_agent.config import CODEX_TIMEOUT_SECONDS, GITHUB_BASE_BRANCH, GITHUB_REPOSITORY
 from ai_agent.github import PullRequest, ensure_github_configured, github_request
 from ai_agent.shell import run
 
 
+@dataclass(frozen=True)
+class ImplementationResult:
+    output: str
+    files_changed: list[str]
+    diff: str
+
+
 def slugify_branch_name(change_description: str, prefix: str = "feature") -> str:
     validate_branch_prefix(prefix)
     slug = change_description.lower().strip()
-    slug = re.sub(r"[^a-z0-9._/-]+", "-", slug)
+    slug = re.sub(r"[/\\:?*\[\]().]+", "-", slug)
+    slug = re.sub(r"[^a-z0-9._-]+", "-", slug)
     slug = re.sub(r"-{2,}", "-", slug).strip("-./")
     if not slug:
         slug = "change"
@@ -36,12 +45,22 @@ def validate_branch_name(branch_name: str) -> None:
         raise ValueError(f"Invalid branch name: {branch_name}")
 
 
-def implement(plan: str, branch_name: str) -> None:
+def implement(plan: str, branch_name: str) -> ImplementationResult:
     validate_branch_name(branch_name)
-    run(["git", "checkout", "main"])
-    run(["git", "pull", "origin", "main"])
+    run(["git", "checkout", GITHUB_BASE_BRANCH])
+    run(["git", "pull", "origin", GITHUB_BASE_BRANCH])
     run(["git", "checkout", "-b", branch_name])
-    run(["codex", plan], timeout=CODEX_TIMEOUT_SECONDS, interactive=True)
+    codex_result = run(["codex", "exec", plan], timeout=CODEX_TIMEOUT_SECONDS)
+    run(["git", "add", "-N", "."])
+    files_changed = changed_files()
+    diff = run(["git", "diff", "--no-ext-diff"]).output
+    return ImplementationResult(output=codex_result.output, files_changed=files_changed, diff=diff)
+
+
+def changed_files() -> list[str]:
+    output = run(["git", "status", "--porcelain"]).output
+    names = [line[3:].strip() for line in output.splitlines() if len(line) > 3]
+    return sorted(set(names))
 
 
 def has_changes() -> bool:

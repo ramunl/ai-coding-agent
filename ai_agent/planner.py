@@ -150,11 +150,57 @@ Project files sample:
 
 Feature request: {enriched_feature_description}
 
-Produce:
-1. Branch name (feature/xxx)
-2. Files to create/modify
-3. Step by step implementation plan
-4. Ready-to-use Codex prompt
+Return only valid JSON with this shape:
+{{
+  "branch": "feature/short-safe-branch-name",
+  "summary": "Short implementation summary",
+  "files": ["path/or/File.kt"],
+  "steps": ["Step one"],
+  "risks": ["Risk to verify"],
+  "codex_prompt": "Ready-to-use Codex implementation prompt"
+}}
+
+Use a branch slug that replaces /, \\, :, ?, *, [, ], (, and ) with -.
+                """,
+            }
+        ],
+    )
+    return response.content[0].text
+
+
+def revise_feature_plan(feature_description: str, current_plan: str, feedback: str) -> str:
+    enriched_feature_description = enrich_feature_description(feature_description)
+
+    response = client.messages.create(
+        model=ANTHROPIC_MODEL,
+        max_tokens=2000,
+        messages=[
+            {
+                "role": "user",
+                "content": f"""
+You are revising an implementation plan for the Channel Cast Android repository.
+
+Original feature request:
+{enriched_feature_description}
+
+Current plan:
+{current_plan}
+
+User feedback:
+{feedback}
+
+Return only valid JSON with this shape:
+{{
+  "branch": "feature/short-safe-branch-name",
+  "summary": "Short implementation summary",
+  "files": ["path/or/File.kt"],
+  "steps": ["Step one"],
+  "risks": ["Risk to verify"],
+  "codex_prompt": "Ready-to-use Codex implementation prompt"
+}}
+
+Preserve useful parts of the current plan, incorporate the feedback, and keep the change focused.
+Use a branch slug that replaces /, \\, :, ?, *, [, ], (, and ) with -.
                 """,
             }
         ],
