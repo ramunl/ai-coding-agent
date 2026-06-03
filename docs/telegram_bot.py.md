@@ -39,21 +39,24 @@ All commands are async and require authorization via `require_authorized`.
 #### `/start` or `/help`
 Displays available commands and their usage.
 
+Commands that need arguments are shown without a leading slash in help text so Telegram does not send
+an incomplete command when the user taps it. Users still type the slash when running them.
+
 **Shows**:
-- /plan \<feature\> - Plan only, no implementation
-- /implement \<feature\> - Plan and wait for /confirm
-- /bugfix \<bug\> - Clarify if needed, then wait for /confirm
-- /answer \<details\> - Answer pending clarification
+- plan \<feature\> - Plan only, no implementation
+- implement \<feature\> - Plan and wait for /confirm
+- bugfix \<bug\> - Clarify if needed, then wait for /confirm
+- answer \<details\> - Answer pending clarification
 - /confirm - Add pending work to the FIFO queue and run queued tasks
 - /queue - Show running task and pending FIFO queue
-- /cancel \[task-id\] - Discard pending work or remove a queued task
-- /ci \<pr-number\> - Show CI status for PR
+- cancel \[task-id\] - Discard pending work or remove a queued task
+- ci \<pr-number\> - Show CI status for PR
 - /limits - Show Claude API limits
 - /codex - Show Codex CLI status
 - /test - Run agent unit tests
 - /branches - List git branches
 - /status - Show git status
-- /logs \[lines\] - Show recent service logs
+- logs \[lines\] - Show recent service logs
 
 ### Repository Commands
 

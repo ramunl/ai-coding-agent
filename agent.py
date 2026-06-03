@@ -16,22 +16,22 @@ logger = logging.getLogger(__name__)
 HELP_TEXT = """Channel Cast Agent ready.
 
 Commands:
-/plan <feature> - plan only, no implementation
-/implement <feature> - plan and wait for /confirm before Codex, PR, and CI watch
-/bugfix <bug> - clarify only when product behavior is missing, then wait for /confirm
-/answer <details> - answer pending bugfix clarification questions
+plan <feature> - plan only, no implementation
+implement <feature> - plan and wait for /confirm before Codex, PR, and CI watch
+bugfix <bug> - clarify only when product behavior is missing, then wait for /confirm
+answer <details> - answer pending bugfix clarification questions
 /confirm - add pending work to the FIFO queue and run queued tasks
 /queue - show the running task and pending FIFO queue
-/cancel [task-id] - discard pending work or remove a queued task
-/ci <pr-number> - show current GitHub Actions result for a PR
-/fixpr <pr-number> - repair failed CI on an existing same-repository PR
+cancel [task-id] - discard pending work or remove a queued task
+ci <pr-number> - show current GitHub Actions result for a PR
+fixpr <pr-number> - repair failed CI on an existing same-repository PR
 /limits - show remaining Claude API rate limits
 /codex - show Codex CLI/login status
 /version - show running bot version, branch, and commit
 /test - run agent unit tests
 /branches - list branches
 /status - queue status, or git status when idle
-/logs [lines] - recent service logs
+logs [lines] - recent service logs
 /help - show this help"""
 
 

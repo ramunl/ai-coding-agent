@@ -168,16 +168,20 @@ class TelegramBotTests(unittest.TestCase):
         asyncio.run(telegram_bot.start(update, context))
 
         help_text = "\n".join(message.replies)
-        self.assertIn("/fixpr <pr-number>", help_text)
+        self.assertIn("fixpr <pr-number>", help_text)
         self.assertIn("repair failed CI on an existing same-repository PR branch", help_text)
         self.assertIn("/queue", help_text)
+        self.assertNotIn("/plan <feature>", help_text)
+        self.assertNotIn("/fixpr <pr-number>", help_text)
 
     def test_entrypoint_help_text_includes_fixpr_description(self) -> None:
         agent = importlib.import_module("agent")
 
-        self.assertIn("/fixpr <pr-number>", agent.HELP_TEXT)
+        self.assertIn("fixpr <pr-number>", agent.HELP_TEXT)
         self.assertIn("repair failed CI on an existing same-repository PR", agent.HELP_TEXT)
         self.assertIn("/queue", agent.HELP_TEXT)
+        self.assertNotIn("/plan <feature>", agent.HELP_TEXT)
+        self.assertNotIn("/fixpr <pr-number>", agent.HELP_TEXT)
 
     def test_configure_bot_commands_includes_fixpr(self) -> None:
         telegram_bot = importlib.import_module("ai_agent.telegram_bot")
