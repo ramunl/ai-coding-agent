@@ -50,8 +50,26 @@ def summarize_failed_jobs(runs: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def latest_runs_by_workflow(runs: list[dict]) -> list[dict]:
+    latest: dict[str, dict] = {}
+    for run_data in runs:
+        workflow_key = str(run_data.get("workflow_id") or run_data.get("name") or run_data.get("id"))
+        current = latest.get(workflow_key)
+        if current is None or run_sort_key(run_data) > run_sort_key(current):
+            latest[workflow_key] = run_data
+    return list(latest.values())
+
+
+def run_sort_key(run_data: dict) -> tuple[str, int, int]:
+    return (
+        str(run_data.get("created_at") or run_data.get("run_started_at") or ""),
+        int(run_data.get("run_attempt") or 0),
+        int(run_data.get("id") or 0),
+    )
+
+
 def evaluate_ci(head_sha: str) -> CiResult:
-    runs = list_workflow_runs(head_sha)
+    runs = latest_runs_by_workflow(list_workflow_runs(head_sha))
     if not runs:
         return CiResult("waiting", "CI has not started yet")
 

@@ -180,6 +180,7 @@ Polls CI status until completion or timeout.
 - Timeout: `CI_TIMEOUT_SECONDS` (default 1800s = 30 min)
 - Reports status changes:
   - "waiting" → "running" → "passed" or "failed"
+- The task runner also repeats the final passed CI status before the implementation completion summary
 - Exits when:
   - Status is "passed" or "failed"
   - Timeout reached

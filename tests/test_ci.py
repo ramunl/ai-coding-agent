@@ -34,6 +34,36 @@ class CiTests(unittest.TestCase):
         self.assertEqual(result.summary, "CI passed: Build")
 
     @patch(
+        "ai_agent.ci.list_workflow_runs",
+        return_value=[
+            {
+                "id": 2,
+                "workflow_id": 10,
+                "name": "Build",
+                "status": "completed",
+                "conclusion": "success",
+                "created_at": "2026-06-03T01:10:00Z",
+                "html_url": "https://example.test/new",
+            },
+            {
+                "id": 1,
+                "workflow_id": 10,
+                "name": "Build",
+                "status": "completed",
+                "conclusion": "failure",
+                "created_at": "2026-06-03T01:00:00Z",
+                "html_url": "https://example.test/old",
+            },
+        ],
+    )
+    def test_evaluate_ci_ignores_older_failed_run_for_same_workflow(self, _mock_runs) -> None:
+        result = evaluate_ci("abc123")
+
+        self.assertEqual(result.state, "passed")
+        self.assertEqual(result.summary, "CI passed: Build")
+        self.assertEqual(result.url, "https://example.test/new")
+
+    @patch(
         "ai_agent.ci.list_workflow_jobs",
         return_value=[
             {

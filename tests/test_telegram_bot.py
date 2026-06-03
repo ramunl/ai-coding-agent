@@ -389,6 +389,9 @@ class TelegramBotTests(unittest.TestCase):
         mock_repair.assert_called_once()
         self.assertNotIn("pending_implementation", context.user_data)
         self.assertEqual(context.user_data["last_execution"].tests, "PASS")
+        joined_replies = "\n\n".join(message.replies)
+        self.assertIn("CI passed", joined_replies)
+        self.assertIn("Implementation completed.", joined_replies)
 
     def test_confirm_drains_existing_queue_before_new_task_fifo(self) -> None:
         telegram_bot = importlib.import_module("ai_agent.telegram_bot")

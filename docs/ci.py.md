@@ -60,6 +60,11 @@ Creates a detailed summary of failed jobs across multiple runs.
 - Timed out jobs
 - Action required status
 
+### `latest_runs_by_workflow(runs: list[dict]) -> list[dict]`
+Keeps only the newest run for each workflow before evaluating CI.
+
+This prevents an older failed run for the same commit and workflow from hiding a newer successful rerun.
+
 ### `evaluate_ci(head_sha: str) -> CiResult`
 Main function - determines overall CI status for a commit.
 
@@ -73,6 +78,8 @@ Main function - determines overall CI status for a commit.
 **Active statuses checked**: queued, requested, waiting, pending, in_progress
 
 **Successful conclusions**: success, skipped, neutral
+
+Before applying the status flow, `evaluate_ci()` filters workflow runs through `latest_runs_by_workflow()`.
 
 ## Configuration Dependencies
 - `GITHUB_REPOSITORY`: Target repository in owner/repo format

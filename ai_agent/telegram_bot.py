@@ -703,6 +703,8 @@ async def run_queued_implementation(update: Update, context: ContextTypes.DEFAUL
 
         execution = last_execution(context)
         if execution:
+            if ci_result.state == "passed":
+                await reply_chunks(update, final_ci_status_message(ci_result))
             if ci_result.state == "failed":
                 await reply_chunks(update, failed_ci_exhausted_message(ci_result, repair_attempt))
             await reply_chunks(update, render_completion(execution, get_verbosity(context)))
@@ -794,6 +796,8 @@ async def fixpr(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 pr_url=repaired_execution.pr_url,
                 tests=tests,
             )
+            if ci_result.state == "passed":
+                await reply_chunks(update, final_ci_status_message(ci_result))
             if ci_result.state == "failed":
                 await reply_chunks(update, failed_ci_exhausted_message(ci_result, repair_attempt))
             await reply_chunks(update, render_completion(context.user_data["last_execution"], get_verbosity(context)))
@@ -835,6 +839,13 @@ def failed_ci_exhausted_message(ci_result, repair_attempt: int) -> str:
         message = "CI is still failing. Automatic CI repair is disabled."
     else:
         message = f"CI is still failing after {repair_attempt}/{CI_FIX_ATTEMPTS} repair attempts."
+    if ci_result.url:
+        message = f"{message}\n{ci_result.url}"
+    return message
+
+
+def final_ci_status_message(ci_result) -> str:
+    message = ci_result.summary if ci_result.summary else "CI passed"
     if ci_result.url:
         message = f"{message}\n{ci_result.url}"
     return message
