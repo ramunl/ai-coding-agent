@@ -1,4 +1,4 @@
-# ai_agent
+# ai-coding-agent
 
 Telegram coding agent for the Channel Cast Android repository.
 
