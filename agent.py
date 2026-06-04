@@ -5,7 +5,7 @@ import os
 from telegram import Update
 from telegram.ext import ApplicationHandlerStop, CommandHandler, ContextTypes
 
-from ai_agent.config import ANTHROPIC_MODEL, CHAT_ID, REPO_PATH
+from ai_agent.config import ANTHROPIC_MODEL, CHAT_ID, REPO_PATH, validate_required_config
 from ai_agent.telegram_bot import build_application
 from ai_agent.version import get_runtime_version
 
@@ -56,6 +56,7 @@ async def version(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 def main() -> None:
+    validate_required_config()
     logging.basicConfig(
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         level=os.environ.get("LOG_LEVEL", "INFO"),

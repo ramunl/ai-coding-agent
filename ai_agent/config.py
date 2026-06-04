@@ -2,10 +2,10 @@ import os
 from pathlib import Path
 
 
-TELEGRAM_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
-CHAT_ID = int(os.environ["YOUR_CHAT_ID"])
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+CHAT_ID = int(os.environ.get("YOUR_CHAT_ID", "0"))
 REPO_PATH = Path(os.environ.get("REPO_PATH", "~/your-android-repo")).expanduser()
-ANTHROPIC_KEY = os.environ["ANTHROPIC_API_KEY"]
+ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 GITHUB_REPOSITORY = os.environ.get("GITHUB_REPOSITORY", "ramunl/com.randrgames.channelcast")
@@ -28,6 +28,16 @@ LINK_ALLOWED_DOMAINS = tuple(
     ).split(",")
     if domain.strip()
 )
+
+
+def validate_required_config() -> None:
+    missing = [
+        name
+        for name in ("TELEGRAM_BOT_TOKEN", "YOUR_CHAT_ID", "ANTHROPIC_API_KEY")
+        if not os.environ.get(name)
+    ]
+    if missing:
+        raise RuntimeError(f"Missing required environment variables: {', '.join(missing)}")
 
 
 def redact_sensitive(text: str) -> str:
