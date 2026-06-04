@@ -48,15 +48,15 @@ Validates complete branch name per Git naming rules.
 
 ## Implementation Workflow
 
-### `implement(plan: str, branch_name: str) -> None`
-Executes Codex to implement a feature based on a plan.
+### `implement(plan: str, branch_name: str, agent: str | None = None) -> None`
+Executes the selected implementation agent, Codex or Claude, to implement a feature based on a plan.
 
 **Process**:
 1. Validates branch name
 2. Runs: `git checkout main` - Switch to main branch
 3. Runs: `git pull origin main` - Get latest code
 4. Runs: `git checkout -b {branch_name}` - Create new branch
-5. Runs: `codex {plan}` - Execute Codex with the plan prompt
+5. Runs: `codex exec {plan}` or `claude -p {plan}` - Execute the selected implementation agent
 
 **Timeout**: Uses `CODEX_TIMEOUT_SECONDS` (default 1800s = 30 min)
 

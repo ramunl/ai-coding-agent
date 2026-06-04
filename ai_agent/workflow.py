@@ -1,7 +1,7 @@
 import re
 from dataclasses import dataclass
 
-from ai_agent.config import CODEX_TIMEOUT_SECONDS, GITHUB_BASE_BRANCH, GITHUB_REPOSITORY
+from ai_agent.config import CLAUDE_CODE_ARGS, CODEX_TIMEOUT_SECONDS, GITHUB_BASE_BRANCH, GITHUB_REPOSITORY, IMPLEMENTATION_AGENT
 from ai_agent.github import PullRequest, ensure_github_configured, github_request
 from ai_agent.shell import run
 
@@ -11,6 +11,31 @@ class ImplementationResult:
     output: str
     files_changed: list[str]
     diff: str
+
+
+SUPPORTED_IMPLEMENTATION_AGENTS = ("codex", "claude")
+
+
+def normalize_implementation_agent(agent: str | None = None) -> str:
+    value = (agent or IMPLEMENTATION_AGENT).strip().lower()
+    if value not in SUPPORTED_IMPLEMENTATION_AGENTS:
+        raise ValueError(f"Unsupported implementation agent: {value}. Use codex or claude.")
+    return value
+
+
+def implementation_agent_label(agent: str | None = None) -> str:
+    return {"codex": "Codex", "claude": "Claude"}[normalize_implementation_agent(agent)]
+
+
+def implementation_command(prompt: str, agent: str | None = None) -> list[str]:
+    selected_agent = normalize_implementation_agent(agent)
+    if selected_agent == "claude":
+        return ["claude", "-p", prompt, *CLAUDE_CODE_ARGS]
+    return ["codex", "exec", prompt]
+
+
+def run_implementation_agent(prompt: str, agent: str | None = None):
+    return run(implementation_command(prompt, agent), timeout=CODEX_TIMEOUT_SECONDS)
 
 
 def slugify_branch_name(change_description: str, prefix: str = "feature") -> str:
@@ -45,38 +70,38 @@ def validate_branch_name(branch_name: str) -> None:
         raise ValueError(f"Invalid branch name: {branch_name}")
 
 
-def implement(plan: str, branch_name: str) -> ImplementationResult:
+def implement(plan: str, branch_name: str, agent: str | None = None) -> ImplementationResult:
     validate_branch_name(branch_name)
     run(["git", "checkout", GITHUB_BASE_BRANCH])
     run(["git", "pull", "origin", GITHUB_BASE_BRANCH])
     run(["git", "checkout", "-b", branch_name])
-    codex_result = run(["codex", "exec", plan], timeout=CODEX_TIMEOUT_SECONDS)
+    agent_result = run_implementation_agent(plan, agent)
     run(["git", "add", "-N", "."])
     files_changed = changed_files()
     diff = run(["git", "diff", "--no-ext-diff"]).output
-    return ImplementationResult(output=codex_result.output, files_changed=files_changed, diff=diff)
+    return ImplementationResult(output=agent_result.output, files_changed=files_changed, diff=diff)
 
 
-def repair_implementation(prompt: str, branch_name: str) -> ImplementationResult:
+def repair_implementation(prompt: str, branch_name: str, agent: str | None = None) -> ImplementationResult:
     validate_branch_name(branch_name)
     run(["git", "checkout", branch_name])
     run(["git", "pull", "origin", branch_name])
-    codex_result = run(["codex", "exec", prompt], timeout=CODEX_TIMEOUT_SECONDS)
+    agent_result = run_implementation_agent(prompt, agent)
     run(["git", "add", "-N", "."])
     files_changed = changed_files()
     diff = run(["git", "diff", "--no-ext-diff"]).output
-    return ImplementationResult(output=codex_result.output, files_changed=files_changed, diff=diff)
+    return ImplementationResult(output=agent_result.output, files_changed=files_changed, diff=diff)
 
 
-def repair_pull_request_branch(prompt: str, branch_name: str) -> ImplementationResult:
+def repair_pull_request_branch(prompt: str, branch_name: str, agent: str | None = None) -> ImplementationResult:
     validate_branch_name(branch_name)
     run(["git", "fetch", "origin", branch_name])
     run(["git", "checkout", "-B", branch_name, f"origin/{branch_name}"])
-    codex_result = run(["codex", "exec", prompt], timeout=CODEX_TIMEOUT_SECONDS)
+    agent_result = run_implementation_agent(prompt, agent)
     run(["git", "add", "-N", "."])
     files_changed = changed_files()
     diff = run(["git", "diff", "--no-ext-diff"]).output
-    return ImplementationResult(output=codex_result.output, files_changed=files_changed, diff=diff)
+    return ImplementationResult(output=agent_result.output, files_changed=files_changed, diff=diff)
 
 
 def changed_files() -> list[str]:

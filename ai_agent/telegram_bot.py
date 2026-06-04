@@ -39,6 +39,8 @@ from ai_agent.test_runner import run_unit_tests
 from ai_agent.workflow import (
     create_pull_request,
     implement,
+    implementation_agent_label,
+    normalize_implementation_agent,
     push,
     repair_implementation,
     repair_pull_request_branch,
@@ -62,6 +64,7 @@ BOT_COMMANDS = [
     BotCommand("answer", "Answer bugfix questions"),
     BotCommand("confirm", "Queue approved work and run tasks"),
     BotCommand("queue", "Show queued work"),
+    BotCommand("agent", "Choose Codex or Claude for implementation"),
     BotCommand("fixpr", "Repair failed CI on an existing PR"),
     BotCommand("cancel", "Discard pending work"),
     BotCommand("ci", "Show PR CI status"),
@@ -141,6 +144,7 @@ def enqueue_pending_implementation(context: ContextTypes.DEFAULT_TYPE, pending: 
         "commit_type": pending.get("commit_type", "feat"),
         "pr_body_label": pending.get("pr_body_label", "Plan"),
         "confirmation_label": pending.get("confirmation_label", "implementation"),
+        "implementation_agent": pending.get("implementation_agent") or current_implementation_agent(context),
     }
     task_queue(context).append(task)
     return task
@@ -304,6 +308,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "answer <details> - answer pending bugfix clarification questions\n"
         "/confirm - add approved work to the FIFO queue and run queued tasks\n"
         "/queue - show the running task and pending FIFO queue\n"
+        "agent codex|claude - choose the AI used for task implementation\n"
         "verbosity concise|normal|debug - set output detail\n"
         "/diff - show changed files and line counts from the last run\n"
         "show <file-number> - show a specific file diff from the last run\n"
@@ -382,6 +387,29 @@ async def codex_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     result = await asyncio.to_thread(get_codex_status)
     await reply_chunks(update, result)
+
+
+def current_implementation_agent(context: ContextTypes.DEFAULT_TYPE) -> str:
+    return normalize_implementation_agent(str(context.user_data.get("implementation_agent", "")) or None)
+
+
+async def agent_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not require_authorized(update):
+        return
+
+    if not context.args:
+        selected_agent = current_implementation_agent(context)
+        await reply_chunks(update, f"Implementation agent: {implementation_agent_label(selected_agent)}\n\nUse /agent codex or /agent claude.")
+        return
+
+    try:
+        selected_agent = normalize_implementation_agent(context.args[0])
+    except ValueError as exc:
+        await reply_chunks(update, str(exc))
+        return
+
+    context.user_data["implementation_agent"] = selected_agent
+    await reply_chunks(update, f"Implementation agent set to {implementation_agent_label(selected_agent)}.")
 
 
 async def test(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -627,14 +655,16 @@ async def run_queued_implementation(update: Update, context: ContextTypes.DEFAUL
     commit_type = task.get("commit_type", "feat")
     pr_body_label = task.get("pr_body_label", "Plan")
     confirmation_label = task.get("confirmation_label", "implementation")
+    implementation_agent = normalize_implementation_agent(task.get("implementation_agent"))
+    implementation_agent_name = implementation_agent_label(implementation_agent)
 
     try:
         set_active_execution(context, branch_name, "Checking GitHub configuration")
         await asyncio.to_thread(ensure_github_configured)
 
-        set_active_execution(context, branch_name, "Running Codex")
+        set_active_execution(context, branch_name, f"Running {implementation_agent_name}")
         await reply_chunks(update, f"Task #{task['id']} started.\n\nBranch:\n{branch_name}\n\nStatus:\nRUNNING")
-        implementation_result = await asyncio.to_thread(implement, codex_prompt, branch_name)
+        implementation_result = await asyncio.to_thread(implement, codex_prompt, branch_name, implementation_agent)
 
         set_active_execution(context, branch_name, "Committing and pushing branch")
         await reply_chunks(update, "Committing and pushing branch...")
@@ -672,7 +702,7 @@ async def run_queued_implementation(update: Update, context: ContextTypes.DEFAUL
             await reply_chunks(update, f"CI failed. Running repair attempt {repair_attempt}/{CI_FIX_ATTEMPTS}...")
             failure_context = await asyncio.to_thread(build_failure_context, pull_request.number, ci_result)
             repair_prompt = build_ci_repair_prompt(codex_prompt, failure_context)
-            repair_result = await asyncio.to_thread(repair_implementation, repair_prompt, branch_name)
+            repair_result = await asyncio.to_thread(repair_implementation, repair_prompt, branch_name, implementation_agent)
 
             set_active_execution(context, branch_name, f"Pushing CI repair (attempt {repair_attempt}/{CI_FIX_ATTEMPTS})")
             commit_sha = await asyncio.to_thread(push, branch_name, f"{change} CI repair", "fix")
@@ -755,6 +785,7 @@ async def fixpr(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         head_sha = str(head.get("sha") or "")
         title = str(pull_data.get("title") or f"PR #{pr_number}")
         body = str(pull_data.get("body") or "")
+        implementation_agent = current_implementation_agent(context)
 
         set_active_execution(context, branch_name, "Polling PR CI")
         await reply_chunks(update, f"Checking CI for PR #{pr_number}.\n\nBranch:\n{branch_name}")
@@ -768,7 +799,7 @@ async def fixpr(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await reply_chunks(update, f"CI failed. Running PR repair attempt {repair_attempt}/{CI_FIX_ATTEMPTS}...")
             failure_context = await asyncio.to_thread(build_failure_context, pr_number, ci_result)
             repair_prompt = build_fix_pr_repair_prompt(pr_number, title, body, failure_context)
-            repair_result = await asyncio.to_thread(repair_pull_request_branch, repair_prompt, branch_name)
+            repair_result = await asyncio.to_thread(repair_pull_request_branch, repair_prompt, branch_name, implementation_agent)
 
             set_active_execution(context, branch_name, f"Pushing PR repair (attempt {repair_attempt}/{CI_FIX_ATTEMPTS})")
             commit_sha = await asyncio.to_thread(push, branch_name, f"PR #{pr_number} CI repair", "fix")
@@ -971,6 +1002,7 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("answer", answer))
     app.add_handler(CommandHandler("confirm", confirm))
     app.add_handler(CommandHandler("queue", queue_cmd))
+    app.add_handler(CommandHandler("agent", agent_cmd))
     app.add_handler(CommandHandler("cancel", cancel))
     app.add_handler(CommandHandler("ci", ci))
     app.add_handler(CommandHandler("fixpr", fixpr))

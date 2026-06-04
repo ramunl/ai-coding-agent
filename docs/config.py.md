@@ -22,6 +22,10 @@ Defines all configuration constants for the AI agent, reading from environment v
 - **`ANTHROPIC_API_URL`**: Fixed to `https://api.anthropic.com/v1/messages`
 - **`ANTHROPIC_VERSION`**: Fixed to `2023-06-01` (API version)
 
+### Implementation Agent Configuration
+- **`IMPLEMENTATION_AGENT`** (default: codex): AI used for implementation and CI repair, `codex` or `claude`
+- **`CLAUDE_CODE_ARGS`** (default: `--permission-mode bypassPermissions`): Extra args passed to `claude -p`
+
 ### GitHub Configuration
 - **`GITHUB_TOKEN`** (optional, default: ""): Personal access token for GitHub API
 - **`GITHUB_REPOSITORY`** (default: ramunl/com.randrgames.channelcast): Target repository in owner/repo format
@@ -67,6 +71,8 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 # Optional with defaults
 export REPO_PATH="~/my-repo"
 export ANTHROPIC_MODEL="claude-sonnet-4-20250514"
+export IMPLEMENTATION_AGENT="codex"
+export CLAUDE_CODE_ARGS="--permission-mode bypassPermissions"
 export GITHUB_TOKEN="ghp_..."
 export GITHUB_REPOSITORY="owner/repo"
 export GITHUB_BASE_BRANCH="main"

@@ -49,6 +49,7 @@ an incomplete command when the user taps it. Users still type the slash when run
 - answer \<details\> - Answer pending clarification
 - /confirm - Add pending work to the FIFO queue and run queued tasks
 - /queue - Show running task and pending FIFO queue
+- agent codex|claude - Choose the AI used for implementation and CI repair
 - cancel \[task-id\] - Discard pending work or remove a queued task
 - ci \<pr-number\> - Show CI status for PR
 - /limits - Show Claude API limits

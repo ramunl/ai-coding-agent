@@ -2,7 +2,13 @@ import unittest
 from unittest.mock import patch
 
 from ai_agent.shell import CommandResult
-from ai_agent.workflow import repair_implementation, repair_pull_request_branch, slugify_branch_name, validate_branch_name
+from ai_agent.workflow import (
+    implementation_command,
+    repair_implementation,
+    repair_pull_request_branch,
+    slugify_branch_name,
+    validate_branch_name,
+)
 
 
 class WorkflowTests(unittest.TestCase):
@@ -42,6 +48,15 @@ class WorkflowTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     validate_branch_name(branch_name)
 
+    def test_implementation_command_defaults_to_codex(self) -> None:
+        self.assertEqual(implementation_command("do work", "codex"), ["codex", "exec", "do work"])
+
+    def test_implementation_command_supports_claude(self) -> None:
+        self.assertEqual(
+            implementation_command("do work", "claude"),
+            ["claude", "-p", "do work", "--permission-mode", "bypassPermissions"],
+        )
+
     @patch("ai_agent.workflow.run")
     def test_repair_implementation_runs_codex_on_existing_branch(self, mock_run) -> None:
         def fake_run(args, *unused_args, **unused_kwargs):
@@ -59,6 +74,22 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn(["git", "checkout", "bugfix/example"], calls)
         self.assertIn(["codex", "exec", "fix compile error"], calls)
         self.assertEqual(result.files_changed, ["File.kt"])
+
+    @patch("ai_agent.workflow.run")
+    def test_repair_implementation_can_run_claude(self, mock_run) -> None:
+        def fake_run(args, *unused_args, **unused_kwargs):
+            if args == ["git", "status", "--porcelain"]:
+                return CommandResult(args, 0, " M File.kt\n")
+            if args == ["git", "diff", "--no-ext-diff"]:
+                return CommandResult(args, 0, "diff --git a/File.kt b/File.kt\n")
+            return CommandResult(args, 0, "ok\n")
+
+        mock_run.side_effect = fake_run
+
+        repair_implementation("fix compile error", "bugfix/example", "claude")
+
+        calls = [call.args[0] for call in mock_run.call_args_list]
+        self.assertIn(["claude", "-p", "fix compile error", "--permission-mode", "bypassPermissions"], calls)
 
     @patch("ai_agent.workflow.run")
     def test_repair_pull_request_branch_resets_from_origin_branch(self, mock_run) -> None:
