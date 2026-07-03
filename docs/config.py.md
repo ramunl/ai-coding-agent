@@ -28,7 +28,7 @@ Defines all configuration constants for the AI agent, reading from environment v
 
 ### GitHub Configuration
 - **`GITHUB_TOKEN`** (optional, default: ""): Personal access token for GitHub API
-- **`GITHUB_REPOSITORY`** (default: ramunl/com.randrgames.channelcast): Target repository in owner/repo format
+- **`GITHUB_REPOSITORY`** (default: owner/repo): Target repository in owner/repo format
 - **`GITHUB_BASE_BRANCH`** (default: main): Base branch for pull requests
 - **`GITHUB_API_URL`**: Fixed to `https://api.github.com`
 

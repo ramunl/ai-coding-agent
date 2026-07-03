@@ -17,7 +17,7 @@ Optional values:
 - `ANTHROPIC_MODEL`, defaults to `claude-sonnet-4-20250514`
 - `IMPLEMENTATION_AGENT`, `codex` or `claude`, defaults to `codex`
 - `CLAUDE_CODE_ARGS`, extra Claude Code CLI args, defaults to `--permission-mode bypassPermissions`
-- `GITHUB_REPOSITORY`, defaults to `ramunl/com.randrgames.channelcast`
+- `GITHUB_REPOSITORY`, defaults to `owner/repo`
 - `GITHUB_BASE_BRANCH`, defaults to `main`
 - `COMMAND_TIMEOUT_SECONDS`, defaults to `120`
 - `CODEX_TIMEOUT_SECONDS`, defaults to `1800`
@@ -144,12 +144,12 @@ Inspect the last run only when needed:
 GitHub links can be included directly:
 
 ```text
-/plan fix https://github.com/ramunl/com.randrgames.channelcast/issues/12
-/implement https://github.com/ramunl/com.randrgames.channelcast/pull/34
-/bugfix crash when opening https://github.com/ramunl/com.randrgames.channelcast/issues/12
+/plan fix https://github.com/owner/repo/issues/12
+/implement https://github.com/owner/repo/pull/34
+/bugfix crash when opening https://github.com/owner/repo/issues/12
 /answer happens after rotating the screen; expected playback to continue
 /plan update API usage from https://developer.android.com/guide
-/plan inspect https://github.com/ramunl/com.randrgames.channelcast/blob/main/app/build.gradle.kts
+/plan inspect https://github.com/owner/repo/blob/main/app/build.gradle.kts
 ```
 
 ## Tests
@@ -169,7 +169,7 @@ Flow:
 ```text
 git push origin main
 -> GitHub Actions deploy workflow
--> http://161.35.17.201:9000/hooks/ai-agent-update?secret=...
+-> http://<deploy-host>:9000/hooks/ai-agent-update?secret=...
 -> /usr/local/sbin/update-ai-agent
 -> git pull, install requirements, restart ai-agent.service
 ```

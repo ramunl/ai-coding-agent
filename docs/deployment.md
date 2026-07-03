@@ -38,10 +38,14 @@ DEPLOY_WEBHOOK_URL
 Expected value format:
 
 ```text
-http://161.35.17.201:9000/hooks/ai-agent-update?secret=<webhook-secret>
+http://<deploy-host>:9000/hooks/ai-agent-update?secret=<webhook-secret>
 ```
 
 The webhook secret is stored on the server in `/etc/webhook.conf`.
+
+Optional stricter validation: set the repository variables `DEPLOY_WEBHOOK_HOST`
+and `DEPLOY_WEBHOOK_PORT` to have the workflow assert the webhook URL points at the
+expected host and port. When unset, only the scheme, path, and secret are validated.
 
 ## Server Webhook
 
@@ -152,9 +156,9 @@ If GitHub Actions fails with `curl: (3) URL rejected` or a malformed URL error, 
 
 If validation fails, the secret value does not match the expected URL components.
 
-If `curl` fails with `Could not resolve host`, the secret host is not the expected IP address.
+If `curl` fails with `Could not resolve host`, the secret host is not the expected address.
 
-If `curl` times out connecting to `161.35.17.201:9000`, check:
+If `curl` times out connecting to the webhook host on port `9000`, check:
 
 - `webhook.service` is running.
 - `ss -tlnp` shows the webhook listening on `*:9000`.

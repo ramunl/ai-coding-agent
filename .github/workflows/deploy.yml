@@ -20,14 +20,21 @@ jobs:
           url = os.environ.get("DEPLOY_WEBHOOK_URL", "")
           parsed = urlparse(url)
 
+          expected_host = os.environ.get("DEPLOY_WEBHOOK_HOST", "")
+          expected_port = os.environ.get("DEPLOY_WEBHOOK_PORT", "")
+
           checks = [
               (bool(url), "DEPLOY_WEBHOOK_URL is empty"),
-              (parsed.scheme == "http", "DEPLOY_WEBHOOK_URL must use http"),
-              (parsed.hostname == "161.35.17.201", "DEPLOY_WEBHOOK_URL host is not the expected server IP"),
-              (parsed.port == 9000, "DEPLOY_WEBHOOK_URL port must be 9000"),
+              (parsed.scheme in ("http", "https"), "DEPLOY_WEBHOOK_URL must use http or https"),
               (parsed.path == "/hooks/ai-agent-update", "DEPLOY_WEBHOOK_URL path must be /hooks/ai-agent-update"),
               (parsed.query.startswith("secret="), "DEPLOY_WEBHOOK_URL must include the secret query parameter"),
           ]
+
+          # Optional stricter checks, enabled by setting repository variables.
+          if expected_host:
+              checks.append((parsed.hostname == expected_host, "DEPLOY_WEBHOOK_URL host is not the expected server host"))
+          if expected_port:
+              checks.append((str(parsed.port) == expected_port, "DEPLOY_WEBHOOK_URL port is not the expected port"))
 
           errors = [message for ok, message in checks if not ok]
           if errors:
@@ -38,6 +45,8 @@ jobs:
           print("DEPLOY_WEBHOOK_URL format OK")
         env:
           DEPLOY_WEBHOOK_URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
+          DEPLOY_WEBHOOK_HOST: ${{ vars.DEPLOY_WEBHOOK_HOST }}
+          DEPLOY_WEBHOOK_PORT: ${{ vars.DEPLOY_WEBHOOK_PORT }}
 
       - name: Call deploy webhook
         run: curl --fail --show-error --silent -X POST "$DEPLOY_WEBHOOK_URL"
