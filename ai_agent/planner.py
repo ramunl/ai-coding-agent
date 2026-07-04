@@ -5,6 +5,7 @@ import anthropic
 
 from ai_agent.config import ANTHROPIC_KEY, ANTHROPIC_MODEL, REPO_PATH
 from ai_agent.github_links import enrich_feature_description
+from ai_agent.rules import rules_prompt_block
 
 
 client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
@@ -128,6 +129,7 @@ def codebase_search_context(query: str, max_files: int = 80, max_matches: int = 
 def plan_feature(feature_description: str) -> str:
     context = kotlin_file_sample()
     enriched_feature_description = enrich_feature_description(feature_description)
+    rules_block = rules_prompt_block()
 
     response = client.messages.create(
         model=ANTHROPIC_MODEL,
@@ -148,6 +150,7 @@ Project modules:
 Project files sample:
 {context}
 
+{rules_block}
 Feature request: {enriched_feature_description}
 
 Return only valid JSON with this shape:
@@ -170,6 +173,7 @@ Use a branch slug that replaces /, \\, :, ?, *, [, ], (, and ) with -.
 
 def revise_feature_plan(feature_description: str, current_plan: str, feedback: str) -> str:
     enriched_feature_description = enrich_feature_description(feature_description)
+    rules_block = rules_prompt_block()
 
     response = client.messages.create(
         model=ANTHROPIC_MODEL,
@@ -180,6 +184,7 @@ def revise_feature_plan(feature_description: str, current_plan: str, feedback: s
                 "content": f"""
 You are revising an implementation plan for the Channel Cast Android repository.
 
+{rules_block}
 Original feature request:
 {enriched_feature_description}
 
@@ -211,9 +216,11 @@ Use a branch slug that replaces /, \\, :, ?, *, [, ], (, and ) with -.
 def build_bugfix_prompt(bug_description: str) -> str:
     enriched_bug_description = enrich_feature_description(bug_description)
     search_context = codebase_search_context(enriched_bug_description)
+    rules_block = rules_prompt_block()
     return f"""
 Fix this bug in the Channel Cast Android repository.
 
+{rules_block}
 Bug report:
 {enriched_bug_description}
 
