@@ -5,9 +5,9 @@ After=network.target
 [Service]
 Type=simple
 User=ubuntu
-WorkingDirectory=/opt/ai_agent
-EnvironmentFile=/opt/ai_agent/.env
-ExecStart=/opt/ai_agent/venv/bin/python agent.py
+WorkingDirectory=/opt/ai-coding-agent
+EnvironmentFile=/opt/ai-coding-agent/.env
+ExecStart=/opt/ai-coding-agent/venv/bin/python agent.py
 Restart=always
 RestartSec=5
 

@@ -4,7 +4,7 @@
 
 `ai-coding-agent` deploys automatically when changes are pushed to `main`.
 
-The server directory remains `/opt/ai_agent`, and the systemd service remains `ai-agent.service`.
+The server directory remains `/opt/ai-coding-agent`, and the systemd service remains `ai-agent.service`.
 Those operational names do not need to change when the GitHub repository is renamed.
 
 ```text
