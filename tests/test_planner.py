@@ -59,6 +59,21 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual(result, "planned")
         self.assertIn("Feature request: enriched request", prompt)
 
+    def test_plan_feature_injects_rules_block(self) -> None:
+        planner = importlib.import_module("ai_agent.planner")
+
+        with patch("ai_agent.planner.kotlin_file_sample", return_value="App.kt"):
+            with patch("ai_agent.planner.enrich_feature_description", return_value="enriched request"):
+                with patch(
+                    "ai_agent.planner.rules_prompt_block",
+                    return_value="\nMANDATORY CODING RULES\n- Avoid return operators\n",
+                ):
+                    planner.plan_feature("original request")
+
+        prompt = planner.client.messages.kwargs["messages"][0]["content"]
+        self.assertIn("MANDATORY CODING RULES", prompt)
+        self.assertIn("Avoid return operators", prompt)
+
     def test_build_bugfix_prompt_uses_enriched_bug_description(self) -> None:
         planner = importlib.import_module("ai_agent.planner")
 
