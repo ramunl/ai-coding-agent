@@ -1,15 +1,18 @@
 [Unit]
-Description=AI Telegram Coding Agent
-After=network.target
+Description=Telegram AI coding agent
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
-User=ubuntu
 WorkingDirectory=/opt/ai-coding-agent
-EnvironmentFile=/opt/ai-coding-agent/.env
-ExecStart=/opt/ai-coding-agent/venv/bin/python agent.py
-Restart=always
-RestartSec=5
+Environment=HOME=/root
+EnvironmentFile=/etc/ai-agent/ai-agent.env
+ExecStart=/opt/ai_coding_venv/bin/python /opt/ai-coding-agent/agent.py
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
