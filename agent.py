@@ -3,7 +3,7 @@ import logging
 import os
 
 from telegram import Update
-from telegram.ext import ApplicationHandlerStop, CommandHandler, ContextTypes
+from telegram.ext import CommandHandler, ContextTypes
 
 from ai_agent.config import ANTHROPIC_MODEL, CHAT_ID, IMPLEMENTATION_AGENT, REPO_PATH, validate_required_config
 from ai_agent.telegram_bot import build_application
@@ -13,39 +13,8 @@ from ai_agent.version import get_runtime_version
 logger = logging.getLogger(__name__)
 
 
-HELP_TEXT = """Channel Cast Agent ready.
-
-Commands:
-plan <feature> - plan only, no implementation
-implement <feature> - plan and wait for /confirm before Codex, PR, and CI watch
-bugfix <bug> - clarify only when product behavior is missing, then wait for /confirm
-answer <details> - answer pending bugfix clarification questions
-/confirm - add pending work to the FIFO queue and run queued tasks
-/queue - show the running task and pending FIFO queue
-agent codex|claude - choose the AI used for task implementation
-cancel [task-id] - discard pending work or remove a queued task
-ci <pr-number> - show current GitHub Actions result for a PR
-fixpr <pr-number> - repair failed CI on an existing same-repository PR
-/limits - show remaining Claude API rate limits
-/codex - show Codex CLI/login status
-/version - show running bot version, branch, and commit
-/test - run agent unit tests
-/branches - list branches
-/status - queue status, or git status when idle
-logs [lines] - recent service logs
-/help - show this help"""
-
-
 async def require_owner(update: Update) -> bool:
     return bool(update.effective_chat and update.effective_chat.id == CHAT_ID and update.message)
-
-
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not await require_owner(update):
-        raise ApplicationHandlerStop
-
-    await update.message.reply_text(HELP_TEXT)
-    raise ApplicationHandlerStop
 
 
 async def version(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -64,7 +33,6 @@ def main() -> None:
     )
     logging.getLogger("httpx").setLevel(logging.WARNING)
     app = build_application()
-    app.add_handler(CommandHandler("help", help_command), group=-1)
     app.add_handler(CommandHandler("version", version))
     logger.info("Agent running with repo_path=%s model=%s implementation_agent=%s", REPO_PATH, ANTHROPIC_MODEL, IMPLEMENTATION_AGENT)
     app.run_polling()
