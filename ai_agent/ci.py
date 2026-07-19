@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from ai_agent.config import GITHUB_REPOSITORY
+from ai_agent.projects import active_project
 from ai_agent.github import github_request
 
 
@@ -14,14 +14,14 @@ class CiResult:
 def list_workflow_runs(head_sha: str) -> list[dict]:
     response = github_request(
         "GET",
-        f"/repos/{GITHUB_REPOSITORY}/actions/runs",
+        f"/repos/{active_project().github_repository}/actions/runs",
         query={"head_sha": head_sha, "per_page": "20"},
     )
     return response.get("workflow_runs", [])
 
 
 def list_workflow_jobs(run_id: int) -> list[dict]:
-    response = github_request("GET", f"/repos/{GITHUB_REPOSITORY}/actions/runs/{run_id}/jobs")
+    response = github_request("GET", f"/repos/{active_project().github_repository}/actions/runs/{run_id}/jobs")
     return response.get("jobs", [])
 
 
@@ -105,7 +105,7 @@ def evaluate_ci(head_sha: str) -> CiResult:
 def build_failure_context(pr_number: int, result: CiResult, max_chars: int = 3500) -> str:
     comments = github_request(
         "GET",
-        f"/repos/{GITHUB_REPOSITORY}/issues/{pr_number}/comments",
+        f"/repos/{active_project().github_repository}/issues/{pr_number}/comments",
         query={"per_page": "30"},
     )
     failure_comments = [

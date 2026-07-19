@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
+from ai_agent.projects import active_project
 from ai_agent.workflow import slugify_branch_name
 
 
@@ -102,9 +103,13 @@ def parse_plan_document(plan_text: str, feature: str = "") -> PlanDocument:
 
 def render_plan(plan: PlanState) -> str:
     document = parse_plan_document(plan.plan_text, plan.feature)
+    project = active_project()
     lines = [
         f"Plan #{plan.id}",
         f"Revision: {plan.revision}",
+        "",
+        "Project:",
+        f"{project.name} ({project.github_repository})",
         "",
         "Branch:",
         document.branch,

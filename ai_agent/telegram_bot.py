@@ -14,7 +14,6 @@ from ai_agent.config import (
     CI_POLL_INTERVAL_SECONDS,
     CI_TIMEOUT_SECONDS,
     COMMAND_TIMEOUT_SECONDS,
-    GITHUB_REPOSITORY,
     MAX_LOG_LINES,
     MAX_TELEGRAM_MESSAGE_LENGTH,
     TELEGRAM_TOKEN,
@@ -34,6 +33,15 @@ from ai_agent.plan_state import (
     revise_plan_state,
 )
 from ai_agent.planner import assess_bugfix_report, build_bugfix_prompt, bugfix_questions, plan_feature, revise_feature_plan
+from ai_agent.projects import (
+    ProjectError,
+    active_project,
+    add_project,
+    clone_url,
+    list_projects,
+    remove_project,
+    set_active,
+)
 from ai_agent.shell import run
 from ai_agent.test_runner import run_unit_tests
 from ai_agent.workflow import (
@@ -75,6 +83,10 @@ BOT_COMMANDS = [
     BotCommand("limits", "Show Claude API limits"),
     BotCommand("codex", "Show Codex status"),
     BotCommand("test", "Run agent unit tests"),
+    BotCommand("repo_list", "List projects, active marked with *"),
+    BotCommand("repo_add", "Register and clone a project"),
+    BotCommand("repo_use", "Switch the active project"),
+    BotCommand("repo_remove", "Unregister a project"),
     BotCommand("branches", "List branches"),
     BotCommand("status", "Show active or git status"),
 ]
@@ -287,9 +299,13 @@ def extract_file_diff(diff_text: str, file_name: str) -> str:
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not require_authorized(update):
         return
+    project = active_project()
     await reply_chunks(
         update,
-        "Channel Cast Agent ready.\n\n"
+        f"Coding AI Agent ready.\n"
+        f"Active project: {project.name}\n"
+        f"Repository: {project.github_repository} [{project.base_branch}]\n"
+        f"Path: {project.repo_path}\n\n"
         "Planning workflow:\n"
         "1. plan <feature>\n"
         "2. discuss <feedback> as needed\n"
@@ -313,6 +329,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/diff - show changed files and line counts from the last run\n"
         "show <file-number> - show a specific file diff from the last run\n"
         "logs [lines] - last run logs in debug mode, or service logs when no run exists\n"
+        "/repo_list - list projects, active marked with *\n"
+        "repo_add <owner/repo> [path] - register and clone a project\n"
+        "repo_use <name> - switch the active project\n"
+        "repo_remove <name> - unregister a project\n"
         "/pr - show the last PR URL\n"
         "cancel [task-id] - discard pending work or remove a queued task\n"
         "ci <pr-number> - show current GitHub Actions result for a PR\n"
@@ -764,7 +784,8 @@ async def fixpr(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         set_active_execution(context, f"PR #{pr_number}", "Checking GitHub configuration")
         await asyncio.to_thread(ensure_github_configured)
 
-        pull_data = await asyncio.to_thread(github_request, "GET", f"/repos/{GITHUB_REPOSITORY}/pulls/{pr_number}")
+        repository = active_project().github_repository
+        pull_data = await asyncio.to_thread(github_request, "GET", f"/repos/{repository}/pulls/{pr_number}")
         if pull_data.get("state") != "open":
             await reply_chunks(update, f"PR #{pr_number} is not open.")
             return
@@ -773,11 +794,11 @@ async def fixpr(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         head_repo = (head.get("repo") or {}).get("full_name")
         branch_name = str(head.get("ref") or "")
         validate_branch_name(branch_name)
-        if head_repo != GITHUB_REPOSITORY:
+        if head_repo != repository:
             await reply_chunks(
                 update,
                 f"PR #{pr_number} is from {head_repo or 'an unknown repository'}.\n"
-                f"/fixpr can only push to branches in {GITHUB_REPOSITORY}.",
+                f"/fixpr can only push to branches in {repository}.",
             )
             return
 
@@ -891,7 +912,7 @@ async def ci(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     pr_number = int(context.args[0])
     ensure_github_configured()
-    pull_data = await asyncio.to_thread(github_request, "GET", f"/repos/{GITHUB_REPOSITORY}/pulls/{pr_number}")
+    pull_data = await asyncio.to_thread(github_request, "GET", f"/repos/{active_project().github_repository}/pulls/{pr_number}")
     head_sha = pull_data["head"]["sha"]
     result = await asyncio.to_thread(evaluate_ci, head_sha)
     message = f"PR #{pr_number}: {result.summary}"
@@ -982,6 +1003,117 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
         await reply_chunks(update, f"Error:\n{error_text}")
 
 
+
+async def repo_list(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not require_authorized(update):
+        return
+    current = active_project()
+    lines = ["Projects:"]
+    for project in list_projects():
+        marker = "*" if project.name == current.name else " "
+        lines.append(f"{marker} {project.name} - {project.github_repository} [{project.base_branch}]")
+    lines.extend(["", "Active is marked with *.", "Switch with: /repo_use <name>"])
+    await reply_chunks(update, "\n".join(lines))
+
+
+async def repo_add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not require_authorized(update):
+        return
+    if not context.args:
+        await reply_chunks(
+            update,
+            "Usage: /repo_add <owner/repo> [local-path]\n"
+            "Example: /repo_add ramunl/channel-cast",
+        )
+        return
+    repository = context.args[0]
+    repo_path = context.args[1] if len(context.args) > 1 else None
+    try:
+        project, needs_clone = await asyncio.to_thread(add_project, repository, repo_path)
+    except ProjectError as error:
+        await reply_chunks(update, f"Could not add project: {error}")
+        return
+
+    if needs_clone:
+        await reply_chunks(update, f"Cloning {project.github_repository} into {project.repo_path} ...")
+        try:
+            project.repo_path.parent.mkdir(parents=True, exist_ok=True)
+            await asyncio.to_thread(
+                run,
+                ["git", "clone", clone_url(project.github_repository), str(project.repo_path)],
+                project.repo_path.parent,
+            )
+        except RuntimeError as error:
+            await reply_chunks(
+                update,
+                f"Project '{project.name}' was registered, but cloning failed:\n"
+                f"{redact_sensitive(str(error))}\n\n"
+                f"Clone it manually to {project.repo_path}, or remove it with: /repo_remove {project.name}",
+            )
+            return
+
+    await reply_chunks(
+        update,
+        f"Project added: {project.name}\n"
+        f"Repository: {project.github_repository}\n"
+        f"Path: {project.repo_path}\n"
+        f"Base branch: {project.base_branch}\n\n"
+        f"Activate it with: /repo_use {project.name}",
+    )
+
+
+async def repo_use(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not require_authorized(update):
+        return
+    if not context.args:
+        current = active_project()
+        lines = [f"Active project: {current.name} ({current.github_repository})", "", "Available:"]
+        lines.extend(f"- {project.name}" for project in list_projects())
+        lines.extend(["", "Usage: /repo_use <name>"])
+        await reply_chunks(update, "\n".join(lines))
+        return
+
+    name = context.args[0]
+    try:
+        project = await asyncio.to_thread(set_active, name)
+    except ProjectError as error:
+        await reply_chunks(update, str(error))
+        return
+
+    await refresh_bot_name(context, project.name)
+    path_present = (project.repo_path / ".git").is_dir()
+    warning = "" if path_present else f"\n\nWarning: {project.repo_path} is not a git repository yet."
+    await reply_chunks(
+        update,
+        f"Active project: {project.name}\n"
+        f"Repository: {project.github_repository}\n"
+        f"Path: {project.repo_path}\n"
+        f"Base branch: {project.base_branch}{warning}",
+    )
+
+
+async def repo_remove(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not require_authorized(update):
+        return
+    if not context.args:
+        await reply_chunks(update, "Usage: /repo_remove <name>")
+        return
+    try:
+        await asyncio.to_thread(remove_project, context.args[0])
+    except ProjectError as error:
+        await reply_chunks(update, str(error))
+        return
+    await reply_chunks(update, f"Removed project: {context.args[0]}\nActive is now: {active_project().name}")
+
+
+async def refresh_bot_name(context: ContextTypes.DEFAULT_TYPE, project_name: str) -> None:
+    """Cosmetic only. Telegram rate-limits profile changes, so failures are ignored."""
+    try:
+        await context.bot.set_my_name(name=f"Coding AI Agent - {project_name}"[:64])
+    except Exception as error:
+        logger.info("Could not update bot name (cosmetic, ignored): %s", error)
+
+
 def build_application() -> Application:
     builder = Application.builder().token(TELEGRAM_TOKEN)
     if hasattr(builder, "concurrent_updates"):
@@ -1012,6 +1144,10 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("limits", limits))
     app.add_handler(CommandHandler("codex", codex_status))
     app.add_handler(CommandHandler("test", test))
+    app.add_handler(CommandHandler("repo_list", repo_list))
+    app.add_handler(CommandHandler("repo_add", repo_add))
+    app.add_handler(CommandHandler("repo_use", repo_use))
+    app.add_handler(CommandHandler("repo_remove", repo_remove))
     app.add_handler(CommandHandler("branches", branches))
     app.add_handler(CommandHandler("status", status))
     app.add_handler(CommandHandler("logs", logs))

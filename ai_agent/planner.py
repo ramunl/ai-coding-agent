@@ -3,8 +3,9 @@ import re
 
 import anthropic
 
-from ai_agent.config import ANTHROPIC_KEY, ANTHROPIC_MODEL, REPO_PATH
+from ai_agent.config import ANTHROPIC_KEY, ANTHROPIC_MODEL
 from ai_agent.github_links import enrich_feature_description
+from ai_agent.projects import active_project
 from ai_agent.rules import rules_prompt_block
 
 
@@ -49,9 +50,10 @@ BUGFIX_SEARCH_KEYWORDS = (
 
 
 def kotlin_file_sample() -> str:
+    repo_path = active_project().repo_path
     files = []
-    for path in REPO_PATH.rglob("*.kt"):
-        relative = path.relative_to(REPO_PATH)
+    for path in repo_path.rglob("*.kt"):
+        relative = path.relative_to(repo_path)
         if "build" in relative.parts:
             continue
         files.append(str(relative))
@@ -67,8 +69,9 @@ def codebase_search_context(query: str, max_files: int = 80, max_matches: int = 
     filenames and matching lines for the triage/planning step to decide whether
     Codex can inspect and implement the fix without asking the user where code is.
     """
-    if not REPO_PATH.exists():
-        return f"Repository path does not exist: {REPO_PATH}"
+    repo_path = active_project().repo_path
+    if not repo_path.exists():
+        return f"Repository path does not exist: {repo_path}"
 
     terms = set(BUGFIX_SEARCH_KEYWORDS)
     terms.update(re.findall(r"[A-Za-z][A-Za-z0-9_]{2,}", query.lower()))
@@ -92,10 +95,10 @@ def codebase_search_context(query: str, max_files: int = 80, max_matches: int = 
     matches: list[str] = []
     extensions = {".kt", ".kts", ".java", ".xml", ".gradle", ".properties"}
 
-    for path in REPO_PATH.rglob("*"):
+    for path in repo_path.rglob("*"):
         if not path.is_file() or path.suffix not in extensions:
             continue
-        relative = path.relative_to(REPO_PATH)
+        relative = path.relative_to(repo_path)
         if "build" in relative.parts or ".gradle" in relative.parts:
             continue
         relative_text = str(relative)

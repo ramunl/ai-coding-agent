@@ -143,6 +143,10 @@ class TelegramBotTests(unittest.TestCase):
                 "limits",
                 "codex",
                 "test",
+                "repo_list",
+                "repo_add",
+                "repo_use",
+                "repo_remove",
                 "branches",
                 "status",
                 "logs",
@@ -151,6 +155,15 @@ class TelegramBotTests(unittest.TestCase):
         self.assertEqual(len(app.error_handlers), 1)
         self.assertIs(app.concurrent_updates_value, True)
         self.assertIs(app.post_init_value, telegram_bot.configure_bot_commands)
+
+    def test_project_commands_appear_in_autocomplete_menu(self) -> None:
+        """Registering a handler is not enough: it must also be in BOT_COMMANDS."""
+        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
+
+        menu = [command.command for command in telegram_bot.BOT_COMMANDS]
+
+        for name in ("repo_list", "repo_add", "repo_use", "repo_remove"):
+            self.assertIn(name, menu)
 
     def test_help_text_includes_fixpr_description(self) -> None:
         telegram_bot = importlib.import_module("ai_agent.telegram_bot")
@@ -599,7 +612,7 @@ class TelegramBotTests(unittest.TestCase):
             "head": {
                 "ref": "bugfix/player",
                 "sha": "initial-sha",
-                "repo": {"full_name": telegram_bot.GITHUB_REPOSITORY},
+                "repo": {"full_name": telegram_bot.active_project().github_repository},
             },
         }
 

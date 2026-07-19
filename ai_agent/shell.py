@@ -3,7 +3,8 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from ai_agent.config import COMMAND_TIMEOUT_SECONDS, REPO_PATH
+from ai_agent.config import COMMAND_TIMEOUT_SECONDS
+from ai_agent.projects import active_project
 
 
 logger = logging.getLogger(__name__)
@@ -16,15 +17,17 @@ class CommandResult:
     output: str
 
 
-def run(args: list[str], cwd: Path = REPO_PATH, timeout: int = COMMAND_TIMEOUT_SECONDS, interactive: bool = False) -> CommandResult:
-    logger.info("Running command: %s cwd=%s timeout=%s interactive=%s", args, cwd, timeout, interactive)
+def run(args: list[str], cwd: Path | None = None, timeout: int = COMMAND_TIMEOUT_SECONDS, interactive: bool = False) -> CommandResult:
+    # Resolved per call, not at import: the active project can change at runtime.
+    working_directory = cwd if cwd is not None else active_project().repo_path
+    logger.info("Running command: %s cwd=%s timeout=%s interactive=%s", args, working_directory, timeout, interactive)
     try:
         result = subprocess.run(
             args,
             capture_output=not interactive,
             stdin=None if interactive else subprocess.DEVNULL,
             check=False,
-            cwd=cwd,
+            cwd=working_directory,
             text=True,
             timeout=timeout,
         )

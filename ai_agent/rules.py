@@ -3,10 +3,10 @@ from pathlib import Path
 
 from ai_agent.config import (
     RULES_ENABLED,
-    RULES_PROJECT_NAME,
     RULES_REPO_PATH,
     RULES_REPO_URL,
 )
+from ai_agent.projects import active_project
 from ai_agent.shell import run
 
 
@@ -45,7 +45,7 @@ def sync_rules() -> bool:
 def _markdown_files() -> list[Path]:
     """Global rule files plus the current project's rule files."""
     globals_dir = RULES_REPO_PATH / "global"
-    project_dir = RULES_REPO_PATH / "projects" / RULES_PROJECT_NAME
+    project_dir = RULES_REPO_PATH / "projects" / active_project().rules_project
 
     files: list[Path] = []
     for directory in (globals_dir, project_dir):

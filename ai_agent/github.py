@@ -4,7 +4,8 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 
-from ai_agent.config import COMMAND_TIMEOUT_SECONDS, GITHUB_API_URL, GITHUB_REPOSITORY, GITHUB_TOKEN
+from ai_agent.config import COMMAND_TIMEOUT_SECONDS, GITHUB_API_URL, GITHUB_TOKEN
+from ai_agent.projects import active_project
 
 
 @dataclass(frozen=True)
@@ -17,8 +18,9 @@ class PullRequest:
 def ensure_github_configured() -> None:
     if not GITHUB_TOKEN:
         raise RuntimeError("GITHUB_TOKEN is not configured in the agent environment")
-    if "/" not in GITHUB_REPOSITORY:
-        raise RuntimeError("GITHUB_REPOSITORY must use owner/repo format")
+    repository = active_project().github_repository
+    if "/" not in repository:
+        raise RuntimeError(f"Project repository must use owner/repo format, got: {repository}")
 
 
 def github_request(method: str, path: str, data: dict | None = None, query: dict | None = None) -> dict:
