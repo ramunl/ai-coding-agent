@@ -38,6 +38,11 @@ class RulesTests(unittest.TestCase):
         self.rules_path = Path(self.tmp) / "ai-rules"
         _init_rules_repo(self.rules_path)
 
+        # Point at a nonexistent projects file so the registry falls back to
+        # env vars (RULES_PROJECT_NAME below). Otherwise a real projects file
+        # on the host (e.g. /etc/ai-agent-projects.json) leaks into the test.
+        os.environ["PROJECTS_FILE"] = str(Path(self.tmp) / "projects.json")
+
         os.environ["RULES_ENABLED"] = "true"
         os.environ["RULES_REPO_PATH"] = str(self.rules_path)
         os.environ["RULES_PROJECT_NAME"] = "channel-cast"
