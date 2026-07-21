@@ -33,6 +33,7 @@ from ai_agent.plan_state import (
     revise_plan_state,
 )
 from ai_agent.planner import assess_bugfix_report, build_bugfix_prompt, bugfix_questions, plan_feature, revise_feature_plan
+from ai_agent.self_update import check_and_apply_update, schedule_restart
 from ai_agent.projects import (
     ProjectError,
     active_project,
@@ -83,6 +84,7 @@ BOT_COMMANDS = [
     BotCommand("limits", "Show Claude API limits"),
     BotCommand("codex", "Show Codex status"),
     BotCommand("test", "Run agent unit tests"),
+    BotCommand("pull", "Self-update: fetch, test, restart if green"),
     BotCommand("repo_list", "List projects, active marked with *"),
     BotCommand("repo_add", "Register and clone a project"),
     BotCommand("repo_use", "Switch the active project"),
@@ -340,6 +342,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/limits - show remaining Claude API rate limits\n"
         "/codex - show Codex CLI/login status\n"
         "/test - run agent unit tests\n"
+        "/pull - self-update: fetch, run tests, restart only if they pass\n"
         "/branches - list branches\n"
         "/status - running implementation status, or git status when idle\n"
         "/help - show this help",
@@ -1114,6 +1117,31 @@ async def refresh_bot_name(context: ContextTypes.DEFAULT_TYPE, project_name: str
         logger.info("Could not update bot name (cosmetic, ignored): %s", error)
 
 
+
+async def pull(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not require_authorized(update):
+        return
+
+    await reply_chunks(update, "Checking for agent updates...")
+    result = await asyncio.to_thread(check_and_apply_update)
+
+    if not result.ok:
+        await reply_chunks(update, result.message)
+        return
+
+    if not result.restart_pending:
+        await reply_chunks(update, result.message)
+        return
+
+    # Reply BEFORE the restart fires: this process will not survive it.
+    restart_note = await asyncio.to_thread(schedule_restart)
+    await reply_chunks(
+        update,
+        f"{result.message}\n\n{restart_note}\n"
+        "Verify with /version after a few seconds.",
+    )
+
+
 def build_application() -> Application:
     builder = Application.builder().token(TELEGRAM_TOKEN)
     if hasattr(builder, "concurrent_updates"):
@@ -1144,6 +1172,7 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("limits", limits))
     app.add_handler(CommandHandler("codex", codex_status))
     app.add_handler(CommandHandler("test", test))
+    app.add_handler(CommandHandler("pull", pull))
     app.add_handler(CommandHandler("repo_list", repo_list))
     app.add_handler(CommandHandler("repo_add", repo_add))
     app.add_handler(CommandHandler("repo_use", repo_use))
