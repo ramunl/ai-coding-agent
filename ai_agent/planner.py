@@ -6,10 +6,20 @@ import anthropic
 from ai_agent.config import ANTHROPIC_KEY, ANTHROPIC_MODEL
 from ai_agent.github_links import enrich_feature_description
 from ai_agent.projects import active_project
+from ai_agent.model_errors import model_error_message
 from ai_agent.rules import rules_prompt_block
 
 
 client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
+
+
+def _create_message(**kwargs):
+    """Call the API, translating a retired/invalid model into a clear error."""
+    try:
+        return client.messages.create(**kwargs)
+    except anthropic.NotFoundError as error:
+        # 404 here means the model string was rejected, not a network fault.
+        raise RuntimeError(model_error_message()) from error
 
 
 IMPLEMENTATION_QUESTION_PATTERNS = (
@@ -134,7 +144,7 @@ def plan_feature(feature_description: str) -> str:
     enriched_feature_description = enrich_feature_description(feature_description)
     rules_block = rules_prompt_block()
 
-    response = client.messages.create(
+    response = _create_message(
         model=ANTHROPIC_MODEL,
         max_tokens=2000,
         messages=[
@@ -178,7 +188,7 @@ def revise_feature_plan(feature_description: str, current_plan: str, feedback: s
     enriched_feature_description = enrich_feature_description(feature_description)
     rules_block = rules_prompt_block()
 
-    response = client.messages.create(
+    response = _create_message(
         model=ANTHROPIC_MODEL,
         max_tokens=2000,
         messages=[
@@ -244,7 +254,7 @@ def assess_bugfix_report(bug_description: str) -> str:
     enriched_bug_description = enrich_feature_description(bug_description)
     search_context = codebase_search_context(enriched_bug_description)
 
-    response = client.messages.create(
+    response = _create_message(
         model=ANTHROPIC_MODEL,
         max_tokens=500,
         messages=[

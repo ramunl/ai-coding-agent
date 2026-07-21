@@ -34,6 +34,7 @@ from ai_agent.plan_state import (
 )
 from ai_agent.planner import assess_bugfix_report, build_bugfix_prompt, bugfix_questions, plan_feature, revise_feature_plan
 from ai_agent.self_update import check_and_apply_update, schedule_restart
+from ai_agent.ai_tools import all_info, get_tool, known_tools
 from ai_agent.projects import (
     ProjectError,
     active_project,
@@ -82,6 +83,7 @@ BOT_COMMANDS = [
     BotCommand("pr", "Show the last PR URL"),
     BotCommand("logs", "Show logs"),
     BotCommand("limits", "Show Claude API limits"),
+    BotCommand("model", "Show or switch the Claude model"),
     BotCommand("codex", "Show Codex status"),
     BotCommand("test", "Run agent unit tests"),
     BotCommand("pull", "Self-update: fetch, test, restart if green"),
@@ -340,6 +342,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "ci <pr-number> - show current GitHub Actions result for a PR\n"
         "fixpr <pr-number> - repair failed CI on an existing same-repository PR\n"
         "/limits - show remaining Claude API rate limits\n"
+        "/model - list AI tools + models; /model <tool> set <name> to switch\n"
         "/codex - show Codex CLI/login status\n"
         "/test - run agent unit tests\n"
         "/pull - self-update: fetch, run tests, restart only if they pass\n"
@@ -1142,6 +1145,80 @@ async def pull(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
+
+async def model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not require_authorized(update):
+        return
+
+    # /model  -> list every tool and its model
+    no_args = not context.args
+    if no_args:
+        lines = ["AI tools and models:"]
+        for entry in all_info():
+            suffix = "" if entry.manageable else f"  ({entry.note})"
+            lines.append(f"- {entry.tool}: {entry.model}{suffix}")
+        lines.extend(["", "Verify/switch a manageable tool: /model <tool> [set <name>]"])
+        await reply_chunks(update, "\n".join(lines))
+        return
+
+    tool_name = context.args[0]
+    tool = get_tool(tool_name)
+    is_known_tool = tool is not None
+    if not is_known_tool:
+        await reply_chunks(
+            update,
+            f"Unknown tool '{tool_name}'. Known: {', '.join(known_tools())}",
+        )
+        return
+
+    # /model <tool>  -> show that tool; verify if manageable
+    wants_show = len(context.args) == 1
+    if wants_show:
+        if tool.manageable:
+            current = tool.current_model()
+            await reply_chunks(update, f"{tool.name}: {current}\nVerifying...")
+            reachable, detail = await asyncio.to_thread(tool.verify, current)
+            status = "reachable" if reachable else f"UNREACHABLE - {detail}"
+            await reply_chunks(update, f"{tool.name} {current}: {status}")
+        else:
+            await reply_chunks(
+                update,
+                f"{tool.name}: {tool.current_model()}\n{tool.info().note}",
+            )
+        return
+
+    # /model <tool> set <name>
+    is_set = context.args[1] == "set" and len(context.args) >= 3
+    if not is_set:
+        await reply_chunks(update, f"Usage: /model {tool.name} set <name>")
+        return
+
+    if not tool.manageable:
+        await reply_chunks(
+            update,
+            f"{tool.name} is read-only here. {tool.info().note}",
+        )
+        return
+
+    candidate = context.args[2]
+    await reply_chunks(update, f"Verifying {candidate} before switching {tool.name}...")
+    reachable, detail = await asyncio.to_thread(tool.verify, candidate)
+    if not reachable:
+        await reply_chunks(
+            update,
+            f"Refusing to switch: {candidate} is {detail}.\nThe current model is unchanged.",
+        )
+        return
+
+    await asyncio.to_thread(tool.set_model, candidate)
+    restart_note = await asyncio.to_thread(schedule_restart)
+    await reply_chunks(
+        update,
+        f"Verified and saved {tool.name} model = {candidate}.\n\n"
+        f"{restart_note}\nConfirm with /model {tool.name} after a few seconds.",
+    )
+
+
 def build_application() -> Application:
     builder = Application.builder().token(TELEGRAM_TOKEN)
     if hasattr(builder, "concurrent_updates"):
@@ -1170,6 +1247,7 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("show", show))
     app.add_handler(CommandHandler("pr", pr))
     app.add_handler(CommandHandler("limits", limits))
+    app.add_handler(CommandHandler("model", model))
     app.add_handler(CommandHandler("codex", codex_status))
     app.add_handler(CommandHandler("test", test))
     app.add_handler(CommandHandler("pull", pull))

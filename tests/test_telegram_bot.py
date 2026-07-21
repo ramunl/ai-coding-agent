@@ -141,6 +141,7 @@ class TelegramBotTests(unittest.TestCase):
                 "show",
                 "pr",
                 "limits",
+                "model",
                 "codex",
                 "test",
                 "pull",

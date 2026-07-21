@@ -18,7 +18,7 @@ Defines all configuration constants for the AI agent, reading from environment v
 
 ### Anthropic/Claude Configuration
 - **`ANTHROPIC_KEY`** (required): API key for Claude AI
-- **`ANTHROPIC_MODEL`** (default: claude-sonnet-4-20250514): Claude model version
+- **`ANTHROPIC_MODEL`** (default: claude-sonnet-4-6): Claude model version
 - **`ANTHROPIC_API_URL`**: Fixed to `https://api.anthropic.com/v1/messages`
 - **`ANTHROPIC_VERSION`**: Fixed to `2023-06-01` (API version)
 
@@ -70,7 +70,7 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 
 # Optional with defaults
 export REPO_PATH="~/my-repo"
-export ANTHROPIC_MODEL="claude-sonnet-4-20250514"
+export ANTHROPIC_MODEL="claude-sonnet-4-6"
 export IMPLEMENTATION_AGENT="codex"
 export CLAUDE_CODE_ARGS="--permission-mode bypassPermissions"
 export GITHUB_TOKEN="ghp_..."

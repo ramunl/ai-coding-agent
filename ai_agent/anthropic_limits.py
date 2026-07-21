@@ -9,6 +9,7 @@ from ai_agent.config import (
     ANTHROPIC_VERSION,
     COMMAND_TIMEOUT_SECONDS,
 )
+from ai_agent.model_errors import is_model_not_found, model_error_message
 
 
 def anthropic_limit_headers() -> tuple[int, dict[str, str], str]:
@@ -76,7 +77,10 @@ def format_anthropic_limits(status: int, headers: dict[str, str], body: str) -> 
         "This check consumes one tiny Claude API request.",
     ]
     if status >= 400:
-        message.extend(["", f"Anthropic returned HTTP {status}:", body[:1000]])
+        if is_model_not_found(status, body):
+            message.extend(["", model_error_message()])
+        else:
+            message.extend(["", f"Anthropic returned HTTP {status}:", body[:1000]])
     return "\n".join(message)
 
 

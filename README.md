@@ -14,7 +14,7 @@ Set these values in the systemd `EnvironmentFile`:
 
 Optional values:
 
-- `ANTHROPIC_MODEL`, defaults to `claude-sonnet-4-20250514`
+- `ANTHROPIC_MODEL`, defaults to `claude-sonnet-4-6`
 - `IMPLEMENTATION_AGENT`, `codex` or `claude`, defaults to `codex`
 - `CLAUDE_CODE_ARGS`, extra Claude Code CLI args, defaults to `--permission-mode bypassPermissions`
 - `GITHUB_REPOSITORY`, defaults to `owner/repo`
