@@ -119,7 +119,13 @@ def has_changes() -> bool:
 def push(branch_name: str, change_name: str, commit_type: str = "feat") -> str:
     validate_branch_name(branch_name)
     if not has_changes():
-        raise RuntimeError("Codex finished, but there are no repository changes to commit")
+        raise RuntimeError(
+            "The implementation agent finished but made no file changes, so "
+            "there is nothing to commit. This usually means the task was too "
+            "vague to act on or the agent described the change instead of "
+            "making it. Try /discuss to sharpen the plan, or re-run with a "
+            "more specific feature description."
+        )
     run(["git", "add", "."])
     run(["git", "commit", "-m", f"{commit_type}: {change_name}"])
     run(["git", "push", "origin", branch_name])

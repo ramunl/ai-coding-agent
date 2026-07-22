@@ -80,25 +80,59 @@ def parse_plan_document(plan_text: str, feature: str = "") -> PlanDocument:
     data = _loads_plan_json(plan_text)
     if not data:
         fallback_branch = slugify_branch_name(feature or _first_line(plan_text) or "change")
+        fallback_prompt = (
+            "Implement the following change in this repository. Edit the files "
+            "directly and make the actual code changes — do not merely describe "
+            "them.\n\n" + plan_text
+        )
         return PlanDocument(
             branch=fallback_branch,
             summary=_first_line(plan_text) or feature or "Planned change",
             files=[],
             steps=_plain_text_steps(plan_text),
             risks=[],
-            codex_prompt=plan_text,
+            codex_prompt=fallback_prompt,
         )
 
     summary = _string_value(data, "summary") or feature or "Planned change"
     branch = _normalize_branch(_string_value(data, "branch"), summary)
+    files = _string_list(data.get("files"))
+    steps = _string_list(data.get("steps"))
+    risks = _string_list(data.get("risks"))
+    # Claude's plan has no codex_prompt field; build an executable instruction
+    # from the structured plan rather than handing Codex the raw plan document.
+    explicit_prompt = _string_value(data, "codex_prompt")
+    codex_prompt = explicit_prompt or _build_codex_prompt(summary, files, steps, risks)
     return PlanDocument(
         branch=branch,
         summary=summary,
-        files=_string_list(data.get("files")),
-        steps=_string_list(data.get("steps")),
-        risks=_string_list(data.get("risks")),
-        codex_prompt=_string_value(data, "codex_prompt") or plan_text,
+        files=files,
+        steps=steps,
+        risks=risks,
+        codex_prompt=codex_prompt,
     )
+
+
+def _build_codex_prompt(summary: str, files: list[str], steps: list[str], risks: list[str]) -> str:
+    """Turn a parsed plan into a direct implementation instruction for the agent."""
+    sections = [
+        "Implement the following change in this repository. "
+        "Edit the files directly and make the actual code changes — "
+        "do not merely describe or plan them.",
+        "",
+        f"Change: {summary}",
+    ]
+    has_files = bool(files)
+    if has_files:
+        sections.extend(["", "Files to create or modify:", *[f"- {file}" for file in files]])
+    has_steps = bool(steps)
+    if has_steps:
+        sections.extend(["", "Implementation steps:", *steps])
+    has_risks = bool(risks)
+    if has_risks:
+        sections.extend(["", "Watch out for:", *[f"- {risk}" for risk in risks]])
+    sections.extend(["", "Follow the repository's existing conventions and coding rules."])
+    return "\n".join(sections)
 
 
 def render_plan(plan: PlanState) -> str:
