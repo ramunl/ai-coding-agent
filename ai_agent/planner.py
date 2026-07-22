@@ -146,7 +146,7 @@ def plan_feature(feature_description: str) -> str:
 
     response = _create_message(
         model=ANTHROPIC_MODEL,
-        max_tokens=2000,
+        max_tokens=4000,
         messages=[
             {
                 "role": "user",
@@ -172,11 +172,11 @@ Return only valid JSON with this shape:
   "summary": "Short implementation summary",
   "files": ["path/or/File.kt"],
   "steps": ["Step one"],
-  "risks": ["Risk to verify"],
-  "codex_prompt": "Ready-to-use Codex implementation prompt"
+  "risks": ["Risk to verify"]
 }}
 
 Use a branch slug that replaces /, \\, :, ?, *, [, ], (, and ) with -.
+Keep the JSON compact so it is never truncated: at most 8 files and 8 steps, each under 200 characters.
                 """,
             }
         ],
@@ -190,7 +190,7 @@ def revise_feature_plan(feature_description: str, current_plan: str, feedback: s
 
     response = _create_message(
         model=ANTHROPIC_MODEL,
-        max_tokens=2000,
+        max_tokens=4000,
         messages=[
             {
                 "role": "user",
@@ -213,12 +213,12 @@ Return only valid JSON with this shape:
   "summary": "Short implementation summary",
   "files": ["path/or/File.kt"],
   "steps": ["Step one"],
-  "risks": ["Risk to verify"],
-  "codex_prompt": "Ready-to-use Codex implementation prompt"
+  "risks": ["Risk to verify"]
 }}
 
 Preserve useful parts of the current plan, incorporate the feedback, and keep the change focused.
 Use a branch slug that replaces /, \\, :, ?, *, [, ], (, and ) with -.
+Keep the JSON compact so it is never truncated: at most 8 files and 8 steps, each under 200 characters.
                 """,
             }
         ],
