@@ -1,16 +1,54 @@
 import json
+import os
 import re
+import tempfile
+from pathlib import Path
 
 import anthropic
 
-from ai_agent.config import ANTHROPIC_KEY, ANTHROPIC_MODEL
+from ai_agent.config import ANTHROPIC_KEY, ANTHROPIC_MODEL, CODEX_TIMEOUT_SECONDS, PLANNING_AGENT
 from ai_agent.github_links import enrich_feature_description
 from ai_agent.projects import active_project
 from ai_agent.model_errors import model_error_message
 from ai_agent.rules import rules_prompt_block
+from ai_agent.shell import run
 
 
 client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
+SCHEMAS_DIR = Path(__file__).with_name("schemas")
+SUPPORTED_PLANNING_AGENTS = ("codex", "claude")
+
+
+def normalize_planning_agent(agent: str | None = None) -> str:
+    value = (agent or PLANNING_AGENT).strip().lower()
+    if value not in SUPPORTED_PLANNING_AGENTS:
+        raise ValueError(f"Unsupported planning agent: {value}. Use codex or claude.")
+    return value
+
+
+def planning_agent_label(agent: str | None = None) -> str:
+    return {"codex": "Codex", "claude": "Claude"}[normalize_planning_agent(agent)]
+
+
+def _codex_message(prompt: str, schema_name: str) -> str:
+    schema_path = SCHEMAS_DIR / schema_name
+    with tempfile.NamedTemporaryFile(prefix="ai-agent-codex-", suffix=".json") as output:
+        run(
+            [
+                "codex",
+                "exec",
+                "--sandbox",
+                "read-only",
+                "--ephemeral",
+                "--output-schema",
+                str(schema_path),
+                "--output-last-message",
+                output.name,
+                prompt,
+            ],
+            timeout=CODEX_TIMEOUT_SECONDS,
+        )
+        return Path(output.name).read_text(encoding="utf-8").strip()
 
 
 def _create_message(**kwargs):
@@ -20,6 +58,23 @@ def _create_message(**kwargs):
     except anthropic.NotFoundError as error:
         # 404 here means the model string was rejected, not a network fault.
         raise RuntimeError(model_error_message()) from error
+
+
+def _planner_message(prompt: str, provider: str | None, schema_name: str, max_tokens: int) -> str:
+    selected = normalize_planning_agent(provider)
+    if selected == "codex":
+        return _codex_message(prompt, schema_name)
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        raise RuntimeError(
+            "Claude planning is unavailable because ANTHROPIC_API_KEY is not configured. "
+            "Use /planner codex or configure the key."
+        )
+    response = _create_message(
+        model=ANTHROPIC_MODEL,
+        max_tokens=max_tokens,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return response.content[0].text
 
 
 IMPLEMENTATION_QUESTION_PATTERNS = (
@@ -139,18 +194,12 @@ def codebase_search_context(query: str, max_files: int = 80, max_matches: int = 
     return "Files:\n" + "\n".join(files[:max_files]) + "\n\nRelevant matches:\n" + "\n".join(matches[:max_matches])
 
 
-def plan_feature(feature_description: str) -> str:
+def plan_feature(feature_description: str, provider: str | None = None) -> str:
     context = kotlin_file_sample()
     enriched_feature_description = enrich_feature_description(feature_description)
     rules_block = rules_prompt_block()
 
-    response = _create_message(
-        model=ANTHROPIC_MODEL,
-        max_tokens=2000,
-        messages=[
-            {
-                "role": "user",
-                "content": f"""
+    prompt = f"""
 You are a senior Android architect working on a multi-module IPTV app called Channel Cast.
 
 Project modules:
@@ -172,29 +221,25 @@ Return only valid JSON with this shape:
   "summary": "Short implementation summary",
   "files": ["path/or/File.kt"],
   "steps": ["Step one"],
-  "risks": ["Risk to verify"],
-  "codex_prompt": "Ready-to-use Codex implementation prompt"
+  "risks": ["Risk to verify"]
 }}
 
 Use a branch slug that replaces /, \\, :, ?, *, [, ], (, and ) with -.
-                """,
-            }
-        ],
-    )
-    return response.content[0].text
+Keep the JSON compact so it is never truncated: at most 8 files and 8 steps, each under 200 characters.
+                """
+    return _planner_message(prompt, provider, "feature_plan.json", 4000)
 
 
-def revise_feature_plan(feature_description: str, current_plan: str, feedback: str) -> str:
+def revise_feature_plan(
+    feature_description: str,
+    current_plan: str,
+    feedback: str,
+    provider: str | None = None,
+) -> str:
     enriched_feature_description = enrich_feature_description(feature_description)
     rules_block = rules_prompt_block()
 
-    response = _create_message(
-        model=ANTHROPIC_MODEL,
-        max_tokens=2000,
-        messages=[
-            {
-                "role": "user",
-                "content": f"""
+    prompt = f"""
 You are revising an implementation plan for the Channel Cast Android repository.
 
 {rules_block}
@@ -213,17 +258,14 @@ Return only valid JSON with this shape:
   "summary": "Short implementation summary",
   "files": ["path/or/File.kt"],
   "steps": ["Step one"],
-  "risks": ["Risk to verify"],
-  "codex_prompt": "Ready-to-use Codex implementation prompt"
+  "risks": ["Risk to verify"]
 }}
 
 Preserve useful parts of the current plan, incorporate the feedback, and keep the change focused.
 Use a branch slug that replaces /, \\, :, ?, *, [, ], (, and ) with -.
-                """,
-            }
-        ],
-    )
-    return response.content[0].text
+Keep the JSON compact so it is never truncated: at most 8 files and 8 steps, each under 200 characters.
+                """
+    return _planner_message(prompt, provider, "feature_plan.json", 4000)
 
 
 def build_bugfix_prompt(bug_description: str) -> str:
@@ -250,17 +292,11 @@ Requirements:
     """.strip()
 
 
-def assess_bugfix_report(bug_description: str) -> str:
+def assess_bugfix_report(bug_description: str, provider: str | None = None) -> str:
     enriched_bug_description = enrich_feature_description(bug_description)
     search_context = codebase_search_context(enriched_bug_description)
 
-    response = _create_message(
-        model=ANTHROPIC_MODEL,
-        max_tokens=500,
-        messages=[
-            {
-                "role": "user",
-                "content": f"""
+    prompt = f"""
 You are triaging a bug report for an Android coding agent that can search and edit the local repository.
 
 Bug report:
@@ -287,11 +323,8 @@ Questions response:
 {{"status":"questions","questions":["short necessary product/UX question"]}}
 
 Ask at most 2 questions.
-                """,
-            }
-        ],
-    )
-    return response.content[0].text.strip()
+                """
+    return _planner_message(prompt, provider, "bugfix_assessment.json", 500).strip()
 
 
 def _extract_json_object(text: str) -> dict | None:

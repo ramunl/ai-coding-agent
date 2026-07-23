@@ -199,21 +199,102 @@ def render_completion(execution: ExecutionState, verbosity: Verbosity) -> str:
 
 
 def _loads_plan_json(plan_text: str) -> dict[str, Any] | None:
-    text = plan_text.strip()
-    if text.startswith("```"):
-        text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
-        text = re.sub(r"\s*```$", "", text)
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
-        match = re.search(r"\{.*\}", text, flags=re.DOTALL)
-        if not match:
-            return None
+    """Parse Claude's plan JSON, tolerating markdown fences and truncation.
+
+    Claude's output is not always clean JSON: it may be wrapped in a ```json
+    fence, preceded by prose, or — most commonly — cut off before the closing
+    brace when it exceeds the model's token budget. Each candidate below peels
+    away one of those layers; the first that yields a JSON object wins so a
+    partial plan still renders real fields instead of falling back to a
+    plain-text dump of the raw JSON.
+    """
+    for candidate in _plan_json_candidates(plan_text.strip()):
         try:
-            data = json.loads(match.group(0))
+            data = json.loads(candidate)
         except json.JSONDecodeError:
-            return None
-    return data if isinstance(data, dict) else None
+            continue
+        if isinstance(data, dict):
+            return data
+    return None
+
+
+def _plan_json_candidates(text: str) -> list[str]:
+    candidates = []
+    unfenced = _strip_code_fence(text)
+    candidates.append(unfenced)
+    if unfenced != text:
+        candidates.append(text)
+    # Largest {...} span handles prose wrapped around well-formed JSON.
+    span = re.search(r"\{.*\}", unfenced, flags=re.DOTALL)
+    if span:
+        candidates.append(span.group(0))
+    # Repaired fragment recovers a plan truncated before the closing brace.
+    repaired = _repair_truncated_json(unfenced)
+    if repaired:
+        candidates.append(repaired)
+    return candidates
+
+
+def _strip_code_fence(text: str) -> str:
+    fenced = re.search(r"```(?:json)?\s*(.*?)```", text, flags=re.IGNORECASE | re.DOTALL)
+    if fenced:
+        return fenced.group(1).strip()
+    # An opening fence with no closing fence means the output was truncated.
+    opened = re.match(r"```(?:json)?\s*(.*)$", text, flags=re.IGNORECASE | re.DOTALL)
+    if opened:
+        return opened.group(1).strip()
+    return text
+
+
+def _repair_truncated_json(text: str) -> str | None:
+    """Best-effort recovery of JSON that was cut off mid-object.
+
+    Balances the fragment and, if it still won't parse, drops the last
+    comma-separated member and retries — so complete fields survive even when
+    the final one was truncated. Never discards a member that already parses.
+    """
+    start = text.find("{")
+    if start == -1:
+        return None
+    fragment = text[start:]
+    while fragment:
+        repaired = _balance_json(fragment)
+        try:
+            json.loads(repaired)
+            return repaired
+        except json.JSONDecodeError:
+            cut = fragment.rfind(",")
+            if cut <= 0:
+                return None
+            fragment = fragment[:cut]
+    return None
+
+
+def _balance_json(fragment: str) -> str:
+    """Close any open string and unclosed brackets so a fragment can parse."""
+    stack: list[str] = []
+    in_string = False
+    escaped = False
+    for char in fragment:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+        elif char == '"':
+            in_string = True
+        elif char in "{[":
+            stack.append(char)
+        elif char in "}]":
+            if stack:
+                stack.pop()
+    repaired = fragment + ('"' if in_string else "")
+    repaired = re.sub(r",\s*$", "", repaired.rstrip())
+    for opener in reversed(stack):
+        repaired += "]" if opener == "[" else "}"
+    return repaired
 
 
 def _normalize_branch(branch: str, fallback: str) -> str:

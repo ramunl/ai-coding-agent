@@ -8,12 +8,13 @@ Set these values in the systemd `EnvironmentFile`:
 
 - `TELEGRAM_BOT_TOKEN`
 - `YOUR_CHAT_ID`
-- `ANTHROPIC_API_KEY`
 - `REPO_PATH`
 - `GITHUB_TOKEN`
 
 Optional values:
 
+- `PLANNING_AGENT`, `codex` or `claude`, defaults to `codex`
+- `ANTHROPIC_API_KEY`, required only when Claude is selected for planning
 - `ANTHROPIC_MODEL`, defaults to `claude-sonnet-4-6`
 - `IMPLEMENTATION_AGENT`, `codex` or `claude`, defaults to `codex`
 - `CLAUDE_CODE_ARGS`, extra Claude Code CLI args, defaults to `--permission-mode bypassPermissions`
@@ -27,14 +28,19 @@ Optional values:
 - `LINK_ALLOWED_DOMAINS`, comma-separated generic web domains to fetch, defaults to
   `developer.android.com,docs.github.com,kotlinlang.org,stackoverflow.com`
 
-`/limits` uses Anthropic response headers, so it shows Claude API rate-limit budgets for the configured
-`ANTHROPIC_API_KEY` and `ANTHROPIC_MODEL`. It consumes one tiny Claude API request each time it runs.
+`/limits` shows both providers by default. Claude reports rate-limit headers for the configured
+`ANTHROPIC_API_KEY` and consumes one tiny API request when checked. Codex reports CLI/login readiness,
+but its remaining ChatGPT-plan quota is not exposed by the CLI or a public API.
 `/agent codex|claude` chooses whether queued implementations and CI repairs run through Codex or
-Claude Code. `/codex` reports local Codex CLI/login status only; Codex ChatGPT plan limits remaining
+Claude Code. `/planner codex|claude` independently chooses the provider used by `/plan`, `/discuss`,
+`/implement`, and bug triage. Codex planning uses the local ChatGPT-authenticated CLI in read-only mode;
+Claude remains available when `ANTHROPIC_API_KEY` is configured. The Telegram selection lasts until the
+bot restarts; `PLANNING_AGENT` controls the startup default.
+`/codex` reports local Codex CLI/login status only; Codex ChatGPT plan limits remaining
 are not exposed by the Codex CLI or a public API.
 `/plan`, `/implement`, and `/bugfix` can include GitHub issue, pull request, file, or commit links. The
 agent also fetches generic web links from `LINK_ALLOWED_DOMAINS`; `/plan` and `/implement` pass that
-context through Claude planning, while `/bugfix` first asks clarification questions when needed and then
+context through the selected planner, while `/bugfix` first asks clarification questions when needed and then
 sends the bug-fix prompt directly to Codex without a planning step.
 
 The default feature workflow is plan-first:
@@ -85,6 +91,7 @@ Planning and implementation:
 - `/answer <details>` - answer pending `/bugfix` clarification questions.
 - `/confirm` - enqueue approved work, run queued tasks quietly, open PRs, poll GitHub Actions, and auto-repair failed CI up to `CI_FIX_ATTEMPTS`.
 - `/queue` - show the running task and pending FIFO queue.
+- `/planner [codex|claude]` - show or choose the AI used for planning and bug triage.
 - `/agent [codex|claude]` - show or choose the AI used for queued implementations and CI repairs.
 - `/fixpr <pr-number>` - repair failed CI on an existing same-repository PR branch.
 - `/cancel [task-id]` - discard the pending implementation or plan, or remove a queued task.
@@ -100,7 +107,7 @@ Output detail and inspection:
 Utilities:
 
 - `/ci <pr-number>` - show current GitHub Actions result for a PR.
-- `/limits` - show remaining Claude API rate limits.
+- `/limits [all|codex|claude|planner|agent]` - show all providers or the provider selected for a role.
 - `/codex` - show Codex CLI/login status.
 - `/test` - run agent unit tests.
 - `/branches` - list repository branches.

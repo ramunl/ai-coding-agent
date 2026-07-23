@@ -133,6 +133,7 @@ class TelegramBotTests(unittest.TestCase):
                 "answer",
                 "confirm",
                 "queue",
+                "planner",
                 "agent",
                 "cancel",
                 "ci",
@@ -187,7 +188,10 @@ class TelegramBotTests(unittest.TestCase):
         self.assertIn("fixpr <pr-number>", help_text)
         self.assertIn("repair failed CI on an existing same-repository PR branch", help_text)
         self.assertIn("/queue", help_text)
-        self.assertIn("agent codex|claude", help_text)
+        self.assertIn("/planner codex + /agent codex = Codex plans and implements", help_text)
+        self.assertIn("/planner claude + /agent codex = Claude plans, Codex implements", help_text)
+        self.assertIn("planner [codex|claude]", help_text)
+        self.assertIn("agent [codex|claude]", help_text)
         self.assertNotIn("/plan <feature>", help_text)
         self.assertNotIn("/fixpr <pr-number>", help_text)
 
@@ -200,6 +204,7 @@ class TelegramBotTests(unittest.TestCase):
         command_names = [command.command for command in app.commands]
         self.assertIn("fixpr", command_names)
         self.assertIn("queue", command_names)
+        self.assertIn("planner", command_names)
         self.assertIn("agent", command_names)
 
     def test_agent_command_sets_implementation_agent(self) -> None:
@@ -220,6 +225,66 @@ class TelegramBotTests(unittest.TestCase):
 
         self.assertEqual(context.user_data["implementation_agent"], "claude")
         self.assertIn("Claude", message.replies[0])
+
+    def test_planner_command_sets_planning_agent(self) -> None:
+        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
+
+        class FakeMessage:
+            def __init__(self) -> None:
+                self.replies = []
+
+            async def reply_text(self, text: str) -> None:
+                self.replies.append(text)
+
+        message = FakeMessage()
+        update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=message)
+        context = types.SimpleNamespace(args=["claude"], user_data={})
+
+        asyncio.run(telegram_bot.planner_cmd(update, context))
+
+        self.assertEqual(context.user_data["planning_agent"], "claude")
+        self.assertIn("Claude", message.replies[0])
+
+    def test_limits_all_shows_codex_and_claude(self) -> None:
+        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
+
+        class FakeMessage:
+            def __init__(self) -> None:
+                self.replies = []
+
+            async def reply_text(self, text: str) -> None:
+                self.replies.append(text)
+
+        message = FakeMessage()
+        update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=message)
+        context = types.SimpleNamespace(args=[], user_data={})
+
+        with patch.object(telegram_bot, "get_codex_status", return_value="Codex status"):
+            with patch.object(telegram_bot, "get_anthropic_limits", return_value="Claude limits"):
+                asyncio.run(telegram_bot.limits(update, context))
+
+        output = "\n".join(message.replies)
+        self.assertIn("Codex status", output)
+        self.assertIn("Claude limits", output)
+
+    def test_limits_planner_uses_selected_provider(self) -> None:
+        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
+
+        class FakeMessage:
+            def __init__(self) -> None:
+                self.replies = []
+
+            async def reply_text(self, text: str) -> None:
+                self.replies.append(text)
+
+        message = FakeMessage()
+        update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=message)
+        context = types.SimpleNamespace(args=["planner"], user_data={"planning_agent": "codex"})
+
+        with patch.object(telegram_bot, "get_codex_status", return_value="Selected Codex"):
+            asyncio.run(telegram_bot.limits(update, context))
+
+        self.assertIn("Selected Codex", message.replies[0])
 
     def test_redact_sensitive_replaces_configured_secrets(self) -> None:
         config = importlib.import_module("ai_agent.config")

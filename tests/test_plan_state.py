@@ -57,6 +57,44 @@ class PlanStateTests(unittest.TestCase):
         # And the branch comes from the plan, not the slugified feature sentence.
         self.assertEqual(document.branch, "feature/telegram-rich-text")
 
+    def test_truncated_plan_json_is_recovered_not_dumped_as_steps(self) -> None:
+        # The real regression: the plan JSON is fenced but cut off before the
+        # closing brace (the model hit its token budget). The old parser gave
+        # up, rendering the fence line as the summary and the raw JSON lines as
+        # numbered "steps". The repair must recover the completed fields.
+        truncated = (
+            "```json\n"
+            "{\n"
+            '  "branch": "feature/improve-command-response-text-readability",\n'
+            '  "summary": "Improve readability of command response text",\n'
+            '  "files": [\n'
+            '    "ui-core/CommandResponseFormatter.kt",\n'
+            '    "ui-core/CommandResponseFormatterTest.kt",\n'
+            '    "ui-models/CommandResponse.kt",'
+        )
+
+        document = parse_plan_document(truncated, "improve readability")
+
+        self.assertEqual(document.summary, "Improve readability of command response text")
+        self.assertEqual(document.branch, "feature/improve-command-response-text-readability")
+        # All three completed file entries survive; nothing is dumped as steps.
+        self.assertEqual(len(document.files), 3)
+        self.assertIn("ui-models/CommandResponse.kt", document.files)
+        self.assertNotIn("```json", document.summary)
+
+    def test_plan_json_with_prose_preamble_is_parsed(self) -> None:
+        plan_text = (
+            "Here is my implementation plan:\n\n```json\n"
+            + json.dumps({"branch": "feature/x", "summary": "Do the thing", "files": ["A.kt"]})
+            + "\n```\nLet me know if you'd like changes."
+        )
+
+        document = parse_plan_document(plan_text, "the thing")
+
+        self.assertEqual(document.summary, "Do the thing")
+        self.assertEqual(document.files, ["A.kt"])
+        self.assertNotIn("Here is my", document.summary)
+
     def test_unparseable_plan_still_directs_implementation(self) -> None:
         document = parse_plan_document("just do the thing", "the thing")
         self.assertIn("Edit the files directly", document.codex_prompt)

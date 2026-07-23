@@ -9,6 +9,7 @@ from ai_agent.anthropic_limits import get_anthropic_limits
 from ai_agent.ci import build_failure_context, evaluate_ci
 from ai_agent.codex_status import get_codex_status
 from ai_agent.config import (
+    ANTHROPIC_KEY,
     CHAT_ID,
     CI_FIX_ATTEMPTS,
     CI_POLL_INTERVAL_SECONDS,
@@ -32,7 +33,15 @@ from ai_agent.plan_state import (
     render_plan,
     revise_plan_state,
 )
-from ai_agent.planner import assess_bugfix_report, build_bugfix_prompt, bugfix_questions, plan_feature, revise_feature_plan
+from ai_agent.planner import (
+    assess_bugfix_report,
+    build_bugfix_prompt,
+    bugfix_questions,
+    normalize_planning_agent,
+    plan_feature,
+    planning_agent_label,
+    revise_feature_plan,
+)
 from ai_agent.self_update import check_and_apply_update, schedule_restart
 from ai_agent.ai_tools import all_info, get_tool, known_tools
 from ai_agent.projects import (
@@ -74,6 +83,7 @@ BOT_COMMANDS = [
     BotCommand("answer", "Answer bugfix questions"),
     BotCommand("confirm", "Queue approved work and run tasks"),
     BotCommand("queue", "Show queued work"),
+    BotCommand("planner", "Choose Codex or Claude for planning"),
     BotCommand("agent", "Choose Codex or Claude for implementation"),
     BotCommand("fixpr", "Repair failed CI on an existing PR"),
     BotCommand("cancel", "Discard pending work"),
@@ -82,7 +92,7 @@ BOT_COMMANDS = [
     BotCommand("show", "Show one file diff"),
     BotCommand("pr", "Show the last PR URL"),
     BotCommand("logs", "Show logs"),
-    BotCommand("limits", "Show Claude API limits"),
+    BotCommand("limits", "Show Codex and Claude limits/status"),
     BotCommand("model", "Show or switch the Claude model"),
     BotCommand("codex", "Show Codex status"),
     BotCommand("test", "Run agent unit tests"),
@@ -311,10 +321,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         f"Repository: {project.github_repository} [{project.base_branch}]\n"
         f"Path: {project.repo_path}\n\n"
         "Planning workflow:\n"
+        "0. /planner codex|claude - choose who writes the plan\n"
+        "   /agent codex|claude - choose who implements it\n"
         "1. plan <feature>\n"
         "2. discuss <feedback> as needed\n"
         "3. /approve\n"
         "4. /confirm\n\n"
+        "Provider examples:\n"
+        "/planner codex + /agent codex = Codex plans and implements\n"
+        "/planner claude + /agent codex = Claude plans, Codex implements\n"
+        "Use /planner or /agent without an option to show the current choice.\n\n"
         "Existing PR repair:\n"
         "fixpr <pr-number> - repair failed CI on an existing same-repository PR branch\n\n"
         "Commands:\n"
@@ -328,7 +344,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "answer <details> - answer pending bugfix clarification questions\n"
         "/confirm - add approved work to the FIFO queue and run queued tasks\n"
         "/queue - show the running task and pending FIFO queue\n"
-        "agent codex|claude - choose the AI used for task implementation\n"
+        "planner [codex|claude] - show or choose planning and bug-triage AI\n"
+        "agent [codex|claude] - show or choose implementation and CI-repair AI\n"
         "verbosity concise|normal|debug - set output detail\n"
         "/diff - show changed files and line counts from the last run\n"
         "show <file-number> - show a specific file diff from the last run\n"
@@ -341,7 +358,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "cancel [task-id] - discard pending work or remove a queued task\n"
         "ci <pr-number> - show current GitHub Actions result for a PR\n"
         "fixpr <pr-number> - repair failed CI on an existing same-repository PR\n"
-        "/limits - show remaining Claude API rate limits\n"
+        "limits [all|codex|claude|planner|agent] - show provider limits/status\n"
         "/model - list AI tools + models; /model <tool> set <name> to switch\n"
         "/codex - show Codex CLI/login status\n"
         "/test - run agent unit tests\n"
@@ -403,7 +420,31 @@ async def limits(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not require_authorized(update):
         return
 
-    result = await asyncio.to_thread(get_anthropic_limits)
+    requested = context.args[0].strip().lower() if context.args else "all"
+    if requested == "planner":
+        requested = current_planning_agent(context)
+    elif requested == "agent":
+        requested = current_implementation_agent(context)
+
+    if requested not in {"all", "codex", "claude"}:
+        await reply_chunks(update, "Usage: /limits [all|codex|claude|planner|agent]")
+        return
+
+    async def claude_limits() -> str:
+        if not ANTHROPIC_KEY:
+            return "Claude API limits:\n- Unavailable: ANTHROPIC_API_KEY is not configured."
+        return await asyncio.to_thread(get_anthropic_limits)
+
+    if requested == "codex":
+        result = await asyncio.to_thread(get_codex_status)
+    elif requested == "claude":
+        result = await claude_limits()
+    else:
+        codex_result, claude_result = await asyncio.gather(
+            asyncio.to_thread(get_codex_status),
+            claude_limits(),
+        )
+        result = f"{codex_result}\n\n{claude_result}"
     await reply_chunks(update, result)
 
 
@@ -417,6 +458,33 @@ async def codex_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 def current_implementation_agent(context: ContextTypes.DEFAULT_TYPE) -> str:
     return normalize_implementation_agent(str(context.user_data.get("implementation_agent", "")) or None)
+
+
+def current_planning_agent(context: ContextTypes.DEFAULT_TYPE) -> str:
+    return normalize_planning_agent(str(context.user_data.get("planning_agent", "")) or None)
+
+
+async def planner_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not require_authorized(update):
+        return
+
+    if not context.args:
+        selected = current_planning_agent(context)
+        await reply_chunks(
+            update,
+            f"Planning agent: {planning_agent_label(selected)}\n\n"
+            "Use /planner codex or /planner claude.",
+        )
+        return
+
+    try:
+        selected = normalize_planning_agent(context.args[0])
+    except ValueError as exc:
+        await reply_chunks(update, str(exc))
+        return
+
+    context.user_data["planning_agent"] = selected
+    await reply_chunks(update, f"Planning agent set to {planning_agent_label(selected)}.")
 
 
 async def agent_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -455,8 +523,9 @@ async def plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await reply_chunks(update, "Usage: /plan <feature description>")
         return
 
-    await reply_chunks(update, "Planning with Claude...")
-    plan_text = await asyncio.to_thread(plan_feature, feature)
+    provider = current_planning_agent(context)
+    await reply_chunks(update, f"Planning with {planning_agent_label(provider)}...")
+    plan_text = await asyncio.to_thread(plan_feature, feature, provider)
     plan_state = new_plan_state(feature, plan_text)
     context.user_data["pending_plan"] = plan_state
     forget_pending_implementation(context)
@@ -476,8 +545,15 @@ async def discuss(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await reply_chunks(update, "Usage: /discuss <plan feedback>")
         return
 
-    await reply_chunks(update, "Revising plan with Claude...")
-    plan_text = await asyncio.to_thread(revise_feature_plan, plan_state.feature, plan_state.plan_text, feedback)
+    provider = current_planning_agent(context)
+    await reply_chunks(update, f"Revising plan with {planning_agent_label(provider)}...")
+    plan_text = await asyncio.to_thread(
+        revise_feature_plan,
+        plan_state.feature,
+        plan_state.plan_text,
+        feedback,
+        provider,
+    )
     revised = revise_plan_state(plan_state, plan_text)
     context.user_data["pending_plan"] = revised
     forget_pending_implementation(context)
@@ -541,8 +617,9 @@ async def implement_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await reply_chunks(update, "Usage: /implement <feature description>")
         return
 
-    await reply_chunks(update, "Planning with Claude...")
-    plan_text = await asyncio.to_thread(plan_feature, feature)
+    provider = current_planning_agent(context)
+    await reply_chunks(update, f"Planning with {planning_agent_label(provider)}...")
+    plan_text = await asyncio.to_thread(plan_feature, feature, provider)
     plan_state = new_plan_state(feature, plan_text)
     plan_state.approved = True
     context.user_data["pending_plan"] = plan_state
@@ -567,7 +644,7 @@ async def bugfix_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         return
 
     await reply_chunks(update, "Checking whether the bug report is actionable...")
-    questions = await asyncio.to_thread(get_bugfix_questions, bug)
+    questions = await asyncio.to_thread(get_bugfix_questions, bug, current_planning_agent(context))
     if questions:
         context.user_data["pending_bugfix_clarification"] = {"bug": bug, "branch_source": bug}
         await reply_chunks(
@@ -596,7 +673,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     combined_bug = f"{pending['bug']}\n\nUser clarification:\n{details}"
     branch_source = pending.get("branch_source", pending["bug"])
     await reply_chunks(update, "Checking the updated bug report...")
-    questions = await asyncio.to_thread(get_bugfix_questions, combined_bug)
+    questions = await asyncio.to_thread(get_bugfix_questions, combined_bug, current_planning_agent(context))
     if questions:
         context.user_data["pending_bugfix_clarification"] = {"bug": combined_bug, "branch_source": branch_source}
         await reply_chunks(
@@ -610,8 +687,8 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await prepare_bugfix(update, context, combined_bug, branch_source)
 
 
-def get_bugfix_questions(bug: str) -> str | None:
-    return bugfix_questions(assess_bugfix_report(bug))
+def get_bugfix_questions(bug: str, provider: str | None = None) -> str | None:
+    return bugfix_questions(assess_bugfix_report(bug, provider))
 
 
 async def prepare_bugfix(update: Update, context: ContextTypes.DEFAULT_TYPE, bug: str, branch_source: str) -> None:
@@ -1239,6 +1316,7 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("answer", answer))
     app.add_handler(CommandHandler("confirm", confirm))
     app.add_handler(CommandHandler("queue", queue_cmd))
+    app.add_handler(CommandHandler("planner", planner_cmd))
     app.add_handler(CommandHandler("agent", agent_cmd))
     app.add_handler(CommandHandler("cancel", cancel))
     app.add_handler(CommandHandler("ci", ci))
