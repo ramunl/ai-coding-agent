@@ -37,6 +37,7 @@ from ai_agent.planner import (
     assess_bugfix_report,
     build_bugfix_prompt,
     bugfix_questions,
+    discuss_feature_plan,
     normalize_planning_agent,
     plan_feature,
     planning_agent_label,
@@ -74,7 +75,8 @@ BOT_COMMANDS = [
     BotCommand("start", "Show help"),
     BotCommand("help", "Show help"),
     BotCommand("plan", "Create a plan for discussion"),
-    BotCommand("discuss", "Revise the current plan"),
+    BotCommand("discuss", "Ask about the current plan"),
+    BotCommand("revise", "Revise the current plan"),
     BotCommand("approve", "Approve the current plan"),
     BotCommand("showplan", "Show the current plan"),
     BotCommand("history", "Show plan revisions"),
@@ -324,9 +326,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "0. /planner codex|claude - choose who writes the plan\n"
         "   /agent codex|claude - choose who implements it\n"
         "1. plan <feature>\n"
-        "2. discuss <feedback> as needed\n"
-        "3. /approve\n"
-        "4. /confirm\n\n"
+        "2. discuss <question> - ask for an opinion without changing the plan\n"
+        "3. revise <feedback> - update the plan when needed\n"
+        "4. /approve\n"
+        "5. /confirm\n\n"
         "Provider examples:\n"
         "/planner codex + /agent codex = Codex plans and implements\n"
         "/planner claude + /agent codex = Claude plans, Codex implements\n"
@@ -335,7 +338,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "fixpr <pr-number> - repair failed CI on an existing same-repository PR branch\n\n"
         "Commands:\n"
         "plan <feature> - create a plan for discussion\n"
-        "discuss <feedback> - revise the current plan\n"
+        "discuss <question> - ask about the plan without changing it\n"
+        "revise <feedback> - update the plan and create a new revision\n"
         "/approve - approve the current plan before implementation\n"
         "/showplan - show the current plan\n"
         "/history - show plan revisions\n"
@@ -540,9 +544,38 @@ async def discuss(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await reply_chunks(update, "No pending plan. Use /plan <feature> first.")
         return
 
+    question = " ".join(context.args).strip()
+    if not question:
+        await reply_chunks(update, "Usage: /discuss <question about the plan>")
+        return
+
+    provider = current_planning_agent(context)
+    await reply_chunks(update, f"Discussing plan with {planning_agent_label(provider)}...")
+    answer_text = await asyncio.to_thread(
+        discuss_feature_plan,
+        plan_state.feature,
+        plan_state.plan_text,
+        question,
+        provider,
+    )
+    await reply_chunks(
+        update,
+        f"{answer_text}\n\nPlan unchanged (Revision {plan_state.revision}). "
+        "Use /revise <feedback> to update it.",
+    )
+
+
+async def revise(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not require_authorized(update):
+        return
+    plan_state = context.user_data.get("pending_plan")
+    if not plan_state:
+        await reply_chunks(update, "No pending plan. Use /plan <feature> first.")
+        return
+
     feedback = " ".join(context.args).strip()
     if not feedback:
-        await reply_chunks(update, "Usage: /discuss <plan feedback>")
+        await reply_chunks(update, "Usage: /revise <plan feedback>")
         return
 
     provider = current_planning_agent(context)
@@ -1307,6 +1340,7 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("help", start))
     app.add_handler(CommandHandler("plan", plan))
     app.add_handler(CommandHandler("discuss", discuss))
+    app.add_handler(CommandHandler("revise", revise))
     app.add_handler(CommandHandler("approve", approve))
     app.add_handler(CommandHandler("showplan", showplan))
     app.add_handler(CommandHandler("history", history))

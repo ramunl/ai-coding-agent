@@ -124,6 +124,7 @@ class TelegramBotTests(unittest.TestCase):
                 "help",
                 "plan",
                 "discuss",
+                "revise",
                 "approve",
                 "showplan",
                 "history",
@@ -190,6 +191,8 @@ class TelegramBotTests(unittest.TestCase):
         self.assertIn("/queue", help_text)
         self.assertIn("/planner codex + /agent codex = Codex plans and implements", help_text)
         self.assertIn("/planner claude + /agent codex = Claude plans, Codex implements", help_text)
+        self.assertIn("discuss <question> - ask about the plan without changing it", help_text)
+        self.assertIn("revise <feedback> - update the plan and create a new revision", help_text)
         self.assertIn("planner [codex|claude]", help_text)
         self.assertIn("agent [codex|claude]", help_text)
         self.assertNotIn("/plan <feature>", help_text)
@@ -244,6 +247,63 @@ class TelegramBotTests(unittest.TestCase):
 
         self.assertEqual(context.user_data["planning_agent"], "claude")
         self.assertIn("Claude", message.replies[0])
+
+    def test_discuss_answers_without_changing_plan(self) -> None:
+        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
+        plan_state = telegram_bot.new_plan_state(
+            "Add queue support",
+            '{"branch":"feature/queue","summary":"Queue","files":[],"steps":[],"risks":[]}',
+        )
+
+        class FakeMessage:
+            def __init__(self) -> None:
+                self.replies = []
+
+            async def reply_text(self, text: str) -> None:
+                self.replies.append(text)
+
+        message = FakeMessage()
+        update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=message)
+        context = types.SimpleNamespace(
+            args=["What", "are", "the", "tradeoffs?"],
+            user_data={"pending_plan": plan_state, "planning_agent": "codex"},
+        )
+
+        with patch.object(telegram_bot, "discuss_feature_plan", return_value="The tradeoffs are..."):
+            asyncio.run(telegram_bot.discuss(update, context))
+
+        self.assertIs(context.user_data["pending_plan"], plan_state)
+        self.assertEqual(context.user_data["pending_plan"].revision, 1)
+        self.assertIn("The tradeoffs are...", "\n".join(message.replies))
+        self.assertIn("Plan unchanged (Revision 1)", "\n".join(message.replies))
+
+    def test_revise_updates_plan_revision(self) -> None:
+        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
+        plan_state = telegram_bot.new_plan_state(
+            "Add queue support",
+            '{"branch":"feature/queue","summary":"Old","files":[],"steps":[],"risks":[]}',
+        )
+        revised_text = '{"branch":"feature/queue","summary":"New","files":[],"steps":[],"risks":[]}'
+
+        class FakeMessage:
+            def __init__(self) -> None:
+                self.replies = []
+
+            async def reply_text(self, text: str) -> None:
+                self.replies.append(text)
+
+        message = FakeMessage()
+        update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=message)
+        context = types.SimpleNamespace(
+            args=["Use", "MediaQueue"],
+            user_data={"pending_plan": plan_state, "planning_agent": "codex"},
+        )
+
+        with patch.object(telegram_bot, "revise_feature_plan", return_value=revised_text):
+            asyncio.run(telegram_bot.revise(update, context))
+
+        self.assertEqual(context.user_data["pending_plan"].revision, 2)
+        self.assertEqual(context.user_data["pending_plan"].plan_text, revised_text)
 
     def test_limits_all_shows_codex_and_claude(self) -> None:
         telegram_bot = importlib.import_module("ai_agent.telegram_bot")

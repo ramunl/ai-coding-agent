@@ -102,6 +102,18 @@ Generates an implementation plan without executing it.
 - Calls: `plan_feature(feature)`
 - Returns: Branch name, files to modify, steps, Codex prompt
 
+#### `/discuss <question>`
+Asks the selected planning provider for an opinion about the pending plan.
+- Calls: `discuss_feature_plan(feature, plan, question, provider)`
+- Returns a conversational answer rather than plan JSON
+- Does not modify the pending plan, revision, history, or approval state
+
+#### `/revise <feedback>`
+Applies feedback to the pending plan.
+- Calls: `revise_feature_plan(feature, plan, feedback, provider)`
+- Replaces the plan with structured plan JSON
+- Increments the revision, records history, and clears approval
+
 #### `/implement <feature>`
 Plans a feature and stores for later confirmation.
 - Calls: `plan_feature(feature)`
@@ -212,6 +224,8 @@ Constructs and configures the Telegram bot application.
 - /start → start()
 - /help → start()
 - /plan → plan()
+- /discuss → discuss()
+- /revise → revise()
 - /implement → implement_cmd()
 - /bugfix → bugfix_cmd()
 - /answer → answer()

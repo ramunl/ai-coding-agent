@@ -30,24 +30,19 @@ def planning_agent_label(agent: str | None = None) -> str:
     return {"codex": "Codex", "claude": "Claude"}[normalize_planning_agent(agent)]
 
 
-def _codex_message(prompt: str, schema_name: str) -> str:
-    schema_path = SCHEMAS_DIR / schema_name
+def _codex_message(prompt: str, schema_name: str | None = None) -> str:
     with tempfile.NamedTemporaryFile(prefix="ai-agent-codex-", suffix=".json") as output:
-        run(
-            [
-                "codex",
-                "exec",
-                "--sandbox",
-                "read-only",
-                "--ephemeral",
-                "--output-schema",
-                str(schema_path),
-                "--output-last-message",
-                output.name,
-                prompt,
-            ],
-            timeout=CODEX_TIMEOUT_SECONDS,
-        )
+        command = [
+            "codex",
+            "exec",
+            "--sandbox",
+            "read-only",
+            "--ephemeral",
+        ]
+        if schema_name:
+            command.extend(["--output-schema", str(SCHEMAS_DIR / schema_name)])
+        command.extend(["--output-last-message", output.name, prompt])
+        run(command, timeout=CODEX_TIMEOUT_SECONDS)
         return Path(output.name).read_text(encoding="utf-8").strip()
 
 
@@ -72,6 +67,48 @@ def _planner_message(prompt: str, provider: str | None, schema_name: str, max_to
     response = _create_message(
         model=ANTHROPIC_MODEL,
         max_tokens=max_tokens,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return response.content[0].text
+
+
+def discuss_feature_plan(
+    feature_description: str,
+    current_plan: str,
+    question: str,
+    provider: str | None = None,
+) -> str:
+    enriched_feature_description = enrich_feature_description(feature_description)
+    rules_block = rules_prompt_block()
+    prompt = f"""
+You are discussing an implementation plan for the Channel Cast Android repository.
+
+{rules_block}
+Original feature request:
+{enriched_feature_description}
+
+Current plan:
+{current_plan}
+
+User question:
+{question}
+
+Answer the question directly and critically. Explain tradeoffs, risks, alternatives, or recommendations
+that help the user evaluate the plan. Do not rewrite the plan and do not return plan JSON. This is a
+discussion only; the pending plan will remain unchanged.
+    """.strip()
+
+    selected = normalize_planning_agent(provider)
+    if selected == "codex":
+        return _codex_message(prompt)
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        raise RuntimeError(
+            "Claude planning is unavailable because ANTHROPIC_API_KEY is not configured. "
+            "Use /planner codex or configure the key."
+        )
+    response = _create_message(
+        model=ANTHROPIC_MODEL,
+        max_tokens=2000,
         messages=[{"role": "user", "content": prompt}],
     )
     return response.content[0].text

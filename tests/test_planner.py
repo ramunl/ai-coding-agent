@@ -113,6 +113,22 @@ class PlannerTests(unittest.TestCase):
         self.assertIn("--ephemeral", args)
         self.assertIn("--output-schema", args)
 
+    def test_codex_discussion_does_not_require_plan_schema(self) -> None:
+        planner = importlib.import_module("ai_agent.planner")
+
+        with patch("ai_agent.planner.run") as run_mock:
+            def write_output(args, timeout):
+                output_path = args[args.index("--output-last-message") + 1]
+                with open(output_path, "w", encoding="utf-8") as output:
+                    output.write("An opinion about the plan.")
+
+            run_mock.side_effect = write_output
+            result = planner._codex_message("discuss this plan")
+
+        args = run_mock.call_args.args[0]
+        self.assertEqual(result, "An opinion about the plan.")
+        self.assertNotIn("--output-schema", args)
+
     def test_bugfix_questions_parses_ready_and_questions(self) -> None:
         planner = importlib.import_module("ai_agent.planner")
 

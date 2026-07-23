@@ -48,12 +48,14 @@ The default feature workflow is plan-first:
 
 ```text
 /plan <feature>
-/discuss <feedback>
+/discuss <question>
+/revise <feedback>
 /approve
 /confirm
 ```
 
-`/plan` creates an editable pending plan. `/discuss` revises it and increments the revision. `/approve`
+`/plan` creates an editable pending plan. `/discuss` answers questions without changing it. `/revise`
+applies feedback and increments the revision. `/approve`
 marks the current revision as ready but does not start implementation. `/confirm` adds the approved work
 to a FIFO queue and starts draining queued tasks when no runner is active. Each task runs Codex, pushes
 the branch, opens a PR, and polls CI. If CI fails, the agent reads the build failure context, runs Codex
@@ -83,7 +85,8 @@ failing. PRs from forks are rejected because the bot can only push to branches o
 Planning and implementation:
 
 - `/plan <feature>` - create an editable implementation plan.
-- `/discuss <feedback>` - revise the current pending plan.
+- `/discuss <question>` - ask for an opinion about the current plan without modifying it.
+- `/revise <feedback>` - revise the current pending plan and increment its revision.
 - `/approve` - approve the current plan without implementing it.
 - `/showplan` - show the current pending plan.
 - `/history` - show previous plan revisions.
@@ -126,7 +129,8 @@ Plan, revise, approve, and run:
 
 ```text
 /plan Add Chromecast queue support
-/discuss Use Google Cast MediaQueue instead of a custom queue manager
+/discuss What are the tradeoffs of using MediaQueue?
+/revise Use Google Cast MediaQueue instead of a custom queue manager
 /showplan
 /approve
 /confirm
