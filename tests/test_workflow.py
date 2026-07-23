@@ -54,8 +54,21 @@ class WorkflowTests(unittest.TestCase):
     def test_implementation_command_supports_claude(self) -> None:
         self.assertEqual(
             implementation_command("do work", "claude"),
-            ["claude", "-p", "do work", "--permission-mode", "bypassPermissions"],
+            ["claude", "-p", "do work", "--permission-mode", "acceptEdits"],
         )
+
+    @patch("ai_agent.workflow.CLAUDE_CODE_ARGS", ("--permission-mode", "bypassPermissions"))
+    @patch("ai_agent.workflow.os.geteuid", return_value=0)
+    def test_root_replaces_claude_bypass_permissions(self, unused_geteuid) -> None:
+        self.assertEqual(
+            implementation_command("do work", "claude"),
+            ["claude", "-p", "do work", "--permission-mode", "acceptEdits"],
+        )
+
+    @patch("ai_agent.workflow.CLAUDE_CODE_ARGS", ("--dangerously-skip-permissions",))
+    @patch("ai_agent.workflow.os.geteuid", return_value=0)
+    def test_root_removes_dangerous_claude_flag(self, unused_geteuid) -> None:
+        self.assertEqual(implementation_command("do work", "claude"), ["claude", "-p", "do work"])
 
     @patch("ai_agent.workflow.run")
     def test_repair_implementation_runs_codex_on_existing_branch(self, mock_run) -> None:
@@ -89,7 +102,7 @@ class WorkflowTests(unittest.TestCase):
         repair_implementation("fix compile error", "bugfix/example", "claude")
 
         calls = [call.args[0] for call in mock_run.call_args_list]
-        self.assertIn(["claude", "-p", "fix compile error", "--permission-mode", "bypassPermissions"], calls)
+        self.assertIn(["claude", "-p", "fix compile error", "--permission-mode", "acceptEdits"], calls)
 
     @patch("ai_agent.workflow.run")
     def test_repair_pull_request_branch_resets_from_origin_branch(self, mock_run) -> None:
