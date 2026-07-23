@@ -157,7 +157,16 @@ def render_plan(plan: PlanState) -> str:
         lines.extend(["", "Implementation:", *[f"{index}. {step}" for index, step in enumerate(document.steps, 1)]])
     if document.risks:
         lines.extend(["", "Risks:", *[f"- {risk}" for risk in document.risks]])
-    lines.extend(["", "Commands:", "- /discuss <feedback>", "- /approve", "- /cancel"])
+    lines.extend(
+        [
+            "",
+            "Commands:",
+            "- /discuss <question>",
+            "- /revise <feedback>",
+            "- /approve",
+            "- /cancel",
+        ]
+    )
     return "\n".join(lines)
 
 

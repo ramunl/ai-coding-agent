@@ -105,6 +105,8 @@ class PlanStateTests(unittest.TestCase):
         revised = revise_plan_state(plan, json.dumps({"summary": "Second", "steps": ["Do it differently"]}))
 
         self.assertIn("Revision: 2", render_plan(revised))
+        self.assertIn("- /discuss <question>", render_plan(revised))
+        self.assertIn("- /revise <feedback>", render_plan(revised))
         self.assertIn("Revision 1: First", render_history(revised))
         self.assertIn("Revision 2: Second", render_history(revised))
 
