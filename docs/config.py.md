@@ -24,7 +24,8 @@ Defines all configuration constants for the AI agent, reading from environment v
 
 ### Implementation Agent Configuration
 - **`IMPLEMENTATION_AGENT`** (default: codex): AI used for implementation and CI repair, `codex` or `claude`
-- **`CLAUDE_CODE_ARGS`** (default: `--permission-mode bypassPermissions`): Extra args passed to `claude -p`
+- **`CLAUDE_CODE_ARGS`** (default: `--permission-mode acceptEdits`): Extra args passed to `claude -p`.
+  Permission-bypass flags are removed when the service runs as root because Claude Code rejects them.
 
 ### GitHub Configuration
 - **`GITHUB_TOKEN`** (optional, default: ""): Personal access token for GitHub API
@@ -72,7 +73,7 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 export REPO_PATH="~/my-repo"
 export ANTHROPIC_MODEL="claude-sonnet-4-6"
 export IMPLEMENTATION_AGENT="codex"
-export CLAUDE_CODE_ARGS="--permission-mode bypassPermissions"
+export CLAUDE_CODE_ARGS="--permission-mode acceptEdits"
 export GITHUB_TOKEN="ghp_..."
 export GITHUB_REPOSITORY="owner/repo"
 export GITHUB_BASE_BRANCH="main"

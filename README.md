@@ -17,7 +17,8 @@ Optional values:
 - `ANTHROPIC_API_KEY`, required only when Claude is selected for planning
 - `ANTHROPIC_MODEL`, defaults to `claude-sonnet-4-6`
 - `IMPLEMENTATION_AGENT`, `codex` or `claude`, defaults to `codex`
-- `CLAUDE_CODE_ARGS`, extra Claude Code CLI args, defaults to `--permission-mode bypassPermissions`
+- `CLAUDE_CODE_ARGS`, extra Claude Code CLI args, defaults to `--permission-mode acceptEdits`;
+  unsafe permission-bypass flags are removed when the service runs as root
 - `GITHUB_REPOSITORY`, defaults to `owner/repo`
 - `GITHUB_BASE_BRANCH`, defaults to `main`
 - `COMMAND_TIMEOUT_SECONDS`, defaults to `120`

@@ -1,3 +1,4 @@
+import os
 import re
 from dataclasses import dataclass
 
@@ -28,10 +29,31 @@ def implementation_agent_label(agent: str | None = None) -> str:
     return {"codex": "Codex", "claude": "Claude"}[normalize_implementation_agent(agent)]
 
 
+def safe_claude_code_args() -> list[str]:
+    args = list(CLAUDE_CODE_ARGS)
+    if os.geteuid() != 0:
+        return args
+
+    safe_args: list[str] = []
+    skip_next = False
+    for index, value in enumerate(args):
+        if skip_next:
+            skip_next = False
+            continue
+        if value == "--dangerously-skip-permissions":
+            continue
+        if value == "--permission-mode" and index + 1 < len(args) and args[index + 1] == "bypassPermissions":
+            safe_args.extend(["--permission-mode", "acceptEdits"])
+            skip_next = True
+            continue
+        safe_args.append(value)
+    return safe_args
+
+
 def implementation_command(prompt: str, agent: str | None = None) -> list[str]:
     selected_agent = normalize_implementation_agent(agent)
     if selected_agent == "claude":
-        return ["claude", "-p", prompt, *CLAUDE_CODE_ARGS]
+        return ["claude", "-p", prompt, *safe_claude_code_args()]
     return ["codex", "exec", prompt]
 
 
