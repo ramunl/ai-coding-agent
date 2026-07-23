@@ -3,13 +3,14 @@ import logging
 from pathlib import Path
 
 from telegram import BotCommand, Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, ContextTypes, PicklePersistence
 
 from ai_agent.anthropic_limits import get_anthropic_limits
 from ai_agent.ci import build_failure_context, evaluate_ci
 from ai_agent.codex_status import get_codex_status
 from ai_agent.config import (
     ANTHROPIC_KEY,
+    BOT_STATE_FILE,
     CHAT_ID,
     CI_FIX_ATTEMPTS,
     CI_POLL_INTERVAL_SECONDS,
@@ -1330,7 +1331,11 @@ async def model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 def build_application() -> Application:
+    BOT_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    persistence = PicklePersistence(filepath=BOT_STATE_FILE)
     builder = Application.builder().token(TELEGRAM_TOKEN)
+    if hasattr(builder, "persistence"):
+        builder = builder.persistence(persistence)
     if hasattr(builder, "concurrent_updates"):
         builder = builder.concurrent_updates(True)
     if hasattr(builder, "post_init"):

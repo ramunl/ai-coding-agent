@@ -26,6 +26,7 @@ Optional values:
 - `CI_POLL_INTERVAL_SECONDS`, defaults to `30`
 - `CI_TIMEOUT_SECONDS`, defaults to `1800`
 - `CI_FIX_ATTEMPTS`, defaults to `3`
+- `BOT_STATE_FILE`, defaults to `/var/lib/ai-agent/bot-state.pickle`
 - `LINK_ALLOWED_DOMAINS`, comma-separated generic web domains to fetch, defaults to
   `developer.android.com,docs.github.com,kotlinlang.org,stackoverflow.com`
 
@@ -62,6 +63,8 @@ the branch, opens a PR, and polls CI. If CI fails, the agent reads the build fai
 on the same pushed branch to repair the errors, pushes the fix, and polls CI again. If the final repair
 attempt still fails, the bot reports the exhausted repair count and marks the implementation as failed.
 `/implement` keeps the old shortcut behavior by creating an approved plan and waiting for `/confirm`.
+Pending plans, plan history, provider selections, and other Telegram user state are persisted in
+`BOT_STATE_FILE`, so they survive normal service restarts.
 
 The queue is intentionally sequential because the bot uses one git working tree. `/queue` shows the
 running task and pending FIFO tasks. `/cancel <task-id>` removes a queued task that has not started.

@@ -13,10 +13,12 @@ class TelegramBotTests(unittest.TestCase):
             "TELEGRAM_BOT_TOKEN": os.environ.get("TELEGRAM_BOT_TOKEN"),
             "YOUR_CHAT_ID": os.environ.get("YOUR_CHAT_ID"),
             "ANTHROPIC_API_KEY": os.environ.get("ANTHROPIC_API_KEY"),
+            "BOT_STATE_FILE": os.environ.get("BOT_STATE_FILE"),
         }
         os.environ["TELEGRAM_BOT_TOKEN"] = "telegram-secret"
         os.environ["YOUR_CHAT_ID"] = "123"
         os.environ["ANTHROPIC_API_KEY"] = "anthropic-secret"
+        os.environ["BOT_STATE_FILE"] = "/tmp/ai-agent-test-state.pickle"
 
         self.previous_modules = {
             name: sys.modules.get(name)
@@ -39,6 +41,7 @@ class TelegramBotTests(unittest.TestCase):
 
         ext_module = types.ModuleType("telegram.ext")
         ext_module.ApplicationHandlerStop = type("ApplicationHandlerStop", (Exception,), {})
+        ext_module.PicklePersistence = lambda filepath: types.SimpleNamespace(filepath=filepath)
 
         class FakeApplication:
             def __init__(self) -> None:
@@ -64,6 +67,7 @@ class TelegramBotTests(unittest.TestCase):
             def __init__(self) -> None:
                 self.concurrent_updates_value = None
                 self.post_init_value = None
+                self.persistence_value = None
 
             def token(self, token: str):
                 self.token_value = token
@@ -77,10 +81,15 @@ class TelegramBotTests(unittest.TestCase):
                 self.post_init_value = callback
                 return self
 
+            def persistence(self, value):
+                self.persistence_value = value
+                return self
+
             def build(self):
                 app = FakeApplication()
                 app.concurrent_updates_value = self.concurrent_updates_value
                 app.post_init_value = self.post_init_value
+                app.persistence_value = self.persistence_value
                 return app
 
         class FakeCommandHandler:
@@ -159,6 +168,7 @@ class TelegramBotTests(unittest.TestCase):
         self.assertEqual(len(app.error_handlers), 1)
         self.assertIs(app.concurrent_updates_value, True)
         self.assertIs(app.post_init_value, telegram_bot.configure_bot_commands)
+        self.assertEqual(str(app.persistence_value.filepath), "/tmp/ai-agent-test-state.pickle")
 
     def test_project_commands_appear_in_autocomplete_menu(self) -> None:
         """Registering a handler is not enough: it must also be in BOT_COMMANDS."""

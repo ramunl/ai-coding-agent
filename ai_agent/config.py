@@ -16,6 +16,7 @@ GITHUB_REPOSITORY = os.environ.get("GITHUB_REPOSITORY", "owner/repo")
 GITHUB_BASE_BRANCH = os.environ.get("GITHUB_BASE_BRANCH", "main")
 PROJECTS_FILE = Path(os.environ.get("PROJECTS_FILE", "/etc/ai-agent-projects.json")).expanduser()
 PROJECTS_ROOT = Path(os.environ.get("PROJECTS_ROOT", "/opt/projects")).expanduser()
+BOT_STATE_FILE = Path(os.environ.get("BOT_STATE_FILE", "/var/lib/ai-agent/bot-state.pickle")).expanduser()
 RULES_ENABLED = os.environ.get("RULES_ENABLED", "true").strip().lower() not in {"false", "0", "no"}
 RULES_REPO_PATH = Path(os.environ.get("RULES_REPO_PATH", "/opt/ai-rules")).expanduser()
 RULES_REPO_URL = os.environ.get("RULES_REPO_URL", "git@github.com:ramunl/ai-rules.git")
