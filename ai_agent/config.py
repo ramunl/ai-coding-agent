@@ -8,6 +8,7 @@ CHAT_ID = int(os.environ.get("YOUR_CHAT_ID", "0"))
 REPO_PATH = Path(os.environ.get("REPO_PATH", "~/your-android-repo")).expanduser()
 ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+PLANNING_AGENT = os.environ.get("PLANNING_AGENT", "codex").strip().lower()
 IMPLEMENTATION_AGENT = os.environ.get("IMPLEMENTATION_AGENT", "codex").strip().lower()
 CLAUDE_CODE_ARGS = tuple(shlex.split(os.environ.get("CLAUDE_CODE_ARGS", "--permission-mode bypassPermissions")))
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
@@ -42,7 +43,7 @@ LINK_ALLOWED_DOMAINS = tuple(
 def validate_required_config() -> None:
     missing = [
         name
-        for name in ("TELEGRAM_BOT_TOKEN", "YOUR_CHAT_ID", "ANTHROPIC_API_KEY")
+        for name in ("TELEGRAM_BOT_TOKEN", "YOUR_CHAT_ID")
         if not os.environ.get(name)
     ]
     if missing:
@@ -50,6 +51,11 @@ def validate_required_config() -> None:
     implementation_agent = os.environ.get("IMPLEMENTATION_AGENT", "codex").strip().lower()
     if implementation_agent not in {"codex", "claude"}:
         raise RuntimeError("IMPLEMENTATION_AGENT must be codex or claude")
+    planning_agent = os.environ.get("PLANNING_AGENT", "codex").strip().lower()
+    if planning_agent not in {"codex", "claude"}:
+        raise RuntimeError("PLANNING_AGENT must be codex or claude")
+    if planning_agent == "claude" and not os.environ.get("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY is required when PLANNING_AGENT=claude")
 
 
 def redact_sensitive(text: str) -> str:

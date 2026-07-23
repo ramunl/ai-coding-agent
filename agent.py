@@ -5,7 +5,14 @@ import os
 from telegram import Update
 from telegram.ext import CommandHandler, ContextTypes
 
-from ai_agent.config import ANTHROPIC_MODEL, CHAT_ID, IMPLEMENTATION_AGENT, REPO_PATH, validate_required_config
+from ai_agent.config import (
+    ANTHROPIC_MODEL,
+    CHAT_ID,
+    IMPLEMENTATION_AGENT,
+    PLANNING_AGENT,
+    REPO_PATH,
+    validate_required_config,
+)
 from ai_agent.telegram_bot import build_application
 from ai_agent.version import get_runtime_version
 
@@ -34,7 +41,13 @@ def main() -> None:
     logging.getLogger("httpx").setLevel(logging.WARNING)
     app = build_application()
     app.add_handler(CommandHandler("version", version))
-    logger.info("Agent running with repo_path=%s model=%s implementation_agent=%s", REPO_PATH, ANTHROPIC_MODEL, IMPLEMENTATION_AGENT)
+    logger.info(
+        "Agent running with repo_path=%s model=%s planning_agent=%s implementation_agent=%s",
+        REPO_PATH,
+        ANTHROPIC_MODEL,
+        PLANNING_AGENT,
+        IMPLEMENTATION_AGENT,
+    )
     app.run_polling()
 
 

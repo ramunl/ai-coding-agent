@@ -53,7 +53,7 @@ class PlannerTests(unittest.TestCase):
 
         with patch("ai_agent.planner.kotlin_file_sample", return_value="App.kt"):
             with patch("ai_agent.planner.enrich_feature_description", return_value="enriched request"):
-                result = planner.plan_feature("original request")
+                result = planner.plan_feature("original request", "claude")
 
         prompt = planner.client.messages.kwargs["messages"][0]["content"]
         self.assertEqual(result, "planned")
@@ -68,7 +68,7 @@ class PlannerTests(unittest.TestCase):
                     "ai_agent.planner.rules_prompt_block",
                     return_value="\nMANDATORY CODING RULES\n- Avoid return operators\n",
                 ):
-                    planner.plan_feature("original request")
+                    planner.plan_feature("original request", "claude")
 
         prompt = planner.client.messages.kwargs["messages"][0]["content"]
         self.assertIn("MANDATORY CODING RULES", prompt)
@@ -88,11 +88,30 @@ class PlannerTests(unittest.TestCase):
         planner = importlib.import_module("ai_agent.planner")
 
         with patch("ai_agent.planner.enrich_feature_description", return_value="enriched bug"):
-            result = planner.assess_bugfix_report("original bug")
+            result = planner.assess_bugfix_report("original bug", "claude")
 
         prompt = planner.client.messages.kwargs["messages"][0]["content"]
         self.assertEqual(result, "planned")
         self.assertIn("Bug report:\nenriched bug", prompt)
+
+    def test_codex_planner_uses_read_only_structured_output(self) -> None:
+        planner = importlib.import_module("ai_agent.planner")
+
+        with patch("ai_agent.planner.run") as run_mock:
+            def write_output(args, timeout):
+                output_path = args[args.index("--output-last-message") + 1]
+                with open(output_path, "w", encoding="utf-8") as output:
+                    output.write('{"status":"ready","questions":[]}')
+
+            run_mock.side_effect = write_output
+            result = planner._codex_message("triage this", "bugfix_assessment.json")
+
+        args = run_mock.call_args.args[0]
+        self.assertEqual(result, '{"status":"ready","questions":[]}')
+        self.assertIn("--sandbox", args)
+        self.assertIn("read-only", args)
+        self.assertIn("--ephemeral", args)
+        self.assertIn("--output-schema", args)
 
     def test_bugfix_questions_parses_ready_and_questions(self) -> None:
         planner = importlib.import_module("ai_agent.planner")

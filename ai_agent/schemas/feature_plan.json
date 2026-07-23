@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["branch", "summary", "files", "steps", "risks"],
+  "properties": {
+    "branch": {"type": "string"},
+    "summary": {"type": "string"},
+    "files": {"type": "array", "maxItems": 8, "items": {"type": "string"}},
+    "steps": {"type": "array", "maxItems": 8, "items": {"type": "string"}},
+    "risks": {"type": "array", "maxItems": 8, "items": {"type": "string"}}
+  }
+}
