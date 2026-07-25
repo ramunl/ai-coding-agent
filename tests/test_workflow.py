@@ -49,7 +49,10 @@ class WorkflowTests(unittest.TestCase):
                     validate_branch_name(branch_name)
 
     def test_implementation_command_defaults_to_codex(self) -> None:
-        self.assertEqual(implementation_command("do work", "codex"), ["codex", "exec", "do work"])
+        self.assertEqual(
+            implementation_command("do work", "codex"),
+            ["codex", "exec", "-s", "workspace-write", "do work"],
+        )
 
     def test_implementation_command_supports_claude(self) -> None:
         self.assertEqual(
@@ -85,7 +88,7 @@ class WorkflowTests(unittest.TestCase):
 
         calls = [call.args[0] for call in mock_run.call_args_list]
         self.assertIn(["git", "checkout", "bugfix/example"], calls)
-        self.assertIn(["codex", "exec", "fix compile error"], calls)
+        self.assertIn(["codex", "exec", "-s", "workspace-write", "fix compile error"], calls)
         self.assertEqual(result.files_changed, ["File.kt"])
 
     @patch("ai_agent.workflow.run")
@@ -120,7 +123,7 @@ class WorkflowTests(unittest.TestCase):
         calls = [call.args[0] for call in mock_run.call_args_list]
         self.assertIn(["git", "fetch", "origin", "bugfix/example"], calls)
         self.assertIn(["git", "checkout", "-B", "bugfix/example", "origin/bugfix/example"], calls)
-        self.assertIn(["codex", "exec", "fix compile error"], calls)
+        self.assertIn(["codex", "exec", "-s", "workspace-write", "fix compile error"], calls)
         self.assertEqual(result.files_changed, ["File.kt"])
 
 
