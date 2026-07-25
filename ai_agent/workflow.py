@@ -54,7 +54,11 @@ def implementation_command(prompt: str, agent: str | None = None) -> list[str]:
     selected_agent = normalize_implementation_agent(agent)
     if selected_agent == "claude":
         return ["claude", "-p", prompt, *safe_claude_code_args()]
-    return ["codex", "exec", prompt]
+    # Codex has no TTY to answer a per-directory trust prompt when run non-interactively,
+    # so it silently falls back to a read-only sandbox for any repo path that isn't already
+    # marked trusted in ~/.codex/config.toml, producing "no file changes" with no error.
+    # Requesting workspace-write explicitly makes writes work regardless of ambient trust.
+    return ["codex", "exec", "-s", "workspace-write", prompt]
 
 
 def run_implementation_agent(prompt: str, agent: str | None = None):

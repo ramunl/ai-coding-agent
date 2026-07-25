@@ -56,7 +56,10 @@ Executes the selected implementation agent, Codex or Claude, to implement a feat
 2. Runs: `git checkout main` - Switch to main branch
 3. Runs: `git pull origin main` - Get latest code
 4. Runs: `git checkout -b {branch_name}` - Create new branch
-5. Runs: `codex exec {plan}` or `claude -p {plan}` - Execute the selected implementation agent
+5. Runs: `codex exec -s workspace-write {plan}` or `claude -p {plan}` - Execute the selected implementation agent.
+   Codex always gets an explicit `workspace-write` sandbox flag because it has no TTY to answer a
+   per-directory trust prompt when run non-interactively; without it, an untrusted repo path silently
+   falls back to a read-only sandbox and the agent can plan but never write files.
 
 **Timeout**: Uses `CODEX_TIMEOUT_SECONDS` (default 1800s = 30 min)
 
