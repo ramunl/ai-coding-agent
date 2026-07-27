@@ -6,6 +6,7 @@ from ai_agent.workflow import (
     implementation_command,
     repair_implementation,
     repair_pull_request_branch,
+    return_to_base_branch,
     slugify_branch_name,
     validate_branch_name,
 )
@@ -125,6 +126,18 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn(["git", "checkout", "-B", "bugfix/example", "origin/bugfix/example"], calls)
         self.assertIn(["codex", "exec", "-s", "workspace-write", "fix compile error"], calls)
         self.assertEqual(result.files_changed, ["File.kt"])
+
+    @patch("ai_agent.workflow.run")
+    @patch("ai_agent.workflow.active_project")
+    def test_return_to_base_branch_checks_out_and_pulls_base(self, mock_active_project, mock_run) -> None:
+        mock_active_project.return_value.base_branch = "main"
+        mock_run.return_value = CommandResult(["git"], 0, "ok\n")
+
+        return_to_base_branch()
+
+        calls = [call.args[0] for call in mock_run.call_args_list]
+        self.assertIn(["git", "checkout", "main"], calls)
+        self.assertIn(["git", "pull", "origin", "main"], calls)
 
 
 if __name__ == "__main__":

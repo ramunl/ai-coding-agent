@@ -63,6 +63,7 @@ from ai_agent.workflow import (
     push,
     repair_implementation,
     repair_pull_request_branch,
+    return_to_base_branch,
     slugify_branch_name,
     validate_branch_name,
 )
@@ -845,6 +846,14 @@ async def run_queued_implementation(update: Update, context: ContextTypes.DEFAUL
             await reply_chunks(update, f"Done with {confirmation_label}.\nBranch: {branch_name}\nPR: {pull_request.url}")
     finally:
         context.user_data.pop("active_execution", None)
+        await reset_to_base_branch()
+
+
+async def reset_to_base_branch() -> None:
+    try:
+        await asyncio.to_thread(return_to_base_branch)
+    except Exception:
+        logger.exception("Failed to check the repo back out to its base branch after task completion")
 
 
 async def fixpr(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -944,6 +953,7 @@ async def fixpr(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await reply_chunks(update, f"PR #{pr_number} CI did not fail within the polling window.\n{pr_url}")
     finally:
         context.user_data.pop("active_execution", None)
+        await reset_to_base_branch()
 
 
 async def watch_ci(update: Update, head_sha: str):

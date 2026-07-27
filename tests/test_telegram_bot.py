@@ -475,6 +475,7 @@ class TelegramBotTests(unittest.TestCase):
                     "repair_implementation",
                     return_value=types.SimpleNamespace(files_changed=["App.kt"], diff="diff2", output="repaired"),
                 ) as mock_repair,
+                patch.object(telegram_bot, "return_to_base_branch") as mock_return_to_base_branch,
             ):
                 asyncio.run(telegram_bot.confirm(update, context))
         finally:
@@ -484,6 +485,7 @@ class TelegramBotTests(unittest.TestCase):
         self.assertEqual(mock_push.call_count, 2)
         mock_failure_context.assert_called_once()
         mock_repair.assert_called_once()
+        mock_return_to_base_branch.assert_called_once()
         self.assertNotIn("pending_implementation", context.user_data)
         self.assertEqual(context.user_data["last_execution"].tests, "PASS")
         joined_replies = "\n\n".join(message.replies)
@@ -556,6 +558,7 @@ class TelegramBotTests(unittest.TestCase):
                         types.SimpleNamespace(number=2, url="https://example.test/pr/2", head_sha="second-sha"),
                     ],
                 ),
+                patch.object(telegram_bot, "return_to_base_branch"),
             ):
                 asyncio.run(telegram_bot.confirm(update, context))
         finally:
@@ -624,6 +627,7 @@ class TelegramBotTests(unittest.TestCase):
                     "repair_implementation",
                     return_value=types.SimpleNamespace(files_changed=["App.kt"], diff="diff2", output="repaired"),
                 ),
+                patch.object(telegram_bot, "return_to_base_branch"),
             ):
                 asyncio.run(telegram_bot.confirm(update, context))
         finally:
@@ -688,6 +692,7 @@ class TelegramBotTests(unittest.TestCase):
                     return_value=types.SimpleNamespace(files_changed=["App.kt"], diff="diff", output="repaired"),
                 ) as mock_repair,
                 patch.object(telegram_bot, "push", return_value="repair-sha") as mock_push,
+                patch.object(telegram_bot, "return_to_base_branch") as mock_return_to_base_branch,
             ):
                 asyncio.run(telegram_bot.fixpr(update, context))
         finally:
@@ -697,6 +702,7 @@ class TelegramBotTests(unittest.TestCase):
         mock_failure_context.assert_called_once()
         mock_repair.assert_called_once()
         mock_push.assert_called_once_with("bugfix/player", "PR #7 CI repair", "fix")
+        mock_return_to_base_branch.assert_called_once()
         self.assertEqual(context.user_data["last_execution"].tests, "PASS")
 
 

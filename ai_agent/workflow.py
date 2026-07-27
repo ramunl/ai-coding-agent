@@ -132,6 +132,12 @@ def repair_pull_request_branch(prompt: str, branch_name: str, agent: str | None 
     return ImplementationResult(output=agent_result.output, files_changed=files_changed, diff=diff)
 
 
+def return_to_base_branch() -> None:
+    base_branch = active_project().base_branch
+    run(["git", "checkout", base_branch])
+    run(["git", "pull", "origin", base_branch])
+
+
 def changed_files() -> list[str]:
     output = run(["git", "status", "--porcelain"]).output
     names = [line[3:].strip() for line in output.splitlines() if len(line) > 3]
