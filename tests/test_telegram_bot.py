@@ -151,6 +151,7 @@ class TelegramBotTests(unittest.TestCase):
                 "repo_use",
                 "repo_remove",
                 "branches",
+                "branch",
                 "status",
                 "logs",
             ],
@@ -331,6 +332,130 @@ class TelegramBotTests(unittest.TestCase):
         output = "\n".join(message.replies)
         self.assertIn("Running: feature/running", output)
         self.assertIn("#3 feature/queued", output)
+
+    def test_branch_shows_current_branch_without_args(self) -> None:
+        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
+
+        class FakeMessage:
+            def __init__(self) -> None:
+                self.replies = []
+
+            async def reply_text(self, text: str) -> None:
+                self.replies.append(text)
+
+        message = FakeMessage()
+        update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=message)
+        context = types.SimpleNamespace(args=[], user_data={})
+
+        def fake_run(args, cwd=None, timeout=None, interactive=False):
+            self.assertEqual(args, ["git", "branch", "--show-current"])
+            return types.SimpleNamespace(output="main\n")
+
+        with patch.object(telegram_bot, "run", fake_run):
+            asyncio.run(telegram_bot.branch(update, context))
+
+        self.assertIn("Current branch: main", message.replies[0])
+
+    def test_branch_switches_to_requested_branch(self) -> None:
+        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
+
+        class FakeMessage:
+            def __init__(self) -> None:
+                self.replies = []
+
+            async def reply_text(self, text: str) -> None:
+                self.replies.append(text)
+
+        message = FakeMessage()
+        update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=message)
+        context = types.SimpleNamespace(args=["main"], user_data={})
+
+        calls = []
+
+        def fake_run(args, cwd=None, timeout=None, interactive=False):
+            calls.append(args)
+            return types.SimpleNamespace(output="On branch main\nnothing to commit, working tree clean\n")
+
+        with patch.object(telegram_bot, "run", fake_run):
+            asyncio.run(telegram_bot.branch(update, context))
+
+        self.assertEqual(calls[0], ["git", "checkout", "main"])
+        self.assertIn("Switched to branch: main", message.replies[0])
+
+    def test_branch_falls_back_to_remote_when_local_checkout_fails(self) -> None:
+        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
+
+        class FakeMessage:
+            def __init__(self) -> None:
+                self.replies = []
+
+            async def reply_text(self, text: str) -> None:
+                self.replies.append(text)
+
+        message = FakeMessage()
+        update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=message)
+        context = types.SimpleNamespace(args=["feature/remote-only"], user_data={})
+
+        calls = []
+
+        def fake_run(args, cwd=None, timeout=None, interactive=False):
+            calls.append(args)
+            if args == ["git", "checkout", "feature/remote-only"]:
+                raise RuntimeError("Command failed (1): git checkout feature/remote-only\npathspec did not match")
+            return types.SimpleNamespace(output="On branch feature/remote-only\n")
+
+        with patch.object(telegram_bot, "run", fake_run):
+            asyncio.run(telegram_bot.branch(update, context))
+
+        self.assertEqual(
+            calls,
+            [
+                ["git", "checkout", "feature/remote-only"],
+                ["git", "fetch", "origin", "feature/remote-only"],
+                ["git", "checkout", "-B", "feature/remote-only", "origin/feature/remote-only"],
+                ["git", "status"],
+            ],
+        )
+        self.assertIn("Switched to branch: feature/remote-only", message.replies[0])
+
+    def test_branch_blocked_while_implementation_running(self) -> None:
+        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
+
+        class FakeMessage:
+            def __init__(self) -> None:
+                self.replies = []
+
+            async def reply_text(self, text: str) -> None:
+                self.replies.append(text)
+
+        message = FakeMessage()
+        update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=message)
+        context = types.SimpleNamespace(
+            args=["main"],
+            user_data={"active_execution": {"branch": "feature/running", "phase": "Polling CI", "status": "RUNNING"}},
+        )
+
+        asyncio.run(telegram_bot.branch(update, context))
+
+        self.assertIn("An implementation is already running.", message.replies[0])
+
+    def test_branch_rejects_invalid_branch_name(self) -> None:
+        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
+
+        class FakeMessage:
+            def __init__(self) -> None:
+                self.replies = []
+
+            async def reply_text(self, text: str) -> None:
+                self.replies.append(text)
+
+        message = FakeMessage()
+        update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=message)
+        context = types.SimpleNamespace(args=["../etc/passwd"], user_data={})
+
+        asyncio.run(telegram_bot.branch(update, context))
+
+        self.assertIn("Invalid branch name", message.replies[0])
 
     def test_cancel_removes_queued_task_by_id(self) -> None:
         telegram_bot = importlib.import_module("ai_agent.telegram_bot")

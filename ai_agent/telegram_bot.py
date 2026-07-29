@@ -103,6 +103,7 @@ BOT_COMMANDS = [
     BotCommand("repo_use", "Switch the active project"),
     BotCommand("repo_remove", "Unregister a project"),
     BotCommand("branches", "List branches"),
+    BotCommand("branch", "Show or switch the current branch"),
     BotCommand("status", "Show active or git status"),
 ]
 
@@ -365,6 +366,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/test - run agent unit tests\n"
         "/pull - self-update: fetch, run tests, restart only if they pass\n"
         "/branches - list branches\n"
+        "/branch [name] - show current branch, or switch to <name>\n"
         "/status - running implementation status, or git status when idle\n"
         "/help - show this help",
     )
@@ -375,6 +377,42 @@ async def branches(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     result = await asyncio.to_thread(run, ["git", "branch", "-a"])
     await reply_chunks(update, f"Branches:\n{result.output}")
+
+
+async def branch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not require_authorized(update):
+        return
+
+    if not context.args:
+        result = await asyncio.to_thread(run, ["git", "branch", "--show-current"])
+        current = result.output.strip() or "(detached HEAD)"
+        await reply_chunks(update, f"Current branch: {current}\n\nUsage: /branch <name> - switch branches")
+        return
+
+    active_text = active_execution_text(context)
+    if active_text:
+        await reply_chunks(update, f"An implementation is already running.\n\n{active_text}")
+        return
+
+    branch_name = context.args[0]
+    try:
+        validate_branch_name(branch_name)
+    except ValueError as error:
+        await reply_chunks(update, str(error))
+        return
+
+    try:
+        await asyncio.to_thread(run, ["git", "checkout", branch_name])
+    except RuntimeError:
+        try:
+            await asyncio.to_thread(run, ["git", "fetch", "origin", branch_name])
+            await asyncio.to_thread(run, ["git", "checkout", "-B", branch_name, f"origin/{branch_name}"])
+        except RuntimeError as error:
+            await reply_chunks(update, f"Could not switch to '{branch_name}':\n{redact_sensitive(str(error))}")
+            return
+
+    result = await asyncio.to_thread(run, ["git", "status"])
+    await reply_chunks(update, f"Switched to branch: {branch_name}\n\n{result.output}")
 
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1344,6 +1382,7 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("repo_use", repo_use))
     app.add_handler(CommandHandler("repo_remove", repo_remove))
     app.add_handler(CommandHandler("branches", branches))
+    app.add_handler(CommandHandler("branch", branch))
     app.add_handler(CommandHandler("status", status))
     app.add_handler(CommandHandler("logs", logs))
     app.add_error_handler(error_handler)

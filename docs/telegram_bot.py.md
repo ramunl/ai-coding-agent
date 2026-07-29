@@ -56,6 +56,7 @@ an incomplete command when the user taps it. Users still type the slash when run
 - /codex - Show Codex CLI status
 - /test - Run agent unit tests
 - /branches - List git branches
+- branch [name] - Show current branch, or switch to \<name\>
 - /status - Show git status
 - logs \[lines\] - Show recent service logs
 
@@ -64,6 +65,13 @@ an incomplete command when the user taps it. Users still type the slash when run
 #### `/branches`
 Lists all git branches (local and remote).
 - Runs: `git branch -a`
+
+#### `/branch [name]`
+Shows the current branch, or switches to it.
+- No args: runs `git branch --show-current`
+- With a branch name: blocked while an implementation is actively running
+- Validates the name, then runs `git checkout <name>`
+- Falls back to `git fetch origin <name>` + `git checkout -B <name> origin/<name>` if the branch doesn't exist locally
 
 #### `/status`
 Shows git status.
@@ -222,6 +230,7 @@ Constructs and configures the Telegram bot application.
 - /codex → codex_status()
 - /test → test()
 - /branches → branches()
+- /branch → branch()
 - /status → status()
 - /logs → logs()
 - Global error handler
