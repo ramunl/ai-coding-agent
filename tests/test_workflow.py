@@ -8,6 +8,7 @@ from ai_agent.workflow import (
     repair_pull_request_branch,
     return_to_base_branch,
     slugify_branch_name,
+    truncate_slug,
     validate_branch_name,
 )
 
@@ -32,6 +33,28 @@ class WorkflowTests(unittest.TestCase):
         branch = slugify_branch_name("Channel proxy on/off restarts cast (TV): [bad]?")
 
         self.assertEqual(branch, "feature/channel-proxy-on-off-restarts-cast-tv-bad")
+
+    def test_slugify_branch_name_truncates_at_word_boundary(self) -> None:
+        description = (
+            "telegram bot doesn't show an inline hint listing all available "
+            "slash commands immediately after the user types the '/' character"
+        )
+
+        branch = slugify_branch_name(description, "bugfix")
+
+        self.assertLessEqual(len(branch), len("bugfix/") + 60)
+        self.assertFalse(branch.endswith("-"))
+        # Every remaining segment should be a whole word, never a chopped fragment.
+        for word in branch.removeprefix("bugfix/").split("-"):
+            self.assertIn(word, description.lower())
+
+    def test_truncate_slug_falls_back_to_hard_cut_for_single_long_word(self) -> None:
+        slug = truncate_slug("a" * 100, 60)
+
+        self.assertEqual(slug, "a" * 60)
+
+    def test_truncate_slug_keeps_short_slug_unchanged(self) -> None:
+        self.assertEqual(truncate_slug("short-slug", 60), "short-slug")
 
     def test_validate_branch_name_rejects_invalid_names(self) -> None:
         invalid_names = [

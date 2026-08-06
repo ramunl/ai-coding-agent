@@ -65,7 +65,7 @@ def run_implementation_agent(prompt: str, agent: str | None = None):
     return run(implementation_command(prompt, agent), timeout=CODEX_TIMEOUT_SECONDS)
 
 
-def slugify_branch_name(change_description: str, prefix: str = "feature") -> str:
+def slugify_branch_name(change_description: str, prefix: str = "feature", max_slug_length: int = 60) -> str:
     validate_branch_prefix(prefix)
     slug = change_description.lower().strip()
     slug = re.sub(r"[/\\:?*\[\]().]+", "-", slug)
@@ -73,9 +73,22 @@ def slugify_branch_name(change_description: str, prefix: str = "feature") -> str
     slug = re.sub(r"-{2,}", "-", slug).strip("-./")
     if not slug:
         slug = "change"
-    branch_name = f"{prefix}/{slug[:80].strip('-./')}"
+    slug = truncate_slug(slug, max_slug_length)
+    branch_name = f"{prefix}/{slug}"
     validate_branch_name(branch_name)
     return branch_name
+
+
+def truncate_slug(slug: str, max_length: int) -> str:
+    if len(slug) <= max_length:
+        return slug
+    truncated = slug[:max_length]
+    # Prefer cutting at a word boundary so we don't leave a chopped-off
+    # fragment like "...slash-commands-im" (from "...commands-immediately").
+    last_hyphen = truncated.rfind("-")
+    if last_hyphen > 0:
+        truncated = truncated[:last_hyphen]
+    return truncated.strip("-./")
 
 
 def validate_branch_prefix(prefix: str) -> None:
