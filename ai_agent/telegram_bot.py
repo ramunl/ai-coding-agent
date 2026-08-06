@@ -132,6 +132,19 @@ async def reply_chunks(update: Update, text: str) -> None:
         await update.message.reply_text(text[start : start + MAX_TELEGRAM_MESSAGE_LENGTH])
 
 
+async def send_rich_message(update: Update, context: ContextTypes.DEFAULT_TYPE, blocks: list[dict]) -> None:
+    """Send structured rich-text blocks without interpolating dynamic markup."""
+    if not update.effective_chat:
+        return
+    await context.bot._post(
+        "sendRichMessage",
+        data={
+            "chat_id": update.effective_chat.id,
+            "rich_message": {"blocks": blocks, "skip_entity_detection": True},
+        },
+    )
+
+
 def get_verbosity(context: ContextTypes.DEFAULT_TYPE) -> Verbosity:
     value = context.user_data.get("verbosity", Verbosity.CONCISE.value)
     return parse_verbosity(str(value)) or Verbosity.CONCISE
@@ -1139,12 +1152,26 @@ async def repo_list(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not require_authorized(update):
         return
     current = active_project()
-    lines = ["Projects:"]
+    blocks = [{"type": "heading", "size": 2, "text": "Repositories"}]
     for project in list_projects():
-        marker = "*" if project.name == current.name else " "
-        lines.append(f"{marker} {project.name} - {project.github_repository} [{project.base_branch}]")
-    lines.extend(["", "Active is marked with *.", "Switch with: /repo_use <name>"])
-    await reply_chunks(update, "\n".join(lines))
+        is_active = project.name == current.name
+        blocks.append({
+            "type": "paragraph",
+            "text": [
+                "✓ " if is_active else "",
+                {"type": "bold", "text": project.name},
+                "\nPath: ",
+                {"type": "code", "text": str(project.repo_path)},
+                "\nBranch: ",
+                {"type": "code", "text": project.base_branch},
+                " — active" if is_active else "",
+            ],
+        })
+    blocks.append({
+        "type": "paragraph",
+        "text": ["Switch with: ", {"type": "code", "text": "/repo_use <name>"}],
+    })
+    await send_rich_message(update, context, blocks)
 
 
 async def repo_add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

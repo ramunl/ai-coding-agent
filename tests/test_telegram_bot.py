@@ -4,7 +4,8 @@ import sys
 import types
 import unittest
 import asyncio
-from unittest.mock import patch
+from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 
 class TelegramBotTests(unittest.TestCase):
@@ -168,6 +169,69 @@ class TelegramBotTests(unittest.TestCase):
 
         for name in ("repo_list", "repo_add", "repo_use", "repo_remove"):
             self.assertIn(name, menu)
+
+    def test_repo_list_marks_only_the_active_repository(self) -> None:
+        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
+        from ai_agent.projects import Project
+
+        projects = [
+            Project("alpha", Path("/srv/alpha"), "owner/alpha", "main", "alpha"),
+            Project("beta", Path("/srv/beta"), "owner/beta", "develop", "beta"),
+        ]
+        update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=object())
+        context = types.SimpleNamespace(bot=types.SimpleNamespace(_post=AsyncMock()))
+
+        with (
+            patch.object(telegram_bot, "active_project", return_value=projects[1]),
+            patch.object(telegram_bot, "list_projects", return_value=projects),
+        ):
+            asyncio.run(telegram_bot.repo_list(update, context))
+
+        paragraphs = context.bot._post.await_args.kwargs["data"]["rich_message"]["blocks"][1:3]
+        self.assertNotIn("✓ ", paragraphs[0]["text"])
+        self.assertEqual(paragraphs[1]["text"][0], "✓ ")
+        self.assertNotIn(" — active", paragraphs[0]["text"])
+        self.assertIn(" — active", paragraphs[1]["text"])
+
+    def test_repo_list_preserves_special_characters_in_exact_payload(self) -> None:
+        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
+        from ai_agent.projects import Project
+
+        project = Project("repo<&`*", Path("/srv/a <b> & `c`"), "owner/repo", "feature/<safe>&*", "rules")
+        update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=object())
+        context = types.SimpleNamespace(bot=types.SimpleNamespace(_post=AsyncMock()))
+
+        with (
+            patch.object(telegram_bot, "active_project", return_value=project),
+            patch.object(telegram_bot, "list_projects", return_value=[project]),
+        ):
+            asyncio.run(telegram_bot.repo_list(update, context))
+
+        context.bot._post.assert_awaited_once_with(
+            "sendRichMessage",
+            data={
+                "chat_id": 123,
+                "rich_message": {
+                    "blocks": [
+                        {"type": "heading", "size": 2, "text": "Repositories"},
+                        {"type": "paragraph", "text": [
+                            "✓ ",
+                            {"type": "bold", "text": "repo<&`*"},
+                            "\nPath: ",
+                            {"type": "code", "text": "/srv/a <b> & `c`"},
+                            "\nBranch: ",
+                            {"type": "code", "text": "feature/<safe>&*"},
+                            " — active",
+                        ]},
+                        {"type": "paragraph", "text": [
+                            "Switch with: ",
+                            {"type": "code", "text": "/repo_use <name>"},
+                        ]},
+                    ],
+                    "skip_entity_detection": True,
+                },
+            },
+        )
 
     def test_help_text_includes_fixpr_description(self) -> None:
         telegram_bot = importlib.import_module("ai_agent.telegram_bot")
