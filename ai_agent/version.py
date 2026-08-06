@@ -32,7 +32,7 @@ def get_git_commit() -> str:
 
 def get_runtime_version() -> str:
     return (
-        f"ai_agent v{get_version()}\n"
+        f"ai-coding-agent v{get_version()}\n"
         f"branch: {get_git_branch()}\n"
         f"commit: {get_git_commit()}"
     )
