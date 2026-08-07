@@ -93,6 +93,7 @@ BOT_COMMANDS = [
     BotCommand("show", "Show one file diff"),
     BotCommand("pr", "Show the last PR URL"),
     BotCommand("logs", "Show logs"),
+    BotCommand("verbosity", "Show or set reply verbosity"),
     BotCommand("limits", "Show Codex and Claude limits/status"),
     BotCommand("model", "Show or switch the Claude model"),
     BotCommand("codex", "Show Codex status"),
