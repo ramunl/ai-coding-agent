@@ -76,7 +76,7 @@ class PlanStateTests(unittest.TestCase):
         document = parse_plan_document(truncated, "improve readability")
 
         self.assertEqual(document.summary, "Improve readability of command response text")
-        self.assertEqual(document.branch, "feature/improve-command-response-text-readability")
+        self.assertEqual(document.branch, "feature/improve-command")
         # All three completed file entries survive; nothing is dumped as steps.
         self.assertEqual(len(document.files), 3)
         self.assertIn("ui-models/CommandResponse.kt", document.files)

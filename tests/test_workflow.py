@@ -17,7 +17,7 @@ class WorkflowTests(unittest.TestCase):
     def test_slugify_branch_name_normalizes_feature_text(self) -> None:
         branch = slugify_branch_name("Add per-channel proxy toggle!")
 
-        self.assertEqual(branch, "feature/add-per-channel-proxy-toggle")
+        self.assertEqual(branch, "feature/add-per-channel")
 
     def test_slugify_branch_name_falls_back_for_empty_text(self) -> None:
         branch = slugify_branch_name("...")
@@ -27,12 +27,12 @@ class WorkflowTests(unittest.TestCase):
     def test_slugify_branch_name_accepts_bugfix_prefix(self) -> None:
         branch = slugify_branch_name("Player crashes after rotation", "bugfix")
 
-        self.assertEqual(branch, "bugfix/player-crashes-after-rotation")
+        self.assertEqual(branch, "bugfix/player-crashes")
 
     def test_slugify_branch_name_replaces_reserved_path_characters(self) -> None:
         branch = slugify_branch_name("Channel proxy on/off restarts cast (TV): [bad]?")
 
-        self.assertEqual(branch, "feature/channel-proxy-on-off-restarts-cast-tv-bad")
+        self.assertEqual(branch, "feature/channel-proxy-on")
 
     def test_slugify_branch_name_truncates_at_word_boundary(self) -> None:
         description = (
@@ -42,7 +42,7 @@ class WorkflowTests(unittest.TestCase):
 
         branch = slugify_branch_name(description, "bugfix")
 
-        self.assertLessEqual(len(branch), len("bugfix/") + 60)
+        self.assertLessEqual(len(branch.removeprefix("bugfix/")), 20)
         self.assertFalse(branch.endswith("-"))
         # Every remaining segment should be a whole word, never a chopped fragment.
         for word in branch.removeprefix("bugfix/").split("-"):
