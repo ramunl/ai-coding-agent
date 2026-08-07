@@ -51,7 +51,7 @@ class PlannerTests(unittest.TestCase):
     def test_plan_feature_uses_enriched_feature_description(self) -> None:
         planner = importlib.import_module("ai_agent.planner")
 
-        with patch("ai_agent.planner.kotlin_file_sample", return_value="App.kt"):
+        with patch("ai_agent.planner.repo_file_sample", return_value="App.kt"):
             with patch("ai_agent.planner.enrich_feature_description", return_value="enriched request"):
                 result = planner.plan_feature("original request", "claude")
 
@@ -62,7 +62,7 @@ class PlannerTests(unittest.TestCase):
     def test_plan_feature_injects_rules_block(self) -> None:
         planner = importlib.import_module("ai_agent.planner")
 
-        with patch("ai_agent.planner.kotlin_file_sample", return_value="App.kt"):
+        with patch("ai_agent.planner.repo_file_sample", return_value="App.kt"):
             with patch("ai_agent.planner.enrich_feature_description", return_value="enriched request"):
                 with patch(
                     "ai_agent.planner.rules_prompt_block",

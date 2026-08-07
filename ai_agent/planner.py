@@ -100,26 +100,27 @@ IMPLEMENTATION_QUESTION_PATTERNS = (
 )
 
 
-BUGFIX_SEARCH_KEYWORDS = (
-    "cast",
-    "casting",
-    "channel",
-    "proxy",
-    "url",
-    "toggle",
-    "player",
-    "session",
-    "chromecast",
-    "restart",
-)
+SOURCE_EXTENSIONS = {
+    ".kt", ".kts", ".java", ".xml", ".gradle", ".properties",
+    ".py", ".js", ".jsx", ".ts", ".tsx", ".go", ".rb", ".rs",
+    ".c", ".h", ".cpp", ".hpp", ".cs", ".php", ".swift", ".m",
+    ".sh", ".yaml", ".yml", ".json", ".toml",
+}
+
+EXCLUDED_DIR_NAMES = {
+    "build", ".gradle", "node_modules", ".git", ".venv", "venv",
+    "dist", "target", "__pycache__", ".mypy_cache", ".pytest_cache",
+}
 
 
-def kotlin_file_sample() -> str:
+def repo_file_sample() -> str:
     repo_path = active_project().repo_path
     files = []
-    for path in repo_path.rglob("*.kt"):
+    for path in repo_path.rglob("*"):
+        if not path.is_file() or path.suffix not in SOURCE_EXTENSIONS:
+            continue
         relative = path.relative_to(repo_path)
-        if "build" in relative.parts:
+        if EXCLUDED_DIR_NAMES.intersection(relative.parts):
             continue
         files.append(str(relative))
         if len(files) >= 50:
@@ -138,8 +139,7 @@ def codebase_search_context(query: str, max_files: int = 80, max_matches: int = 
     if not repo_path.exists():
         return f"Repository path does not exist: {repo_path}"
 
-    terms = set(BUGFIX_SEARCH_KEYWORDS)
-    terms.update(re.findall(r"[A-Za-z][A-Za-z0-9_]{2,}", query.lower()))
+    terms = set(re.findall(r"[A-Za-z][A-Za-z0-9_]{2,}", query.lower()))
     noisy_terms = {
         "the",
         "and",
@@ -158,13 +158,12 @@ def codebase_search_context(query: str, max_files: int = 80, max_matches: int = 
 
     files: list[str] = []
     matches: list[str] = []
-    extensions = {".kt", ".kts", ".java", ".xml", ".gradle", ".properties"}
 
     for path in repo_path.rglob("*"):
-        if not path.is_file() or path.suffix not in extensions:
+        if not path.is_file() or path.suffix not in SOURCE_EXTENSIONS:
             continue
         relative = path.relative_to(repo_path)
-        if "build" in relative.parts or ".gradle" in relative.parts:
+        if EXCLUDED_DIR_NAMES.intersection(relative.parts):
             continue
         relative_text = str(relative)
         files.append(relative_text)
@@ -195,19 +194,13 @@ def codebase_search_context(query: str, max_files: int = 80, max_matches: int = 
 
 
 def plan_feature(feature_description: str, provider: str | None = None) -> str:
-    context = kotlin_file_sample()
+    context = repo_file_sample()
     enriched_feature_description = enrich_feature_description(feature_description)
     rules_block = rules_prompt_block()
+    repository = active_project().github_repository
 
     prompt = f"""
-You are a senior Android architect working on a multi-module IPTV app called Channel Cast.
-
-Project modules:
-- app/ - Main app module
-- data-* - Data layer (storage, network, repository, prefs)
-- ui-* - UI layer (features, core, models)
-- channel-health-monitor/
-- proxy-health-monitor/
+You are a senior software engineer working on the {repository} repository.
 
 Project files sample:
 {context}
@@ -238,9 +231,10 @@ def revise_feature_plan(
 ) -> str:
     enriched_feature_description = enrich_feature_description(feature_description)
     rules_block = rules_prompt_block()
+    repository = active_project().github_repository
 
     prompt = f"""
-You are revising an implementation plan for the Channel Cast Android repository.
+You are revising an implementation plan for the {repository} repository.
 
 {rules_block}
 Original feature request:
@@ -272,8 +266,9 @@ def build_bugfix_prompt(bug_description: str) -> str:
     enriched_bug_description = enrich_feature_description(bug_description)
     search_context = codebase_search_context(enriched_bug_description)
     rules_block = rules_prompt_block()
+    repository = active_project().github_repository
     return f"""
-Fix this bug in the Channel Cast Android repository.
+Fix this bug in the {repository} repository.
 
 {rules_block}
 Bug report:
@@ -297,7 +292,7 @@ def assess_bugfix_report(bug_description: str, provider: str | None = None) -> s
     search_context = codebase_search_context(enriched_bug_description)
 
     prompt = f"""
-You are triaging a bug report for an Android coding agent that can search and edit the local repository.
+You are triaging a bug report for a coding agent that can search and edit the local repository.
 
 Bug report:
 {enriched_bug_description}

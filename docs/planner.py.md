@@ -16,35 +16,30 @@ A global Anthropic client is initialized at module load time.
 
 ## Key Functions
 
-### `kotlin_file_sample() -> str`
-Gathers a sample of Kotlin files from the repository.
+### `repo_file_sample() -> str`
+Gathers a sample of source files from the active project's repository.
 
 **Process**:
-1. Searches for .kt files recursively in `REPO_PATH`
-2. Filters out files in "build" directories
+1. Searches recursively in the active project's `repo_path` for files matching `SOURCE_EXTENSIONS`
+   (covers common Android/Kotlin/Java as well as Python, JS/TS, Go, Ruby, Rust, C/C++, etc.)
+2. Filters out files under `EXCLUDED_DIR_NAMES` (build, node_modules, .git, venv, dist, target, ...)
 3. Collects up to 50 relative paths
 4. Returns newline-separated list
 
-**Purpose**: Provides Claude with project structure context
+**Purpose**: Provides Claude with project structure context, regardless of which registered project is active
 
 ### `plan_feature(feature_description: str) -> str`
 Generates a detailed implementation plan for a feature.
 
 **Process**:
-1. Gathers Kotlin file sample for context
+1. Gathers a repo file sample for context
 2. Enriches feature description with link contexts
 3. Sends to Claude with project context
 4. Returns detailed plan
 
 **Claude Context**:
-- Role: Senior Android architect
-- Project: Multi-module IPTV app (Channel Cast)
-- Modules:
-  - app/ - Main app module
-  - data-* - Data layer (storage, network, repository, prefs)
-  - ui-* - UI layer (features, core, models)
-  - channel-health-monitor/
-  - proxy-health-monitor/
+- Role: Senior software engineer
+- Project: The active project's `github_repository` (from `active_project()`)
 
 **Claude Output**:
 1. Branch name (feature/xxx format)
@@ -81,7 +76,7 @@ Assesses whether a bug report has enough information for a coding agent.
 3. Returns structured response
 
 **Claude Instructions**:
-- Role: Triaging bug reports for an Android coding agent
+- Role: Triaging bug reports for a coding agent
 - Task: Decide if agent can start fixing without more info
 - Constraints: Only ask for necessary information
 - Max 3 questions
