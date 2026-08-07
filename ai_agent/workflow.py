@@ -65,7 +65,7 @@ def run_implementation_agent(prompt: str, agent: str | None = None):
     return run(implementation_command(prompt, agent), timeout=CODEX_TIMEOUT_SECONDS)
 
 
-def slugify_branch_name(change_description: str, prefix: str = "feature", max_slug_length: int = 60) -> str:
+def slugify_branch_name(change_description: str, prefix: str = "feature", max_slug_length: int = 20) -> str:
     validate_branch_prefix(prefix)
     slug = change_description.lower().strip()
     slug = re.sub(r"[/\\:?*\[\]().]+", "-", slug)
