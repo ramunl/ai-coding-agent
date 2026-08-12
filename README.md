@@ -1,6 +1,6 @@
 # ai-coding-agent
 
-Telegram coding agent for the Channel Cast Android repository.
+Telegram coding agent that plans and implements features/bugfixes across registered project repositories.
 
 ## Required environment
 
