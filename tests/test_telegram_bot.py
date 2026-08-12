@@ -233,23 +233,26 @@ class TelegramBotTests(unittest.TestCase):
             },
         )
 
+    @staticmethod
+    def _flatten_rich_text(value) -> str:
+        if isinstance(value, str):
+            return value
+        if isinstance(value, dict):
+            return TelegramBotTests._flatten_rich_text(value.get("text", ""))
+        if isinstance(value, list):
+            return "".join(TelegramBotTests._flatten_rich_text(item) for item in value)
+        return ""
+
     def test_help_text_includes_fixpr_description(self) -> None:
         telegram_bot = importlib.import_module("ai_agent.telegram_bot")
 
-        class FakeMessage:
-            def __init__(self) -> None:
-                self.replies = []
-
-            async def reply_text(self, text: str) -> None:
-                self.replies.append(text)
-
-        message = FakeMessage()
-        update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=message)
-        context = types.SimpleNamespace(user_data={})
+        update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=object())
+        context = types.SimpleNamespace(user_data={}, bot=types.SimpleNamespace(_post=AsyncMock()))
 
         asyncio.run(telegram_bot.start(update, context))
 
-        help_text = "\n".join(message.replies)
+        blocks = context.bot._post.await_args.kwargs["data"]["rich_message"]["blocks"]
+        help_text = "\n".join(self._flatten_rich_text(block) for block in blocks)
         self.assertIn("fixpr <pr-number>", help_text)
         self.assertIn("repair failed CI on an existing same-repository PR branch", help_text)
         self.assertIn("/queue", help_text)
@@ -259,6 +262,30 @@ class TelegramBotTests(unittest.TestCase):
         self.assertIn("agent [codex|claude]", help_text)
         self.assertNotIn("/plan <feature>", help_text)
         self.assertNotIn("/fixpr <pr-number>", help_text)
+
+    def test_help_text_has_separate_git_commands_section_for_active_project(self) -> None:
+        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
+
+        update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=object())
+        context = types.SimpleNamespace(user_data={}, bot=types.SimpleNamespace(_post=AsyncMock()))
+
+        asyncio.run(telegram_bot.start(update, context))
+
+        blocks = context.bot._post.await_args.kwargs["data"]["rich_message"]["blocks"]
+        headings = [block["text"] for block in blocks if block.get("type") == "heading"]
+        self.assertIn("Git commands (target project)", headings)
+
+        git_section_index = headings.index("Git commands (target project)")
+        git_paragraphs = [block for block in blocks if block.get("type") == "paragraph"][-2:]
+        git_text = "\n".join(self._flatten_rich_text(block) for block in git_paragraphs)
+        self.assertIn("active project", git_text)
+        self.assertIn("/repo_use <name>", git_text)
+        self.assertIn("/pull", git_text)
+        self.assertIn("git pull the active project", git_text)
+        self.assertIn("/branches", git_text)
+        self.assertIn("/branch [name]", git_text)
+        self.assertIn("/status", git_text)
+        self.assertGreaterEqual(git_section_index, 0)
 
     def test_configure_bot_commands_includes_fixpr(self) -> None:
         telegram_bot = importlib.import_module("ai_agent.telegram_bot")
@@ -520,6 +547,75 @@ class TelegramBotTests(unittest.TestCase):
         asyncio.run(telegram_bot.branch(update, context))
 
         self.assertIn("Invalid branch name", message.replies[0])
+
+    def test_pull_runs_git_pull_on_active_project(self) -> None:
+        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
+
+        class FakeMessage:
+            def __init__(self) -> None:
+                self.replies = []
+
+            async def reply_text(self, text: str) -> None:
+                self.replies.append(text)
+
+        message = FakeMessage()
+        update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=message)
+        context = types.SimpleNamespace(user_data={})
+
+        calls = []
+
+        def fake_run(args, cwd=None, timeout=None, interactive=False):
+            calls.append(args)
+            return types.SimpleNamespace(output="Already up to date.\n")
+
+        with patch.object(telegram_bot, "run", fake_run):
+            asyncio.run(telegram_bot.pull(update, context))
+
+        self.assertEqual(calls, [["git", "pull"]])
+        self.assertIn("Already up to date.", message.replies[0])
+
+    def test_pull_reports_git_failure(self) -> None:
+        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
+
+        class FakeMessage:
+            def __init__(self) -> None:
+                self.replies = []
+
+            async def reply_text(self, text: str) -> None:
+                self.replies.append(text)
+
+        message = FakeMessage()
+        update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=message)
+        context = types.SimpleNamespace(user_data={})
+
+        def fake_run(args, cwd=None, timeout=None, interactive=False):
+            raise RuntimeError("Command failed (1): git pull\nCONFLICT")
+
+        with patch.object(telegram_bot, "run", fake_run):
+            asyncio.run(telegram_bot.pull(update, context))
+
+        self.assertIn("git pull failed:", message.replies[0])
+        self.assertIn("CONFLICT", message.replies[0])
+
+    def test_pull_blocked_while_implementation_running(self) -> None:
+        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
+
+        class FakeMessage:
+            def __init__(self) -> None:
+                self.replies = []
+
+            async def reply_text(self, text: str) -> None:
+                self.replies.append(text)
+
+        message = FakeMessage()
+        update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=message)
+        context = types.SimpleNamespace(
+            user_data={"active_execution": {"branch": "feature/running", "phase": "Polling CI", "status": "RUNNING"}},
+        )
+
+        asyncio.run(telegram_bot.pull(update, context))
+
+        self.assertIn("An implementation is already running.", message.replies[0])
 
     def test_cancel_removes_queued_task_by_id(self) -> None:
         telegram_bot = importlib.import_module("ai_agent.telegram_bot")

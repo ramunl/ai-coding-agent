@@ -1,22 +1,8 @@
 # self_update.py
 
-Tests-gated self-update behind the /pull command. Lets you deploy small fixes
-from Telegram without SSH, while making it hard to brick the bot with a bad
-push.
-
-## Flow
-
-```
-/pull
-  git fetch origin main
-  nothing new?            -> "Already up to date", stop
-  local changes on disk?  -> refuse (never clobber server-side edits)
-  git reset --hard origin/main        (disk now has NEW code)
-  run unittest suite in a SUBPROCESS  (new code; the running bot still has
-                                       old modules in memory)
-  tests fail -> git reset --hard back to previous commit, report, NO restart
-  tests pass -> reply first, then detached restart via systemd-run
-```
+Detached-restart helper. `schedule_restart()` is used after operations that
+change the running process's own on-disk config and need the service to pick
+it up (e.g. `/model <tool> set <name>`).
 
 ## Why the restart is detached
 
@@ -26,24 +12,16 @@ transient systemd unit (outside this service's cgroup) that sleeps a few
 seconds and restarts the service — after the bot has already replied.
 Fallback: a double-forked shell when systemd-run is unavailable.
 
-## What this does and does not protect against
+## Configuration
 
-Protected: syntax errors, broken imports, any regression the test suite
-catches. The bad code never runs; the bot stays up on the old version.
+- `AGENT_SERVICE_NAME` (default `ai-agent`)
+- `AGENT_RESTART_DELAY_SECONDS` (default `3`)
 
-Not protected: changes that pass tests but fail on real startup (bad env
-reference, server-only conditions). Recovery for that case:
-ops bot /logs ai-agent for the traceback, then on the server
-`git reset --hard HEAD~1 && systemctl restart ai-agent`.
-A watcher unit with verify-then-rollback can close this gap later if /pull
-becomes the main deploy path.
+## History
 
-## Operational notes
-
-- A permanently red test suite makes /pull reject everything — keep main
-  green. (A stale test asserting on the removed agent.HELP_TEXT was deleted
-  for exactly this reason.)
-- `AGENT_SERVICE_NAME` (default ai-agent) and `AGENT_RESTART_DELAY_SECONDS`
-  (default 3) are configurable via env.
-- /pull updates the AGENT's own repo (AGENT_DIR), not the active project.
-  It is unrelated to /repo_use.
+This module used to also host a tests-gated self-update flow behind `/pull`
+(fetch/reset/test/restart on the agent's own repo). It was removed: the repo
+already auto-deploys via GitHub Actions + a server webhook (see
+[deployment.md](deployment.md)), so a second Telegram-triggered deploy path
+was redundant. `/pull` now runs `git pull` on the **active project** instead
+— see [telegram_bot.py.md](telegram_bot.py.md).

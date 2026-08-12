@@ -37,12 +37,17 @@ All commands are async and require authorization via `require_authorized`.
 ### Help Commands
 
 #### `/start` or `/help`
-Displays available commands and their usage.
+Sends a Telegram rich message (`sendRichMessage`, headed sections with bold/code spans — see
+`send_rich_message()`) with available commands and their usage.
 
 Commands that need arguments are shown without a leading slash in help text so Telegram does not send
 an incomplete command when the user taps it. Users still type the slash when running them.
 
-**Shows**:
+**Sections**: header/active project, Planning workflow, Provider examples, Existing PR repair, Commands,
+and a dedicated **Git commands (target project)** section (see below) that calls out explicitly that
+those commands act on the active project, not the Coding agent's own checkout.
+
+**Shows** (non-git commands):
 - plan \<feature\> - Plan only, no implementation
 - implement \<feature\> - Plan and wait for /confirm
 - bugfix \<bug\> - Clarify if needed, then wait for /confirm
@@ -55,12 +60,20 @@ an incomplete command when the user taps it. Users still type the slash when run
 - /limits - Show Claude API limits
 - /codex - Show Codex CLI status
 - /test - Run agent unit tests
-- /branches - List git branches
-- branch [name] - Show current branch, or switch to \<name\>
-- /status - Show git status
 - logs \[lines\] - Show recent service logs
 
-### Repository Commands
+### Git Commands (target project)
+
+All of these operate on the **active project** (`active_project().repo_path`, switched via
+`/repo_use <name>`) — never on the Coding agent's own repository. This is called out explicitly in the
+`/help` output to avoid confusion with the agent's own deploy process (see
+[self_update.py.md](self_update.py.md)).
+
+#### `/pull`
+Pulls the active project's repo.
+- Blocked while an implementation is actively running (same guard as `/branch`)
+- Runs: `git pull`
+- On failure, replies with the redacted error instead of raising
 
 #### `/branches`
 Lists all git branches (local and remote).
@@ -229,6 +242,7 @@ Constructs and configures the Telegram bot application.
 - /limits → limits()
 - /codex → codex_status()
 - /test → test()
+- /pull → pull()
 - /branches → branches()
 - /branch → branch()
 - /status → status()
