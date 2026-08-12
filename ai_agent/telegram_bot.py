@@ -42,7 +42,7 @@ from ai_agent.planner import (
     planning_agent_label,
     revise_feature_plan,
 )
-from ai_agent.self_update import check_and_apply_update, schedule_restart
+from ai_agent.self_update import schedule_restart
 from ai_agent.ai_tools import all_info, get_tool, known_tools
 from ai_agent.projects import (
     ProjectError,
@@ -98,7 +98,7 @@ BOT_COMMANDS = [
     BotCommand("model", "Show or switch the Claude model"),
     BotCommand("codex", "Show Codex status"),
     BotCommand("test", "Run agent unit tests"),
-    BotCommand("pull", "Self-update: fetch, test, restart if green"),
+    BotCommand("pull", "git pull the active project"),
     BotCommand("repo_list", "List projects, active marked with *"),
     BotCommand("repo_add", "Register and clone a project"),
     BotCommand("repo_use", "Switch the active project"),
@@ -326,64 +326,105 @@ def extract_file_diff(diff_text: str, file_name: str) -> str:
     return "\n\n".join(chunks)
 
 
+def _cmd(text: str) -> dict:
+    return {"type": "code", "text": text}
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not require_authorized(update):
         return
     project = active_project()
-    await reply_chunks(
-        update,
-        f"Coding AI Agent ready.\n"
-        f"Active project: {project.name}\n"
-        f"Repository: {project.github_repository} [{project.base_branch}]\n"
-        f"Path: {project.repo_path}\n\n"
-        "Planning workflow:\n"
-        "0. /planner codex|claude - choose who writes the plan\n"
-        "   /agent codex|claude - choose who implements it\n"
-        "1. plan <feature>\n"
-        "2. discuss <feedback> as needed\n"
-        "3. /approve\n"
-        "4. /confirm\n\n"
-        "Provider examples:\n"
-        "/planner codex + /agent codex = Codex plans and implements\n"
-        "/planner claude + /agent codex = Claude plans, Codex implements\n"
-        "Use /planner or /agent without an option to show the current choice.\n\n"
-        "Existing PR repair:\n"
-        "fixpr <pr-number> - repair failed CI on an existing same-repository PR branch\n\n"
-        "Commands:\n"
-        "plan <feature> - create a plan for discussion\n"
-        "discuss <feedback> - revise the current plan\n"
-        "/approve - approve the current plan before implementation\n"
-        "/showplan - show the current plan\n"
-        "/history - show plan revisions\n"
-        "implement <feature> - shortcut: plan, approve, then wait for /confirm\n"
-        "bugfix <bug> - clarify if needed, then wait for /confirm on a bugfix branch\n"
-        "answer <details> - answer pending bugfix clarification questions\n"
-        "/confirm - add approved work to the FIFO queue and run queued tasks\n"
-        "/queue - show the running task and pending FIFO queue\n"
-        "planner [codex|claude] - show or choose planning and bug-triage AI\n"
-        "agent [codex|claude] - show or choose implementation and CI-repair AI\n"
-        "verbosity concise|normal|debug - set output detail\n"
-        "/diff - show changed files and line counts from the last run\n"
-        "show <file-number> - show a specific file diff from the last run\n"
-        "logs [lines] - last run logs in debug mode, or service logs when no run exists\n"
-        "/repo_list - list projects, active marked with *\n"
-        "repo_add <owner/repo> [path] - register and clone a project\n"
-        "repo_use <name> - switch the active project\n"
-        "repo_remove <name> - unregister a project\n"
-        "/pr - show the last PR URL\n"
-        "cancel [task-id] - discard pending work or remove a queued task\n"
-        "ci <pr-number> - show current GitHub Actions result for a PR\n"
-        "fixpr <pr-number> - repair failed CI on an existing same-repository PR\n"
-        "limits [all|codex|claude|planner|agent] - show provider limits/status\n"
-        "/model - list AI tools + models; /model <tool> set <name> to switch\n"
-        "/codex - show Codex CLI/login status\n"
-        "/test - run agent unit tests\n"
-        "/pull - self-update: fetch, run tests, restart only if they pass\n"
-        "/branches - list branches\n"
-        "/branch [name] - show current branch, or switch to <name>\n"
-        "/status - running implementation status, or git status when idle\n"
-        "/help - show this help",
-    )
+
+    blocks = [
+        {
+            "type": "paragraph",
+            "text": [
+                {"type": "bold", "text": "Coding AI Agent ready"},
+                "\nActive project: ", {"type": "bold", "text": project.name},
+                "\nRepository: ", _cmd(f"{project.github_repository} [{project.base_branch}]"),
+                "\nPath: ", _cmd(str(project.repo_path)),
+            ],
+        },
+        {"type": "heading", "size": 2, "text": "Planning workflow"},
+        {
+            "type": "paragraph",
+            "text": [
+                "0. ", _cmd("/planner codex|claude"), " - choose who writes the plan\n",
+                "   ", _cmd("/agent codex|claude"), " - choose who implements it\n",
+                "1. ", _cmd("plan <feature>"), "\n",
+                "2. ", _cmd("discuss <feedback>"), " as needed\n",
+                "3. ", _cmd("/approve"), "\n",
+                "4. ", _cmd("/confirm"),
+            ],
+        },
+        {"type": "heading", "size": 2, "text": "Provider examples"},
+        {
+            "type": "paragraph",
+            "text": [
+                _cmd("/planner codex"), " + ", _cmd("/agent codex"), " = Codex plans and implements\n",
+                _cmd("/planner claude"), " + ", _cmd("/agent codex"), " = Claude plans, Codex implements\n",
+                "Use ", _cmd("/planner"), " or ", _cmd("/agent"), " without an option to show the current choice.",
+            ],
+        },
+        {"type": "heading", "size": 2, "text": "Existing PR repair"},
+        {
+            "type": "paragraph",
+            "text": [_cmd("fixpr <pr-number>"), " - repair failed CI on an existing same-repository PR branch"],
+        },
+        {"type": "heading", "size": 2, "text": "Commands"},
+        {
+            "type": "paragraph",
+            "text": [
+                _cmd("plan <feature>"), " - create a plan for discussion\n",
+                _cmd("discuss <feedback>"), " - revise the current plan\n",
+                _cmd("/approve"), " - approve the current plan before implementation\n",
+                _cmd("/showplan"), " - show the current plan\n",
+                _cmd("/history"), " - show plan revisions\n",
+                _cmd("implement <feature>"), " - shortcut: plan, approve, then wait for /confirm\n",
+                _cmd("bugfix <bug>"), " - clarify if needed, then wait for /confirm on a bugfix branch\n",
+                _cmd("answer <details>"), " - answer pending bugfix clarification questions\n",
+                _cmd("/confirm"), " - add approved work to the FIFO queue and run queued tasks\n",
+                _cmd("/queue"), " - show the running task and pending FIFO queue\n",
+                _cmd("planner [codex|claude]"), " - show or choose planning and bug-triage AI\n",
+                _cmd("agent [codex|claude]"), " - show or choose implementation and CI-repair AI\n",
+                _cmd("verbosity concise|normal|debug"), " - set output detail\n",
+                _cmd("/diff"), " - show changed files and line counts from the last run\n",
+                _cmd("show <file-number>"), " - show a specific file diff from the last run\n",
+                _cmd("logs [lines]"), " - last run logs in debug mode, or service logs when no run exists\n",
+                _cmd("/repo_list"), " - list projects, active marked with *\n",
+                _cmd("repo_add <owner/repo> [path]"), " - register and clone a project\n",
+                _cmd("repo_use <name>"), " - switch the active project\n",
+                _cmd("repo_remove <name>"), " - unregister a project\n",
+                _cmd("/pr"), " - show the last PR URL\n",
+                _cmd("cancel [task-id]"), " - discard pending work or remove a queued task\n",
+                _cmd("ci <pr-number>"), " - show current GitHub Actions result for a PR\n",
+                _cmd("fixpr <pr-number>"), " - repair failed CI on an existing same-repository PR\n",
+                _cmd("limits [all|codex|claude|planner|agent]"), " - show provider limits/status\n",
+                _cmd("/model"), " - list AI tools + models; ", _cmd("/model <tool> set <name>"), " to switch\n",
+                _cmd("/codex"), " - show Codex CLI/login status\n",
+                _cmd("/test"), " - run agent unit tests\n",
+                _cmd("/help"), " - show this help",
+            ],
+        },
+        {"type": "heading", "size": 2, "text": "Git commands (target project)"},
+        {
+            "type": "paragraph",
+            "text": [
+                "These act on the ", {"type": "bold", "text": "active project"}, " (switch it with ",
+                _cmd("/repo_use <name>"), ") — never on the Coding agent's own code.",
+            ],
+        },
+        {
+            "type": "paragraph",
+            "text": [
+                _cmd("/pull"), " - git pull the active project\n",
+                _cmd("/branches"), " - list branches\n",
+                _cmd("/branch [name]"), " - show current branch, or switch to <name>\n",
+                _cmd("/status"), " - running implementation status, or git status when idle",
+            ],
+        },
+    ]
+    await send_rich_message(update, context, blocks)
 
 
 async def branches(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1278,24 +1319,18 @@ async def pull(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not require_authorized(update):
         return
 
-    await reply_chunks(update, "Checking for agent updates...")
-    result = await asyncio.to_thread(check_and_apply_update)
-
-    if not result.ok:
-        await reply_chunks(update, result.message)
+    active_text = active_execution_text(context)
+    if active_text:
+        await reply_chunks(update, f"An implementation is already running.\n\n{active_text}")
         return
 
-    if not result.restart_pending:
-        await reply_chunks(update, result.message)
+    try:
+        result = await asyncio.to_thread(run, ["git", "pull"])
+    except RuntimeError as error:
+        await reply_chunks(update, f"git pull failed:\n{redact_sensitive(str(error))}")
         return
 
-    # Reply BEFORE the restart fires: this process will not survive it.
-    restart_note = await asyncio.to_thread(schedule_restart)
-    await reply_chunks(
-        update,
-        f"{result.message}\n\n{restart_note}\n"
-        "Verify with /version after a few seconds.",
-    )
+    await reply_chunks(update, f"Pull:\n{result.output}")
 
 
 
