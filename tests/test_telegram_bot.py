@@ -153,6 +153,7 @@ class TelegramBotTests(unittest.TestCase):
                 "repo_remove",
                 "branches",
                 "branch",
+                "deploy",
                 "status",
                 "logs",
             ],
@@ -276,7 +277,16 @@ class TelegramBotTests(unittest.TestCase):
         self.assertIn("Git commands (target project)", headings)
 
         git_section_index = headings.index("Git commands (target project)")
-        git_paragraphs = [block for block in blocks if block.get("type") == "paragraph"][-2:]
+        heading_positions = [i for i, block in enumerate(blocks) if block.get("type") == "heading"]
+        git_block_index = blocks.index(
+            next(b for b in blocks if b.get("type") == "heading" and b["text"] == "Git commands (target project)")
+        )
+        next_heading_index = next(
+            (i for i in heading_positions if i > git_block_index), len(blocks)
+        )
+        git_paragraphs = [
+            block for block in blocks[git_block_index + 1 : next_heading_index] if block.get("type") == "paragraph"
+        ]
         git_text = "\n".join(self._flatten_rich_text(block) for block in git_paragraphs)
         self.assertIn("active project", git_text)
         self.assertIn("/repo_use <name>", git_text)
@@ -989,6 +999,136 @@ class TelegramBotTests(unittest.TestCase):
         mock_push.assert_called_once_with("bugfix/player", "PR #7 CI repair", "fix")
         mock_return_to_base_branch.assert_called_once()
         self.assertEqual(context.user_data["last_execution"].tests, "PASS")
+
+
+    def test_deploy_without_agent_shows_usage(self) -> None:
+        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
+
+        class FakeMessage:
+            def __init__(self) -> None:
+                self.replies = []
+
+            async def reply_text(self, text: str) -> None:
+                self.replies.append(text)
+
+        message = FakeMessage()
+        update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=message)
+        context = types.SimpleNamespace(args=[], user_data={})
+
+        with patch.object(telegram_bot, "run") as mock_run:
+            asyncio.run(telegram_bot.deploy(update, context))
+
+        mock_run.assert_not_called()
+        self.assertIn("Usage: /deploy", message.replies[0])
+
+    def test_deploy_rejects_unknown_agent(self) -> None:
+        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
+
+        class FakeMessage:
+            def __init__(self) -> None:
+                self.replies = []
+
+            async def reply_text(self, text: str) -> None:
+                self.replies.append(text)
+
+        message = FakeMessage()
+        update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=message)
+        context = types.SimpleNamespace(args=["bogus"], user_data={})
+
+        with patch.object(telegram_bot, "run") as mock_run:
+            asyncio.run(telegram_bot.deploy(update, context))
+
+        mock_run.assert_not_called()
+        self.assertIn("Unknown agent", message.replies[0])
+
+    def test_deploy_ops_runs_script_with_branch_and_does_not_self_restart(self) -> None:
+        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
+
+        class FakeMessage:
+            def __init__(self) -> None:
+                self.replies = []
+
+            async def reply_text(self, text: str) -> None:
+                self.replies.append(text)
+
+        message = FakeMessage()
+        update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=message)
+        context = types.SimpleNamespace(args=["ops", "feature-x"], user_data={})
+
+        calls = []
+
+        def fake_run(args, cwd=None, timeout=None, interactive=False):
+            calls.append(args)
+            return types.SimpleNamespace(output="update finished")
+
+        with (
+            patch.object(telegram_bot, "run", fake_run),
+            patch.object(telegram_bot, "schedule_restart") as mock_restart,
+        ):
+            asyncio.run(telegram_bot.deploy(update, context))
+
+        self.assertEqual(calls[0], ["/usr/local/sbin/update-ai-ops-agent", "feature-x"])
+        mock_restart.assert_not_called()
+        self.assertIn("Deploying 'feature-x' to ai-ops-agent", message.replies[0])
+        self.assertIn("Deploy finished", message.replies[-1])
+
+    def test_deploy_coding_self_deploy_skips_script_restart_and_schedules_detached_restart(self) -> None:
+        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
+
+        class FakeMessage:
+            def __init__(self) -> None:
+                self.replies = []
+
+            async def reply_text(self, text: str) -> None:
+                self.replies.append(text)
+
+        message = FakeMessage()
+        update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=message)
+        context = types.SimpleNamespace(args=["coding"], user_data={})
+
+        calls = []
+
+        def fake_run(args, cwd=None, timeout=None, interactive=False):
+            calls.append(args)
+            return types.SimpleNamespace(output="update finished")
+
+        with (
+            patch.object(telegram_bot, "run", fake_run),
+            patch.object(telegram_bot, "schedule_restart", return_value="Restart scheduled in 3s.") as mock_restart,
+        ):
+            asyncio.run(telegram_bot.deploy(update, context))
+
+        self.assertEqual(calls[0], ["/usr/local/sbin/update-ai-agent", "main", "--no-restart"])
+        mock_restart.assert_called_once()
+        self.assertIn("Restart scheduled in 3s.", message.replies[-1])
+
+    def test_deploy_self_deploy_failure_does_not_trigger_restart(self) -> None:
+        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
+
+        class FakeMessage:
+            def __init__(self) -> None:
+                self.replies = []
+
+            async def reply_text(self, text: str) -> None:
+                self.replies.append(text)
+
+        message = FakeMessage()
+        update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=message)
+        context = types.SimpleNamespace(args=["coding"], user_data={})
+
+        def fake_run(args, cwd=None, timeout=None, interactive=False):
+            if args[0] == "/usr/local/sbin/update-ai-agent":
+                raise RuntimeError("Command failed (1): update-ai-agent\nconflict")
+            return types.SimpleNamespace(output="update failed log tail")
+
+        with (
+            patch.object(telegram_bot, "run", fake_run),
+            patch.object(telegram_bot, "schedule_restart") as mock_restart,
+        ):
+            asyncio.run(telegram_bot.deploy(update, context))
+
+        mock_restart.assert_not_called()
+        self.assertIn("Deploy failed", message.replies[-1])
 
 
 if __name__ == "__main__":

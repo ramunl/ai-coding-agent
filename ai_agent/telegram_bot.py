@@ -106,6 +106,7 @@ BOT_COMMANDS = [
     BotCommand("branches", "List branches"),
     BotCommand("branch", "Show or switch the current branch"),
     BotCommand("status", "Show active or git status"),
+    BotCommand("deploy", "Deploy a branch to the coding, pm, or ops agent"),
 ]
 
 
@@ -423,6 +424,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 _cmd("/status"), " - running implementation status, or git status when idle",
             ],
         },
+        {"type": "heading", "size": 2, "text": "Live deploy (coding, pm, ops)"},
+        {
+            "type": "paragraph",
+            "text": [
+                "Always targets the live bots on disk, regardless of the active project.\n",
+                _cmd("/deploy <agent> [branch]"), " - fetch, checkout, fast-forward pull <branch> (default main) "
+                "for <agent> (coding, pm, or ops), and restart its service. "
+                "coding deploys this bot itself and restarts it via a detached restart.",
+            ],
+        },
     ]
     await send_rich_message(update, context, blocks)
 
@@ -468,6 +479,82 @@ async def branch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     result = await asyncio.to_thread(run, ["git", "status"])
     await reply_chunks(update, f"Switched to branch: {branch_name}\n\n{result.output}")
+
+
+DEPLOY_TARGETS = {
+    "coding": {
+        "label": "ai-coding-agent (self)",
+        "script": "/usr/local/sbin/update-ai-agent",
+        "log": Path("/var/log/ai-agent/update.log"),
+        "self": True,
+    },
+    "pm": {
+        "label": "ai-pm-agent",
+        "script": "/usr/local/sbin/update-ai-pm-agent",
+        "log": Path("/var/log/ai-pm-agent/update.log"),
+        "self": False,
+    },
+    "ops": {
+        "label": "ai-ops-agent",
+        "script": "/usr/local/sbin/update-ai-ops-agent",
+        "log": Path("/var/log/ai-ops-agent/update.log"),
+        "self": False,
+    },
+}
+DEPLOY_TARGET_ALIASES = {
+    "coding": "coding",
+    "self": "coding",
+    "ai-agent": "coding",
+    "ai-coding-agent": "coding",
+    "pm": "pm",
+    "ai-pm-agent": "pm",
+    "ops": "ops",
+    "ai-ops-agent": "ops",
+}
+
+
+async def deploy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not require_authorized(update):
+        return
+
+    if not context.args:
+        await reply_chunks(update, "Usage: /deploy <agent> [branch]\nagent: coding, pm, ops (branch defaults to main)")
+        return
+
+    target_key = DEPLOY_TARGET_ALIASES.get(context.args[0].lower())
+    if target_key is None:
+        await reply_chunks(update, f"Unknown agent '{context.args[0]}'. Choose one of: coding, pm, ops.")
+        return
+    target = DEPLOY_TARGETS[target_key]
+
+    branch = context.args[1] if len(context.args) > 1 else "main"
+    try:
+        validate_branch_name(branch)
+    except ValueError as error:
+        await reply_chunks(update, str(error))
+        return
+
+    await reply_chunks(update, f"Deploying '{branch}' to {target['label']}...")
+
+    script_args = [target["script"], branch]
+    if target["self"]:
+        script_args.append("--no-restart")
+
+    deploy_error: RuntimeError | None = None
+    try:
+        await asyncio.to_thread(run, script_args, cwd=Path("/opt"), timeout=180)
+    except RuntimeError as error:
+        deploy_error = error
+
+    log_tail = await asyncio.to_thread(
+        run, ["tail", "-n", "30", str(target["log"])], cwd=Path("/opt")
+    )
+    status_text = "Deploy failed" if deploy_error else "Deploy finished"
+    await reply_chunks(update, f"{status_text}:\n\n{log_tail.output}")
+
+    if not deploy_error and target["self"]:
+        restart_note = await asyncio.to_thread(schedule_restart)
+        await reply_chunks(update, restart_note)
 
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1446,6 +1533,7 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("repo_remove", repo_remove))
     app.add_handler(CommandHandler("branches", branches))
     app.add_handler(CommandHandler("branch", branch))
+    app.add_handler(CommandHandler("deploy", deploy))
     app.add_handler(CommandHandler("status", status))
     app.add_handler(CommandHandler("logs", logs))
     app.add_error_handler(error_handler)
