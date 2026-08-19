@@ -7,18 +7,22 @@ live API and only written if it responds. An invalid string is rejected at
 the command and never reaches disk.
 """
 
+import json
 import logging
 import os
 import re
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 from ai_agent.anthropic_limits import anthropic_limit_headers
-from ai_agent.config import ANTHROPIC_MODEL
+from ai_agent.config import ANTHROPIC_KEY, ANTHROPIC_MODEL, ANTHROPIC_VERSION, COMMAND_TIMEOUT_SECONDS
 from ai_agent.model_errors import is_model_not_found
 
 logger = logging.getLogger(__name__)
 
 ENV_FILE = Path(os.environ.get("AGENT_ENV_FILE", "/etc/ai-agent/ai-agent.env"))
+ANTHROPIC_MODELS_URL = "https://api.anthropic.com/v1/models"
 
 # Conservative: matches Anthropic model strings without allowing shell-unsafe
 # characters into a file the service sources at boot.
@@ -27,6 +31,43 @@ _MODEL_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
 
 def active_model() -> str:
     return ANTHROPIC_MODEL
+
+
+def list_models() -> tuple[bool, list[dict[str, str]] | str]:
+    """List models this API key can use. Returns (True, models) or (False, detail)."""
+    headers = {
+        "anthropic-version": ANTHROPIC_VERSION,
+        "x-api-key": ANTHROPIC_KEY,
+    }
+    models: list[dict[str, str]] = []
+    after_id = None
+    while True:
+        url = ANTHROPIC_MODELS_URL
+        if after_id:
+            url += f"?after_id={after_id}"
+        request = urllib.request.Request(url, headers=headers, method="GET")
+        try:
+            with urllib.request.urlopen(request, timeout=COMMAND_TIMEOUT_SECONDS) as response:
+                body = response.read().decode("utf-8", errors="replace")
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            return False, f"HTTP {exc.code}: {detail[:200]}"
+
+        try:
+            page = json.loads(body)
+        except json.JSONDecodeError:
+            return False, "Unexpected response from the API."
+
+        models.extend(
+            {"id": item.get("id", ""), "display_name": item.get("display_name") or item.get("id", "")}
+            for item in page.get("data", [])
+        )
+
+        after_id = page.get("last_id") if page.get("has_more") else None
+        if not after_id:
+            break
+
+    return True, models
 
 
 def verify_model(model: str) -> tuple[bool, str]:

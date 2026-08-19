@@ -44,6 +44,9 @@ class AITool:
     def verify(self, model: str) -> tuple[bool, str]:
         raise NotImplementedError
 
+    def list_models(self) -> tuple[bool, list[dict[str, str]] | str]:
+        raise NotImplementedError
+
     def info(self) -> ModelInfo:
         return ModelInfo(self.name, self.current_model(), self.manageable, self._note())
 
@@ -65,6 +68,9 @@ class ClaudeApiTool(AITool):
 
     def verify(self, model: str) -> tuple[bool, str]:
         return model_manager.verify_model(model)
+
+    def list_models(self) -> tuple[bool, list[dict[str, str]] | str]:
+        return model_manager.list_models()
 
 
 class CliTool(AITool):

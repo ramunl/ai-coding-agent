@@ -26,6 +26,8 @@ principle as making the credit-balance and rules-sync failures legible.
 
 - `/model` — show every AI tool and its model
 - `/model <tool>` — show one tool and live-probe it when manageable
+- `/model <tool> list` — fetch and show every model id this API key can use
+  (manageable tools only), via the Anthropic Models API (`GET /v1/models`)
 - `/model <tool> set <name>` — switch a manageable tool
 
 ### The guardrail

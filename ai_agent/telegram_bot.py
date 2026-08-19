@@ -401,7 +401,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 _cmd("ci <pr-number>"), " - show current GitHub Actions result for a PR\n",
                 _cmd("fixpr <pr-number>"), " - repair failed CI on an existing same-repository PR\n",
                 _cmd("limits [all|codex|claude|planner|agent]"), " - show provider limits/status\n",
-                _cmd("/model"), " - list AI tools + models; ", _cmd("/model <tool> set <name>"), " to switch\n",
+                _cmd("/model"), " - list AI tools + models; ", _cmd("/model <tool> list"), " to see options, ", _cmd("/model <tool> set <name>"), " to switch\n",
                 _cmd("/codex"), " - show Codex CLI/login status\n",
                 _cmd("/test"), " - run agent unit tests\n",
                 _cmd("/help"), " - show this help",
@@ -1439,7 +1439,7 @@ async def model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         for entry in all_info():
             suffix = "" if entry.manageable else f"  ({entry.note})"
             lines.append(f"- {entry.tool}: {entry.model}{suffix}")
-        lines.extend(["", "Verify/switch a manageable tool: /model <tool> [set <name>]"])
+        lines.extend(["", "Verify/switch a manageable tool: /model <tool> [list | set <name>]"])
         await reply_chunks(update, "\n".join(lines))
         return
 
@@ -1469,10 +1469,30 @@ async def model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             )
         return
 
+    # /model <tool> list  -> show models available to switch to
+    wants_list = context.args[1] == "list"
+    if wants_list:
+        if not tool.manageable:
+            await reply_chunks(update, f"{tool.name} is read-only here. {tool.info().note}")
+            return
+        await reply_chunks(update, f"Fetching available models for {tool.name}...")
+        ok, result = await asyncio.to_thread(tool.list_models)
+        if not ok:
+            await reply_chunks(update, f"Could not list models: {result}")
+            return
+        current = tool.current_model()
+        lines = [f"Models available for {tool.name} (current: {current}):"]
+        for entry in result:
+            marker = " (current)" if entry["id"] == current else ""
+            lines.append(f"- {entry['id']} — {entry['display_name']}{marker}")
+        lines.extend(["", f"Switch: /model {tool.name} set <id>"])
+        await reply_chunks(update, "\n".join(lines))
+        return
+
     # /model <tool> set <name>
     is_set = context.args[1] == "set" and len(context.args) >= 3
     if not is_set:
-        await reply_chunks(update, f"Usage: /model {tool.name} set <name>")
+        await reply_chunks(update, f"Usage: /model {tool.name} list | set <name>")
         return
 
     if not tool.manageable:

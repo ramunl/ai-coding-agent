@@ -95,6 +95,38 @@ class ModelManagerTests(unittest.TestCase):
         self.assertEqual(content.count("ANTHROPIC_MODEL="), 1)  # no duplicate
         self.assertIn("OTHER=1", content)
 
+    def test_list_models_returns_id_and_display_name(self) -> None:
+        page = '{"data":[{"id":"claude-opus-5","display_name":"Claude Opus 5"}],"has_more":false}'
+        with patch("urllib.request.urlopen") as urlopen:
+            urlopen.return_value.__enter__.return_value.read.return_value = page.encode("utf-8")
+            ok, models = self.mm.list_models()
+        self.assertTrue(ok)
+        self.assertEqual(models, [{"id": "claude-opus-5", "display_name": "Claude Opus 5"}])
+
+    def test_list_models_paginates(self) -> None:
+        page1 = '{"data":[{"id":"a","display_name":"A"}],"has_more":true,"last_id":"a"}'
+        page2 = '{"data":[{"id":"b","display_name":"B"}],"has_more":false}'
+        with patch("urllib.request.urlopen") as urlopen:
+            urlopen.return_value.__enter__.return_value.read.side_effect = [
+                page1.encode("utf-8"),
+                page2.encode("utf-8"),
+            ]
+            ok, models = self.mm.list_models()
+        self.assertTrue(ok)
+        self.assertEqual([m["id"] for m in models], ["a", "b"])
+
+    def test_list_models_reports_http_error(self) -> None:
+        import urllib.error
+
+        error = urllib.error.HTTPError(
+            url="", code=401, msg="unauthorized", hdrs=None, fp=None
+        )
+        with patch.object(error, "read", return_value=b'{"error":{"message":"bad key"}}'):
+            with patch("urllib.request.urlopen", side_effect=error):
+                ok, detail = self.mm.list_models()
+        self.assertFalse(ok)
+        self.assertIn("401", detail)
+
 
 if __name__ == "__main__":
     unittest.main()
