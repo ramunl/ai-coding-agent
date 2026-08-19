@@ -1001,7 +1001,7 @@ class TelegramBotTests(unittest.TestCase):
         self.assertEqual(context.user_data["last_execution"].tests, "PASS")
 
 
-    def test_deploy_without_agent_shows_usage(self) -> None:
+    def test_deploy_without_branch_shows_usage(self) -> None:
         telegram_bot = importlib.import_module("ai_agent.telegram_bot")
 
         class FakeMessage:
@@ -1021,27 +1021,7 @@ class TelegramBotTests(unittest.TestCase):
         mock_run.assert_not_called()
         self.assertIn("Usage: /deploy", message.replies[0])
 
-    def test_deploy_rejects_unknown_agent(self) -> None:
-        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
-
-        class FakeMessage:
-            def __init__(self) -> None:
-                self.replies = []
-
-            async def reply_text(self, text: str) -> None:
-                self.replies.append(text)
-
-        message = FakeMessage()
-        update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=message)
-        context = types.SimpleNamespace(args=["bogus"], user_data={})
-
-        with patch.object(telegram_bot, "run") as mock_run:
-            asyncio.run(telegram_bot.deploy(update, context))
-
-        mock_run.assert_not_called()
-        self.assertIn("Unknown agent", message.replies[0])
-
-    def test_deploy_ops_runs_script_with_branch_and_does_not_self_restart(self) -> None:
+    def test_deploy_rejects_more_than_one_argument(self) -> None:
         telegram_bot = importlib.import_module("ai_agent.telegram_bot")
 
         class FakeMessage:
@@ -1055,14 +1035,43 @@ class TelegramBotTests(unittest.TestCase):
         update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=message)
         context = types.SimpleNamespace(args=["ops", "feature-x"], user_data={})
 
+        with patch.object(telegram_bot, "run") as mock_run:
+            asyncio.run(telegram_bot.deploy(update, context))
+
+        mock_run.assert_not_called()
+        self.assertIn("Usage: /deploy <branch>", message.replies[0])
+
+    def test_deploy_ops_runs_script_with_branch_and_does_not_self_restart(self) -> None:
+        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
+
+        class FakeMessage:
+            def __init__(self) -> None:
+                self.replies = []
+
+            async def reply_text(self, text: str) -> None:
+                self.replies.append(text)
+
+        message = FakeMessage()
+        update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=message)
+        context = types.SimpleNamespace(args=["feature-x"], user_data={})
+
         calls = []
 
         def fake_run(args, cwd=None, timeout=None, interactive=False):
             calls.append(args)
             return types.SimpleNamespace(output="update finished")
 
+        async def fake_to_thread(func, *args, **kwargs):
+            return func(*args, **kwargs)
+
         with (
             patch.object(telegram_bot, "run", fake_run),
+            patch.object(telegram_bot.asyncio, "to_thread", side_effect=fake_to_thread),
+            patch.object(
+                telegram_bot,
+                "active_project",
+                return_value=types.SimpleNamespace(name="ai-ops-agent", github_repository="ramunl/ai-ops-agent"),
+            ),
             patch.object(telegram_bot, "schedule_restart") as mock_restart,
         ):
             asyncio.run(telegram_bot.deploy(update, context))
@@ -1084,7 +1093,7 @@ class TelegramBotTests(unittest.TestCase):
 
         message = FakeMessage()
         update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=message)
-        context = types.SimpleNamespace(args=["coding"], user_data={})
+        context = types.SimpleNamespace(args=["main"], user_data={})
 
         calls = []
 
@@ -1092,8 +1101,17 @@ class TelegramBotTests(unittest.TestCase):
             calls.append(args)
             return types.SimpleNamespace(output="update finished")
 
+        async def fake_to_thread(func, *args, **kwargs):
+            return func(*args, **kwargs)
+
         with (
             patch.object(telegram_bot, "run", fake_run),
+            patch.object(telegram_bot.asyncio, "to_thread", side_effect=fake_to_thread),
+            patch.object(
+                telegram_bot,
+                "active_project",
+                return_value=types.SimpleNamespace(name="ai-coding-agent", github_repository="ramunl/ai-coding-agent"),
+            ),
             patch.object(telegram_bot, "schedule_restart", return_value="Restart scheduled in 3s.") as mock_restart,
         ):
             asyncio.run(telegram_bot.deploy(update, context))
@@ -1114,15 +1132,24 @@ class TelegramBotTests(unittest.TestCase):
 
         message = FakeMessage()
         update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=message)
-        context = types.SimpleNamespace(args=["coding"], user_data={})
+        context = types.SimpleNamespace(args=["main"], user_data={})
 
         def fake_run(args, cwd=None, timeout=None, interactive=False):
             if args[0] == "/usr/local/sbin/update-ai-agent":
                 raise RuntimeError("Command failed (1): update-ai-agent\nconflict")
             return types.SimpleNamespace(output="update failed log tail")
 
+        async def fake_to_thread(func, *args, **kwargs):
+            return func(*args, **kwargs)
+
         with (
             patch.object(telegram_bot, "run", fake_run),
+            patch.object(telegram_bot.asyncio, "to_thread", side_effect=fake_to_thread),
+            patch.object(
+                telegram_bot,
+                "active_project",
+                return_value=types.SimpleNamespace(name="ai-coding-agent", github_repository="ramunl/ai-coding-agent"),
+            ),
             patch.object(telegram_bot, "schedule_restart") as mock_restart,
         ):
             asyncio.run(telegram_bot.deploy(update, context))
