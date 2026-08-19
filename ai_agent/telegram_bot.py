@@ -106,7 +106,7 @@ BOT_COMMANDS = [
     BotCommand("branches", "List branches"),
     BotCommand("branch", "Show or switch the current branch"),
     BotCommand("status", "Show active or git status"),
-    BotCommand("deploy", "Deploy a branch to the coding, pm, or ops agent"),
+    BotCommand("deploy", "Deploy a branch of the active project"),
 ]
 
 
@@ -424,13 +424,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 _cmd("/status"), " - running implementation status, or git status when idle",
             ],
         },
-        {"type": "heading", "size": 2, "text": "Live deploy (coding, pm, ops)"},
+        {"type": "heading", "size": 2, "text": "Live deploy"},
         {
             "type": "paragraph",
             "text": [
-                "Always targets the live bots on disk, regardless of the active project.\n",
-                _cmd("/deploy <agent> [branch]"), " - fetch, checkout, fast-forward pull <branch> (default main) "
-                "for <agent> (coding, pm, or ops), and restart its service. "
+                "Targets the live bot for the active project.\n",
+                _cmd("/deploy <branch>"), " - fetch, checkout, fast-forward pull <branch> "
+                "for the active coding, pm, or ops project, and restart its service. "
                 "coding deploys this bot itself and restarts it via a detached restart.",
             ],
         },
@@ -517,17 +517,24 @@ async def deploy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not require_authorized(update):
         return
 
-    if not context.args:
-        await reply_chunks(update, "Usage: /deploy <agent> [branch]\nagent: coding, pm, ops (branch defaults to main)")
+    if len(context.args) != 1:
+        await reply_chunks(update, "Usage: /deploy <branch>\nDeploys the active coding, pm, or ops project.")
         return
 
-    target_key = DEPLOY_TARGET_ALIASES.get(context.args[0].lower())
+    project = active_project()
+    target_key = DEPLOY_TARGET_ALIASES.get(project.name.lower())
     if target_key is None:
-        await reply_chunks(update, f"Unknown agent '{context.args[0]}'. Choose one of: coding, pm, ops.")
+        repository_name = project.github_repository.rsplit("/", 1)[-1].lower()
+        target_key = DEPLOY_TARGET_ALIASES.get(repository_name)
+    if target_key is None:
+        await reply_chunks(
+            update,
+            f"The active project '{project.name}' is not deployable. Choose the coding, pm, or ops project with /repo_use.",
+        )
         return
     target = DEPLOY_TARGETS[target_key]
 
-    branch = context.args[1] if len(context.args) > 1 else "main"
+    branch = context.args[0]
     try:
         validate_branch_name(branch)
     except ValueError as error:
