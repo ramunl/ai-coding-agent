@@ -3,7 +3,7 @@ import logging
 from pathlib import Path
 
 from telegram import BotCommand, Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 
 from ai_agent.anthropic_limits import get_anthropic_limits
 from ai_agent.ci import build_failure_context, evaluate_ci
@@ -44,6 +44,7 @@ from ai_agent.planner import (
 )
 from ai_agent.self_update import schedule_restart
 from ai_agent.ai_tools import all_info, get_tool, known_tools
+from ai_agent_common import CallbackRouter, choice_keyboard
 from ai_agent.projects import (
     ProjectError,
     active_project,
@@ -1361,10 +1362,13 @@ async def repo_use(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     if not context.args:
         current = active_project()
-        lines = [f"Active project: {current.name} ({current.github_repository})", "", "Available:"]
-        lines.extend(f"- {project.name}" for project in list_projects())
-        lines.extend(["", "Usage: /repo_use <name>"])
-        await reply_chunks(update, "\n".join(lines))
+        names = [project.name for project in list_projects()]
+        keyboard = choice_keyboard("repo_use", names, active=current.name)
+        await update.message.reply_text(
+            f"Active project: {current.name} ({current.github_repository})\n"
+            "Tap to switch:",
+            reply_markup=keyboard,
+        )
         return
 
     name = context.args[0]
@@ -1521,6 +1525,25 @@ async def model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
+async def _on_repo_use_tap(update: Update, context: ContextTypes.DEFAULT_TYPE, project_name: str) -> None:
+    """Handle a project-picker button tap: same effect as /repo_use <name>."""
+    if not require_authorized(update):
+        return
+    try:
+        project = await asyncio.to_thread(set_active, project_name)
+    except ProjectError as error:
+        await update.callback_query.edit_message_text(str(error))
+        return
+    await refresh_bot_name(context, project.name)
+    await update.callback_query.edit_message_text(
+        f"Active project: {project.name} ({project.github_repository})"
+    )
+
+
+_callback_router = CallbackRouter()
+_callback_router.register("repo_use", _on_repo_use_tap)
+
+
 def build_application() -> Application:
     builder = Application.builder().token(TELEGRAM_TOKEN)
     if hasattr(builder, "concurrent_updates"):
@@ -1563,5 +1586,6 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("deploy", deploy))
     app.add_handler(CommandHandler("status", status))
     app.add_handler(CommandHandler("logs", logs))
+    app.add_handler(CallbackQueryHandler(_callback_router.dispatch))
     app.add_error_handler(error_handler)
     return app

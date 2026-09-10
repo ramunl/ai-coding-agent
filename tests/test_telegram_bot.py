@@ -89,8 +89,13 @@ class TelegramBotTests(unittest.TestCase):
                 self.command = command
                 self.callback = callback
 
+        class FakeCallbackQueryHandler:
+            def __init__(self, callback) -> None:
+                self.callback = callback
+
         ext_module.Application = FakeApplication
         ext_module.CommandHandler = FakeCommandHandler
+        ext_module.CallbackQueryHandler = FakeCallbackQueryHandler
         ext_module.ContextTypes = types.SimpleNamespace(DEFAULT_TYPE=object)
 
         anthropic_module = types.ModuleType("anthropic")
@@ -116,7 +121,7 @@ class TelegramBotTests(unittest.TestCase):
         telegram_bot = importlib.import_module("ai_agent.telegram_bot")
 
         app = telegram_bot.build_application()
-        commands = [handler.command for handler in app.handlers]
+        commands = [handler.command for handler in app.handlers if hasattr(handler, "command")]
 
         self.assertEqual(
             commands,
