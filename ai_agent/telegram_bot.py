@@ -44,7 +44,7 @@ from ai_agent.planner import (
 )
 from ai_agent.self_update import schedule_restart
 from ai_agent.ai_tools import all_info, get_tool, known_tools
-from ai_agent_common import CallbackRouter, choice_keyboard
+from ai_agent_common import CallbackRouter, CoreCommand, choice_keyboard
 from ai_agent.projects import (
     ProjectError,
     active_project,
@@ -97,6 +97,7 @@ BOT_COMMANDS = [
     BotCommand("verbosity", "Show or set reply verbosity"),
     BotCommand("limits", "Show Codex and Claude limits/status"),
     BotCommand("model", "Show or switch the Claude model"),
+    BotCommand("core", "Show core version; /core update to adopt latest"),
     BotCommand("codex", "Show Codex status"),
     BotCommand("test", "Run agent unit tests"),
     BotCommand("pull", "git pull the active project"),
@@ -1544,6 +1545,48 @@ _callback_router = CallbackRouter()
 _callback_router.register("repo_use", _on_repo_use_tap)
 
 
+
+_CORE_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _deploy_self_for_core() -> str:
+    """Run the coding agent's own update script, then schedule a restart.
+
+    Mirrors /deploy's self path: the script runs with --no-restart, then the
+    detached restart fires so the bot can reply before it dies.
+    """
+    target = DEPLOY_TARGETS["coding"]
+    run([target["script"], "main", "--no-restart"], cwd=Path("/opt"), timeout=180)
+    return schedule_restart()
+
+
+_core_command = CoreCommand(
+    submodule_dir=_CORE_ROOT / "ai_agent_common",
+    superproject_dir=_CORE_ROOT,
+    submodule_path="ai_agent_common",
+    deploy=_deploy_self_for_core,
+)
+
+
+def core_version_line() -> str:
+    """One local-only line for /version. Never hits the network."""
+    return _core_command.short_line()
+
+
+async def core(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not require_authorized(update):
+        return
+    wants_update = bool(context.args) and context.args[0] == "update"
+    if wants_update:
+        await reply_chunks(update, "Bumping core to the latest release...")
+        result = await asyncio.to_thread(_core_command.update_text)
+        await reply_chunks(update, result)
+    else:
+        await reply_chunks(update, "Checking core version...")
+        result = await asyncio.to_thread(_core_command.status_text)
+        await reply_chunks(update, result)
+
+
 def build_application() -> Application:
     builder = Application.builder().token(TELEGRAM_TOKEN)
     if hasattr(builder, "concurrent_updates"):
@@ -1574,6 +1617,7 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("pr", pr))
     app.add_handler(CommandHandler("limits", limits))
     app.add_handler(CommandHandler("model", model))
+    app.add_handler(CommandHandler("core", core))
     app.add_handler(CommandHandler("codex", codex_status))
     app.add_handler(CommandHandler("test", test))
     app.add_handler(CommandHandler("pull", pull))

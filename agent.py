@@ -14,6 +14,7 @@ from ai_agent.config import (
     validate_required_config,
 )
 from ai_agent.telegram_bot import build_application
+from ai_agent.telegram_bot import core_version_line
 from ai_agent.version import get_runtime_version
 
 
@@ -29,7 +30,8 @@ async def version(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     result = await asyncio.to_thread(get_runtime_version)
-    await update.message.reply_text(result)
+    core_line = await asyncio.to_thread(core_version_line)
+    await update.message.reply_text(f"{result}\n{core_line}")
 
 
 def main() -> None:
