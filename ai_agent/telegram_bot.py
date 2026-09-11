@@ -44,7 +44,7 @@ from ai_agent.planner import (
 )
 from ai_agent.self_update import schedule_restart
 from ai_agent.ai_tools import all_info, get_tool, known_tools
-from ai_agent_common import CallbackRouter, CoreCommand, choice_keyboard
+from ai_agent_common import CallbackRouter, CoreCommand, bump_to_latest, choice_keyboard
 from ai_agent.projects import (
     ProjectError,
     active_project,
@@ -97,7 +97,7 @@ BOT_COMMANDS = [
     BotCommand("verbosity", "Show or set reply verbosity"),
     BotCommand("limits", "Show Codex and Claude limits/status"),
     BotCommand("model", "Show or switch the Claude model"),
-    BotCommand("core", "Show core version; /core update to adopt latest"),
+    BotCommand("core", "Show core version; /core update <bot> to update (hub)"),
     BotCommand("codex", "Show Codex status"),
     BotCommand("test", "Run agent unit tests"),
     BotCommand("pull", "git pull the active project"),
@@ -242,6 +242,21 @@ def active_execution_text(context: ContextTypes.DEFAULT_TYPE) -> str | None:
 
 async def configure_bot_commands(app: Application) -> None:
     await app.bot.set_my_commands(BOT_COMMANDS)
+    await _notify_core_drift_on_startup(app)
+
+
+async def _notify_core_drift_on_startup(app: Application) -> None:
+    """On boot, message the owner only if this bot's core is behind latest.
+
+    Best-effort: the check itself never raises (outdated_notice swallows
+    errors), and we guard the send too, so nothing here can stop startup.
+    """
+    notice = await asyncio.to_thread(_core_command.outdated_notice)
+    if notice:
+        try:
+            await app.bot.send_message(chat_id=CHAT_ID, text=notice)
+        except Exception as error:
+            logger.warning("Could not send core-drift notice (ignored): %s", error)
 
 
 def build_ci_repair_prompt(original_prompt: str, failure_context: str) -> str:
@@ -488,18 +503,21 @@ DEPLOY_TARGETS = {
         "label": "ai-coding-agent (self)",
         "script": "/usr/local/sbin/update-ai-agent",
         "log": Path("/var/log/ai-agent/update.log"),
+        "repo": Path("/opt/ai-coding-agent"),
         "self": True,
     },
     "pm": {
         "label": "ai-pm-agent",
         "script": "/usr/local/sbin/update-ai-pm-agent",
         "log": Path("/var/log/ai-pm-agent/update.log"),
+        "repo": Path("/opt/ai-pm-agent"),
         "self": False,
     },
     "ops": {
         "label": "ai-ops-agent",
         "script": "/usr/local/sbin/update-ai-ops-agent",
         "log": Path("/var/log/ai-ops-agent/update.log"),
+        "repo": Path("/opt/ai-ops-agent"),
         "self": False,
     },
 }
@@ -1549,22 +1567,12 @@ _callback_router.register("repo_use", _on_repo_use_tap)
 _CORE_ROOT = Path(__file__).resolve().parent.parent
 
 
-def _deploy_self_for_core() -> str:
-    """Run the coding agent's own update script, then schedule a restart.
-
-    Mirrors /deploy's self path: the script runs with --no-restart, then the
-    detached restart fires so the bot can reply before it dies.
-    """
-    target = DEPLOY_TARGETS["coding"]
-    run([target["script"], "main", "--no-restart"], cwd=Path("/opt"), timeout=180)
-    return schedule_restart()
-
-
+# Read-only view of THIS bot's own core version (common to every bot).
 _core_command = CoreCommand(
     submodule_dir=_CORE_ROOT / "ai_agent_common",
     superproject_dir=_CORE_ROOT,
     submodule_path="ai_agent_common",
-    deploy=_deploy_self_for_core,
+    agent_name="ai-coding-agent",
 )
 
 
@@ -1573,13 +1581,52 @@ def core_version_line() -> str:
     return _core_command.short_line()
 
 
+def _run_target_deploy(target: dict) -> str:
+    """Deploy one target using its update script (fleet-hub helper)."""
+    script_args = [target["script"], "main"]
+    if target["self"]:
+        script_args.append("--no-restart")
+    run(script_args, cwd=Path("/opt"), timeout=180)
+    if target["self"]:
+        return schedule_restart()
+    return f"Deployed {target['label']}."
+
+
+def _core_update_target(target_name: str) -> str:
+    """Hub action: bump one bot's core pin to latest, then deploy that bot.
+
+    Runs only from the coding agent. Operates on the target's own repo dir
+    (same server), so pushing the pin uses that repo's configured remote/auth.
+    """
+    target = DEPLOY_TARGETS.get(DEPLOY_TARGET_ALIASES.get(target_name, target_name))
+    if target is None:
+        known = ", ".join(sorted(DEPLOY_TARGETS))
+        return f"Unknown bot '{target_name}'. Known: {known}"
+
+    repo = target["repo"]
+    changed, message = bump_to_latest(repo / "ai_agent_common", repo, "ai_agent_common")
+    if not changed:
+        return f"{target['label']}: {message}"
+
+    deploy_note = _run_target_deploy(target)
+    return f"{target['label']}: {message}\n{deploy_note}"
+
+
 async def core(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not require_authorized(update):
         return
     wants_update = bool(context.args) and context.args[0] == "update"
     if wants_update:
-        await reply_chunks(update, "Bumping core to the latest release...")
-        result = await asyncio.to_thread(_core_command.update_text)
+        target_name = context.args[1] if len(context.args) > 1 else None
+        if target_name is None:
+            await reply_chunks(
+                update,
+                "Usage: /core update <bot>  (coding | pm | ops)\n"
+                "Bumps that bot's core pin to the latest tag and deploys it.",
+            )
+            return
+        await reply_chunks(update, f"Updating core for {target_name}...")
+        result = await asyncio.to_thread(_core_update_target, target_name)
         await reply_chunks(update, result)
     else:
         await reply_chunks(update, "Checking core version...")

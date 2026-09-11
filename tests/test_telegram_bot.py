@@ -307,13 +307,66 @@ class TelegramBotTests(unittest.TestCase):
         telegram_bot = importlib.import_module("ai_agent.telegram_bot")
         app = telegram_bot.build_application()
 
-        asyncio.run(telegram_bot.configure_bot_commands(app))
+        with patch.object(
+            telegram_bot,
+            "_notify_core_drift_on_startup",
+            new=AsyncMock(),
+        ):
+            asyncio.run(telegram_bot.configure_bot_commands(app))
 
         command_names = [command.command for command in app.commands]
         self.assertIn("fixpr", command_names)
         self.assertIn("queue", command_names)
         self.assertIn("planner", command_names)
         self.assertIn("agent", command_names)
+
+    def test_configure_bot_commands_sends_core_drift_notice(self) -> None:
+        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
+        app = telegram_bot.build_application()
+        app.bot.send_message = AsyncMock()
+
+        with patch.object(
+            telegram_bot.asyncio,
+            "to_thread",
+            new=AsyncMock(return_value="core update available"),
+        ):
+            asyncio.run(telegram_bot.configure_bot_commands(app))
+
+        app.bot.send_message.assert_awaited_once_with(
+            chat_id=telegram_bot.CHAT_ID,
+            text="core update available",
+        )
+
+    def test_core_update_target_bumps_and_deploys_selected_bot(self) -> None:
+        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
+
+        with (
+            patch.object(
+                telegram_bot,
+                "bump_to_latest",
+                return_value=(True, "Core bumped to v2.0 and pushed."),
+            ) as bump,
+            patch.object(
+                telegram_bot,
+                "_run_target_deploy",
+                return_value="Deployed ai-pm-agent.",
+            ) as deploy,
+        ):
+            result = telegram_bot._core_update_target("pm")
+
+        repo = telegram_bot.DEPLOY_TARGETS["pm"]["repo"]
+        bump.assert_called_once_with(repo / "ai_agent_common", repo, "ai_agent_common")
+        deploy.assert_called_once_with(telegram_bot.DEPLOY_TARGETS["pm"])
+        self.assertIn("Core bumped to v2.0", result)
+        self.assertIn("Deployed ai-pm-agent", result)
+
+    def test_core_update_target_rejects_unknown_bot(self) -> None:
+        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
+
+        result = telegram_bot._core_update_target("unknown")
+
+        self.assertIn("Unknown bot 'unknown'", result)
+        self.assertIn("coding, ops, pm", result)
 
     def test_agent_command_sets_implementation_agent(self) -> None:
         telegram_bot = importlib.import_module("ai_agent.telegram_bot")
