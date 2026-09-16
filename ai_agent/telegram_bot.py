@@ -44,7 +44,12 @@ from ai_agent.planner import (
 )
 from ai_agent.self_update import schedule_restart
 from ai_agent.ai_tools import all_info, get_tool, known_tools
-from ai_agent_common import CallbackRouter, CoreCommand, bump_to_latest, choice_keyboard, create_release
+from ai_agent_common import CallbackRouter, CoreCommand, bump_to_latest, choice_keyboard
+
+try:
+    from ai_agent_common import create_release
+except ImportError:
+    create_release = None
 from ai_agent.projects import (
     ProjectError,
     active_project,
@@ -1617,6 +1622,13 @@ async def core(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     wants_release = bool(context.args) and context.args[0] == "release"
     if wants_release:
+        if create_release is None:
+            await reply_chunks(
+                update,
+                "Core release support is unavailable because ai-agent-common "
+                "is not synced. Redeploy with submodules enabled.",
+            )
+            return
         version = context.args[1] if len(context.args) > 1 else None
         note = " ".join(context.args[2:]) if len(context.args) > 2 else ""
         if version is None or not note:
