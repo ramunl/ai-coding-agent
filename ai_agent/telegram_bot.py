@@ -44,7 +44,7 @@ from ai_agent.planner import (
 )
 from ai_agent.self_update import schedule_restart
 from ai_agent.ai_tools import all_info, get_tool, known_tools
-from ai_agent_common import CallbackRouter, CoreCommand, bump_to_latest, choice_keyboard
+from ai_agent_common import CallbackRouter, CoreCommand, bump_to_latest, choice_keyboard, create_release
 from ai_agent.projects import (
     ProjectError,
     active_project,
@@ -97,7 +97,7 @@ BOT_COMMANDS = [
     BotCommand("verbosity", "Show or set reply verbosity"),
     BotCommand("limits", "Show Codex and Claude limits/status"),
     BotCommand("model", "Show or switch the Claude model"),
-    BotCommand("core", "Show core version; /core update <bot> to update (hub)"),
+    BotCommand("core", "Core version; update <bot> / release <ver> <note> (hub)"),
     BotCommand("codex", "Show Codex status"),
     BotCommand("test", "Run agent unit tests"),
     BotCommand("pull", "git pull the active project"),
@@ -1615,6 +1615,26 @@ def _core_update_target(target_name: str) -> str:
 async def core(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not require_authorized(update):
         return
+    wants_release = bool(context.args) and context.args[0] == "release"
+    if wants_release:
+        version = context.args[1] if len(context.args) > 1 else None
+        note = " ".join(context.args[2:]) if len(context.args) > 2 else ""
+        if version is None or not note:
+            await reply_chunks(
+                update,
+                "Usage: /core release <version> <what changed>\n"
+                "Example: /core release v2.0 added inline button helpers\n"
+                "Tags origin/main of ai-agent-common. Refuses hollow or "
+                "backwards releases.",
+            )
+            return
+        await reply_chunks(update, f"Releasing core {version}...")
+        ok, message = await asyncio.to_thread(
+            create_release, _CORE_ROOT / "ai_agent_common", version, note
+        )
+        await reply_chunks(update, message)
+        return
+
     wants_update = bool(context.args) and context.args[0] == "update"
     if wants_update:
         target_name = context.args[1] if len(context.args) > 1 else None
