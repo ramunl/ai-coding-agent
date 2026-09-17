@@ -11,7 +11,6 @@ import os
 import shlex
 import subprocess
 
-
 logger = logging.getLogger(__name__)
 
 SERVICE_NAME = os.environ.get("AGENT_SERVICE_NAME", "ai-agent")
@@ -28,14 +27,25 @@ def schedule_restart() -> str:
     command = f"sleep {RESTART_DELAY_SECONDS} && systemctl restart {shlex.quote(SERVICE_NAME)}"
     try:
         subprocess.run(
-            ["systemd-run", "--collect", f"--unit={SERVICE_NAME}-selfupdate", "/bin/sh", "-c", command],
+            [
+                "systemd-run",
+                "--collect",
+                f"--unit={SERVICE_NAME}-selfupdate",
+                "/bin/sh",
+                "-c",
+                command,
+            ],
             capture_output=True,
             check=True,
             text=True,
             timeout=30,
         )
         return f"Restart scheduled in {RESTART_DELAY_SECONDS}s."
-    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired) as error:
+    except (
+        subprocess.CalledProcessError,
+        FileNotFoundError,
+        subprocess.TimeoutExpired,
+    ) as error:
         logger.warning("systemd-run unavailable (%s); using detached shell", error)
         subprocess.Popen(
             ["/bin/sh", "-c", command],

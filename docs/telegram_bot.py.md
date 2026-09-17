@@ -1,296 +1,90 @@
-# telegram_bot.py
+# Telegram bot architecture
 
-**Purpose**: Main Telegram bot interface for the AI agent, handling user commands and orchestrating the workflow.
+`ai_agent.telegram_bot.build_application()` wires commands, callbacks, free-text
+replies, startup hooks, and error handling. `agent.py` validates configuration,
+configures logging, and starts polling. Command logic lives in `ai_agent/bot`.
 
-## Overview
-Provides command handlers for a Telegram bot that allows users to request features, report bugs, confirm implementations, and monitor CI status.
+## Module ownership
 
-## Core Components
+| Module | Responsibility |
+| --- | --- |
+| `constants.py` | Autocomplete command metadata and fleet deployment targets |
+| `transport.py` | Owner authorization, redacted chunked replies, argument prompts, errors |
+| `state.py` | Pending plans, FIFO task data, provider preferences, execution snapshots |
+| `menus.py` | Concise help, full reference, and command button grids |
+| `planning.py` | Plan creation, revision, approval, and bugfix clarification |
+| `execution.py` | Queue execution, pull request repair, and cleanup |
+| `ci_monitor.py` | CI polling, repair prompts, and pull request selection |
+| `inspection.py` | Status, queue, logs, diffs, verbosity, and cancellation |
+| `repositories.py` | Project registration, selection, branches, and pulling changes |
+| `providers.py` | Planner/implementation provider choices, limits, and model settings |
+| `maintenance.py` | Versions, deployment, unit tests, and shared-core operations |
 
-### Authorization
+The command adapters use existing services such as `workflow.py`, `planner.py`,
+`projects.py`, and `ci.py`. Shared transport and state helpers never import the
+application wiring module. Callback dispatch remains in the wiring layer so
+command modules do not need to import each other to route a command.
 
-#### `is_authorized(update: Update) -> bool`
-Checks if a message comes from the authorized chat.
-- Compares `update.effective_chat.id` with `CHAT_ID` config
-- Returns boolean
+## Commands and callbacks
 
-#### `require_authorized(update: Update) -> bool`
-Requires authorization and logs warnings if unauthorized.
-- Returns False if unauthorized (with warning log)
-- Returns True if authorized
+`command_handlers()` is the source of handler routing for both typed commands and
+command buttons. `BOT_COMMANDS` supplies autocomplete labels and menu buttons.
+Help and `/more` use standard Telegram messages with a three-column button grid.
+Argument-free commands execute immediately. Commands needing choices show a grid;
+free-text commands use a force-reply prompt. A reply is accepted only when it
+matches the recorded prompt message ID. `/cancel` clears that prompt.
 
-### Response Handling
+Every command and callback checks owner authorization. `reply_chunks()` redacts
+configured secrets and splits plain-text output into at most 3,900 characters.
+Repository listings retain their existing structured rich-message payloads.
 
-#### `reply_chunks(update: Update, text: str) -> Coroutine`
-Sends response text, split into Telegram-compatible chunks.
+## Planning and execution state
 
-**Features**:
-- Redacts sensitive information (tokens, keys)
-- Splits at 3900 chars (Telegram limit is 4096)
-- Sends as multiple messages if needed
-- Shows "(no output)" if text is empty
+`context.user_data` retains the existing keys and dictionary shapes:
 
-## Command Handlers
+- `pending_plan`: the current `PlanState`, with revision and approval state.
+- `pending_implementation`: change, prompt, branch, commit type, and display labels.
+- `pending_bugfix_clarification`: bug report and branch source awaiting answers.
+- `argument_prompt`: prompt message ID and command awaiting a text reply.
+- `task_queue` and `next_task_id`: FIFO tasks and their identifiers.
+- `queue_runner_active` and `active_execution`: runner ownership and progress.
+- `last_execution`: an `ExecutionState` containing output, diff, PR URL, and test status.
+- `planning_agent`, `implementation_agent`, and `verbosity`: user preferences.
 
-All commands are async and require authorization via `require_authorized`.
+`/plan` creates a pending plan; `/discuss` revises it; `/approve` marks the revision
+ready. `/confirm` snapshots approved work and the selected implementation provider
+into the queue. The runner processes tasks in order, implementing each branch,
+pushing it, opening its pull request, and polling CI. Its `finally` blocks clear
+execution state, restore the base branch, and release the runner flag on failure.
+An exception still stops the current drain; later queued tasks remain pending.
 
-### Help Commands
+`/fixpr` checks that the requested PR is open and belongs to the active repository.
+It rejects fork branches and uses the existing PR branch for repairs.
 
-#### `/start` or `/help`
-Sends a Telegram rich message (`sendRichMessage`, headed sections with bold/code spans — see
-`send_rich_message()`) with available commands and their usage.
+## Shared CI repair sequence
 
-Commands that need arguments are shown without a leading slash in help text so Telegram does not send
-an incomplete command when the user taps it. Users still type the slash when running them.
+Queued work and `/fixpr` both call `_repair_failed_ci()`. An immutable
+`_RepairRequest` supplies the branch, PR, provider, prompt builder, repair operation,
+and commit message. The loop repairs only a failed result, respects
+`CI_FIX_ATTEMPTS`, captures updated execution output, and polls each pushed commit.
 
-**Sections**: header/active project, Planning workflow, Provider examples, Existing PR repair, Commands,
-and a dedicated **Git commands (target project)** section (see below) that calls out explicitly that
-those commands act on the active project, not the Coding agent's own checkout.
+`watch_ci()` reports changed summaries and stops on success, failure, or
+`CI_TIMEOUT_SECONDS`. `_report_execution()` updates the captured test status using
+`dataclasses.replace` and renders the completion message. Checking an already
+passing PR does not overwrite output from an earlier implementation.
 
-**Shows** (non-git commands):
-- plan \<feature\> - Plan only, no implementation
-- implement \<feature\> - Plan and wait for /confirm
-- bugfix \<bug\> - Clarify if needed, then wait for /confirm
-- answer \<details\> - Answer pending clarification
-- /confirm - Add pending work to the FIFO queue and run queued tasks
-- /queue - Show running task and pending FIFO queue
-- agent codex|claude - Choose the AI used for implementation and CI repair
-- cancel \[task-id\] - Discard pending work or remove a queued task
-- ci \<pr-number\> - Show CI status for PR
-- /limits - Show Claude API limits
-- /codex - Show Codex CLI status
-- /test - Run agent unit tests
-- logs \[lines\] - Show recent service logs
+## Maintenance and validation
 
-### Git Commands (target project)
+The shared-core path is resolved from the repository root, independently of the
+new package depth. Fleet scripts and aliases live in `constants.py`; environment
+configuration remains in `ai_agent/config.py`. `/version` has a single registered
+handler backed by the shared version implementation.
 
-All of these operate on the **active project** (`active_project().repo_path`, switched via
-`/repo_use <name>`) — never on the Coding agent's own repository. This is called out explicitly in the
-`/help` output to avoid confusion with the agent's own deploy process (see
-[self_update.py.md](self_update.py.md)).
+Bot behavior tests are split into `tests/test_bot_*.py`; registration and dispatch
+integration tests remain in `tests/test_telegram_bot.py`. `tests/bot_fixtures.py`
+isolates mocked Telegram/provider modules between tests. Mock services where the
+owning command module imports them.
 
-#### `/pull`
-Pulls the active project's repo.
-- Blocked while an implementation is actively running (same guard as `/branch`)
-- Runs: `git pull`
-- On failure, replies with the redacted error instead of raising
-
-#### `/branches`
-Lists all git branches (local and remote).
-- Runs: `git branch -a`
-
-#### `/branch [name]`
-Shows the current branch, or switches to it.
-- No args: runs `git branch --show-current`
-- With a branch name: blocked while an implementation is actively running
-- Validates the name, then runs `git checkout <name>`
-- Falls back to `git fetch origin <name>` + `git checkout -B <name> origin/<name>` if the branch doesn't exist locally
-
-#### `/status`
-Shows git status.
-- Runs: `git status`
-
-#### `/logs [lines]`
-Shows recent service logs.
-- Default: 60 lines
-- Max: 120 lines (configurable)
-- Runs: `journalctl -u ai-agent.service -n {lines} --no-pager`
-
-### Monitoring Commands
-
-#### `/limits`
-Shows current Claude API rate limits.
-- Calls: `get_anthropic_limits()`
-
-#### `/codex`
-Shows Codex CLI version and login status.
-- Calls: `get_codex_status()`
-
-#### `/test`
-Runs agent unit tests.
-- Calls: `run_unit_tests()`
-
-#### `/ci <pr-number>`
-Checks CI status for a specific PR.
-- Gets PR head SHA from GitHub
-- Calls: `evaluate_ci(head_sha)`
-- Shows current workflow status
-
-### Feature/Bug Commands
-
-#### `/plan <feature>`
-Generates an implementation plan without executing it.
-- Calls: `plan_feature(feature)`
-- Returns: Branch name, files to modify, steps, Codex prompt
-
-#### `/implement <feature>`
-Plans a feature and stores for later confirmation.
-- Calls: `plan_feature(feature)`
-- Generates branch name
-- Stores in `context.user_data["pending_implementation"]` with:
-  - change, codex_prompt, branch_name
-  - commit_type: "feat"
-  - pr_body_label: "Plan"
-  - confirmation_label: "implementation"
-- Waits for `/confirm` or `/cancel`
-
-#### `/bugfix <bug>`
-Triages a bug report, asking clarification questions if needed.
-- Calls: `assess_bugfix_report(bug)`
-- If questions needed:
-  - Stores in `pending_bugfix_clarification`
-  - Waits for `/answer`
-- If ready:
-  - Proceeds to `prepare_bugfix()`
-
-#### `/answer <details>`
-Provides answers to bugfix clarification questions.
-- Requires pending `bugfix_clarification` context
-- Combines original bug with user answers
-- Re-assesses with questions
-- If still questions: waits for more answers
-- If ready: proceeds to `prepare_bugfix()`
-
-### Implementation Commands
-
-#### `prepare_bugfix(update, context, bug, branch_source)`
-Internal function - prepares bugfix for confirmation.
-- Calls: `build_bugfix_prompt(bug)` and `slugify_branch_name(branch_source, "bugfix")`
-- Stores in `pending_implementation` with:
-  - commit_type: "fix"
-  - pr_body_label: "Bug fix prompt"
-  - confirmation_label: "bug fix"
-
-#### `/confirm`
-Enqueues the pending implementation (feature or bugfix) and drains queued work in FIFO order.
-
-**Process**:
-1. Requires `pending_implementation` context
-2. Appends the pending task to `task_queue`
-3. Returns immediately if another queue runner is already active
-4. Otherwise drains `task_queue` from oldest to newest
-5. For each task, ensures GitHub is configured
-6. Runs Codex: `implement(codex_prompt, branch_name)` (runs: `codex {prompt}`)
-7. Commits and pushes: `push(branch_name, change, commit_type)`
-8. Creates PR: `create_pull_request(branch_name, change, codex_prompt, commit_type, pr_body_label)`
-9. Watches CI: `watch_ci(head_sha)`
-10. If CI fails, repairs and pushes the branch up to `CI_FIX_ATTEMPTS`, polling each repair commit
-11. Sends a passing completion or a failed completion when the final polled CI result is failed
-
-**Error Handling**:
-- GitHub configuration errors caught early
-- Codex errors from implementation failure
-- Git errors from push failure
-- PR creation errors
-- Exhausted CI repair attempts are reported as a failed implementation, not a successful completion
-
-#### `/cancel`
-Discards pending implementation or bugfix clarification, or removes a queued task by ID.
-- Without arguments, clears `pending_implementation`, `pending_plan`, and `pending_bugfix_clarification`
-- With `/cancel <task-id>`, removes a queued task that has not started
-- Running tasks are not cancelled
-
-#### `/queue`
-Shows the currently running task and pending FIFO tasks.
-- Uses `active_execution` for the running task
-- Uses `task_queue` for pending tasks
-
-### CI Polling
-
-#### `watch_ci(update, head_sha)`
-Polls CI status until completion or timeout.
-
-**Behavior**:
-- Polls every `CI_POLL_INTERVAL_SECONDS` (default 30s)
-- Timeout: `CI_TIMEOUT_SECONDS` (default 1800s = 30 min)
-- Reports status changes:
-  - "waiting" → "running" → "passed" or "failed"
-- The task runner also repeats the final passed CI status before the implementation completion summary
-- Exits when:
-  - Status is "passed" or "failed"
-  - Timeout reached
-
-## Internal Helpers
-
-#### `get_bugfix_questions(bug: str) -> str | None`
-Wrapper that assesses a bug and extracts questions.
-- Calls: `assess_bugfix_report(bug)` then `bugfix_questions()`
-
-## Error Handling
-
-#### `error_handler(update, context)`
-Global error handler for Telegram updates.
-- Logs all errors with traceback
-- Sends error message to user if authorized
-- Format: "Error:\n{error}"
-
-## Application Setup
-
-#### `build_application() -> Application`
-Constructs and configures the Telegram bot application.
-
-**Handlers Registered**:
-- /start → start()
-- /help → start()
-- /plan → plan()
-- /implement → implement_cmd()
-- /bugfix → bugfix_cmd()
-- /answer → answer()
-- /confirm → confirm()
-- /cancel → cancel()
-- /ci → ci()
-- /limits → limits()
-- /codex → codex_status()
-- /test → test()
-- /pull → pull()
-- /branches → branches()
-- /branch → branch()
-- /status → status()
-- /logs → logs()
-- Global error handler
-
-**Returns**: Configured `Application` ready to run
-
-## Configuration Dependencies
-
-- `CHAT_ID`: Authorized chat ID
-- `TELEGRAM_TOKEN`: Bot token
-- `CI_POLL_INTERVAL_SECONDS`: Polling frequency
-- `CI_TIMEOUT_SECONDS`: Max CI wait time
-- `COMMAND_TIMEOUT_SECONDS`: Shell command timeout
-- `MAX_TELEGRAM_MESSAGE_LENGTH`: 3900 chars
-- `MAX_LOG_LINES`: 120 lines max
-- `GITHUB_REPOSITORY`: For CI checks
-
-## Usage Pattern
-
-```python
-from ai_agent.telegram_bot import build_application
-
-app = build_application()
-app.run_polling()  # Start bot
-```
-
-## Workflow State Management
-
-Pending operations are stored in `context.user_data`:
-
-**Implementation State**:
-```python
-context.user_data["pending_implementation"] = {
-    "change": str,
-    "codex_prompt": str,
-    "branch_name": str,
-    "commit_type": str,  # "feat" or "fix"
-    "pr_body_label": str,
-    "confirmation_label": str
-}
-```
-
-**Bugfix Clarification State**:
-```python
-context.user_data["pending_bugfix_clarification"] = {
-    "bug": str,
-    "branch_source": str
-}
-```
+Run the checks documented in the README before committing. Ruff excludes the
+pinned `ai_agent_common` submodule from formatting, while pytest includes its
+regression tests.

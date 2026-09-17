@@ -6,7 +6,6 @@ from pathlib import Path
 from ai_agent.config import COMMAND_TIMEOUT_SECONDS
 from ai_agent.projects import active_project
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -17,10 +16,21 @@ class CommandResult:
     output: str
 
 
-def run(args: list[str], cwd: Path | None = None, timeout: int = COMMAND_TIMEOUT_SECONDS, interactive: bool = False) -> CommandResult:
+def run(
+    args: list[str],
+    cwd: Path | None = None,
+    timeout: int = COMMAND_TIMEOUT_SECONDS,
+    interactive: bool = False,
+) -> CommandResult:
     # Resolved per call, not at import: the active project can change at runtime.
     working_directory = cwd if cwd is not None else active_project().repo_path
-    logger.info("Running command: %s cwd=%s timeout=%s interactive=%s", args, working_directory, timeout, interactive)
+    logger.info(
+        "Running command: %s cwd=%s timeout=%s interactive=%s",
+        args,
+        working_directory,
+        timeout,
+        interactive,
+    )
     try:
         result = subprocess.run(
             args,
@@ -33,9 +43,13 @@ def run(args: list[str], cwd: Path | None = None, timeout: int = COMMAND_TIMEOUT
         )
     except subprocess.TimeoutExpired as exc:
         output = (exc.stdout or "") + (exc.stderr or "")
-        raise RuntimeError(f"Command timed out after {timeout}s: {' '.join(args)}\n{output}") from exc
+        raise RuntimeError(
+            f"Command timed out after {timeout}s: {' '.join(args)}\n{output}"
+        ) from exc
 
     output = (result.stdout or "") + (result.stderr or "") if not interactive else ""
     if result.returncode != 0:
-        raise RuntimeError(f"Command failed ({result.returncode}): {' '.join(args)}\n{output}")
+        raise RuntimeError(
+            f"Command failed ({result.returncode}): {' '.join(args)}\n{output}"
+        )
     return CommandResult(args=args, returncode=result.returncode, output=output)

@@ -1,0 +1,14 @@
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+extend-exclude = ["ai_agent_common"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]
+
+[tool.ruff.lint.per-file-ignores]
+# Test doubles use lambdas to emulate third-party constructors.
+"tests/*.py" = ["E731"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "ai_agent_common/tests"]

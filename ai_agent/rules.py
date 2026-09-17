@@ -9,7 +9,6 @@ from ai_agent.config import (
 from ai_agent.projects import active_project
 from ai_agent.shell import run
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -38,7 +37,9 @@ def sync_rules() -> bool:
         run(["git", "clone", RULES_REPO_URL, str(RULES_REPO_PATH)], cwd=parent)
         return True
     except RuntimeError as error:
-        logger.warning("Could not clone rules repo; proceeding without rules: %s", error)
+        logger.warning(
+            "Could not clone rules repo; proceeding without rules: %s", error
+        )
         return False
 
 

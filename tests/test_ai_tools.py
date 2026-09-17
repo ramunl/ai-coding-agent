@@ -11,9 +11,13 @@ class AIToolsTests(unittest.TestCase):
         os.environ["TELEGRAM_BOT_TOKEN"] = "t"
         os.environ["YOUR_CHAT_ID"] = "1"
         os.environ["ANTHROPIC_API_KEY"] = "k"
-        for module in ("ai_agent.config", "ai_agent.model_errors",
-                       "ai_agent.anthropic_limits", "ai_agent.model_manager",
-                       "ai_agent.ai_tools"):
+        for module in (
+            "ai_agent.config",
+            "ai_agent.model_errors",
+            "ai_agent.anthropic_limits",
+            "ai_agent.model_manager",
+            "ai_agent.ai_tools",
+        ):
             sys.modules.pop(module, None)
         self.ai_tools = importlib.import_module("ai_agent.ai_tools")
 
@@ -22,7 +26,9 @@ class AIToolsTests(unittest.TestCase):
         os.environ.update(self.previous_env)
 
     def test_all_known_tools_present(self) -> None:
-        self.assertEqual(set(self.ai_tools.known_tools()), {"claude", "codex", "claude-code"})
+        self.assertEqual(
+            set(self.ai_tools.known_tools()), {"claude", "codex", "claude-code"}
+        )
 
     def test_claude_is_manageable(self) -> None:
         claude = self.ai_tools.get_tool("claude")
@@ -46,7 +52,11 @@ class AIToolsTests(unittest.TestCase):
 
     def test_claude_delegates_to_model_manager(self) -> None:
         claude = self.ai_tools.get_tool("claude")
-        with patch.object(self.ai_tools.model_manager, "verify_model", return_value=(True, "reachable")) as verify:
+        with patch.object(
+            self.ai_tools.model_manager,
+            "verify_model",
+            return_value=(True, "reachable"),
+        ) as verify:
             ok, detail = claude.verify("claude-sonnet-4-6")
         self.assertTrue(ok)
         verify.assert_called_once()

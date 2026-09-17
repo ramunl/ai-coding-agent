@@ -16,7 +16,12 @@ import urllib.request
 from pathlib import Path
 
 from ai_agent.anthropic_limits import anthropic_limit_headers
-from ai_agent.config import ANTHROPIC_KEY, ANTHROPIC_MODEL, ANTHROPIC_VERSION, COMMAND_TIMEOUT_SECONDS
+from ai_agent.config import (
+    ANTHROPIC_KEY,
+    ANTHROPIC_MODEL,
+    ANTHROPIC_VERSION,
+    COMMAND_TIMEOUT_SECONDS,
+)
 from ai_agent.model_errors import is_model_not_found
 
 logger = logging.getLogger(__name__)
@@ -47,7 +52,9 @@ def list_models() -> tuple[bool, list[dict[str, str]] | str]:
             url += f"?after_id={after_id}"
         request = urllib.request.Request(url, headers=headers, method="GET")
         try:
-            with urllib.request.urlopen(request, timeout=COMMAND_TIMEOUT_SECONDS) as response:
+            with urllib.request.urlopen(
+                request, timeout=COMMAND_TIMEOUT_SECONDS
+            ) as response:
                 body = response.read().decode("utf-8", errors="replace")
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
@@ -59,7 +66,10 @@ def list_models() -> tuple[bool, list[dict[str, str]] | str]:
             return False, "Unexpected response from the API."
 
         models.extend(
-            {"id": item.get("id", ""), "display_name": item.get("display_name") or item.get("id", "")}
+            {
+                "id": item.get("id", ""),
+                "display_name": item.get("display_name") or item.get("id", ""),
+            }
             for item in page.get("data", [])
         )
 

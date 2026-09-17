@@ -9,7 +9,9 @@ class VersionTests(unittest.TestCase):
     def test_delegates_to_shared_helper_with_agent_name(self) -> None:
         # version.py must call the shared helper with this bot's name and root,
         # so all agents format /version identically.
-        with patch.object(version, "_shared_runtime_version", return_value="stub") as shared:
+        with patch.object(
+            version, "_shared_runtime_version", return_value="stub"
+        ) as shared:
             result = get_runtime_version()
 
         self.assertEqual(result, "stub")

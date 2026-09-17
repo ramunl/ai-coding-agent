@@ -51,8 +51,12 @@ class ModelManagerTests(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp())
         self.env_file = self.tmp / "ai-agent.env"
         os.environ["AGENT_ENV_FILE"] = str(self.env_file)
-        for module in ("ai_agent.config", "ai_agent.model_errors",
-                       "ai_agent.anthropic_limits", "ai_agent.model_manager"):
+        for module in (
+            "ai_agent.config",
+            "ai_agent.model_errors",
+            "ai_agent.anthropic_limits",
+            "ai_agent.model_manager",
+        ):
             sys.modules.pop(module, None)
         self.mm = importlib.import_module("ai_agent.model_manager")
 
@@ -98,10 +102,14 @@ class ModelManagerTests(unittest.TestCase):
     def test_list_models_returns_id_and_display_name(self) -> None:
         page = '{"data":[{"id":"claude-opus-5","display_name":"Claude Opus 5"}],"has_more":false}'
         with patch("urllib.request.urlopen") as urlopen:
-            urlopen.return_value.__enter__.return_value.read.return_value = page.encode("utf-8")
+            urlopen.return_value.__enter__.return_value.read.return_value = page.encode(
+                "utf-8"
+            )
             ok, models = self.mm.list_models()
         self.assertTrue(ok)
-        self.assertEqual(models, [{"id": "claude-opus-5", "display_name": "Claude Opus 5"}])
+        self.assertEqual(
+            models, [{"id": "claude-opus-5", "display_name": "Claude Opus 5"}]
+        )
 
     def test_list_models_paginates(self) -> None:
         page1 = '{"data":[{"id":"a","display_name":"A"}],"has_more":true,"last_id":"a"}'
@@ -121,7 +129,9 @@ class ModelManagerTests(unittest.TestCase):
         error = urllib.error.HTTPError(
             url="", code=401, msg="unauthorized", hdrs=None, fp=None
         )
-        with patch.object(error, "read", return_value=b'{"error":{"message":"bad key"}}'):
+        with patch.object(
+            error, "read", return_value=b'{"error":{"message":"bad key"}}'
+        ):
             with patch("urllib.request.urlopen", side_effect=error):
                 ok, detail = self.mm.list_models()
         self.assertFalse(ok)

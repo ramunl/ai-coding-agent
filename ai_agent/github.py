@@ -20,10 +20,14 @@ def ensure_github_configured() -> None:
         raise RuntimeError("GITHUB_TOKEN is not configured in the agent environment")
     repository = active_project().github_repository
     if "/" not in repository:
-        raise RuntimeError(f"Project repository must use owner/repo format, got: {repository}")
+        raise RuntimeError(
+            f"Project repository must use owner/repo format, got: {repository}"
+        )
 
 
-def github_request(method: str, path: str, data: dict | None = None, query: dict | None = None) -> dict:
+def github_request(
+    method: str, path: str, data: dict | None = None, query: dict | None = None
+) -> dict:
     if not GITHUB_TOKEN:
         raise RuntimeError("GITHUB_TOKEN is not configured")
 
@@ -44,11 +48,15 @@ def github_request(method: str, path: str, data: dict | None = None, query: dict
 
     request = urllib.request.Request(url, data=body, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(request, timeout=COMMAND_TIMEOUT_SECONDS) as response:
+        with urllib.request.urlopen(
+            request, timeout=COMMAND_TIMEOUT_SECONDS
+        ) as response:
             response_body = response.read().decode("utf-8")
     except urllib.error.HTTPError as exc:
         error_body = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"GitHub API failed ({exc.code}) {method} {path}: {error_body}") from exc
+        raise RuntimeError(
+            f"GitHub API failed ({exc.code}) {method} {path}: {error_body}"
+        ) from exc
 
     if not response_body:
         return {}

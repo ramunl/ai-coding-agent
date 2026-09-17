@@ -156,8 +156,16 @@ class ProjectsTests(unittest.TestCase):
             {
                 "active": "alpha",
                 "projects": {
-                    "alpha": {"repo_path": str(alpha), "github_repository": "r/alpha", "base_branch": "main"},
-                    "beta": {"repo_path": str(beta), "github_repository": "r/beta", "base_branch": "main"},
+                    "alpha": {
+                        "repo_path": str(alpha),
+                        "github_repository": "r/alpha",
+                        "base_branch": "main",
+                    },
+                    "beta": {
+                        "repo_path": str(beta),
+                        "github_repository": "r/beta",
+                        "base_branch": "main",
+                    },
                 },
             }
         )

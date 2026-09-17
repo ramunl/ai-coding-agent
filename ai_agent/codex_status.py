@@ -5,8 +5,12 @@ from ai_agent.shell import run
 
 
 def get_codex_status() -> str:
-    version = run(["codex", "--version"], Path("/"), COMMAND_TIMEOUT_SECONDS).output.strip()
-    login_status = run(["codex", "login", "status"], Path("/"), COMMAND_TIMEOUT_SECONDS).output.strip()
+    version = run(
+        ["codex", "--version"], Path("/"), COMMAND_TIMEOUT_SECONDS
+    ).output.strip()
+    login_status = run(
+        ["codex", "login", "status"], Path("/"), COMMAND_TIMEOUT_SECONDS
+    ).output.strip()
 
     return (
         "Codex status:\n"

@@ -31,9 +31,13 @@ def anthropic_limit_headers() -> tuple[int, dict[str, str], str]:
     )
 
     try:
-        with urllib.request.urlopen(request, timeout=COMMAND_TIMEOUT_SECONDS) as response:
+        with urllib.request.urlopen(
+            request, timeout=COMMAND_TIMEOUT_SECONDS
+        ) as response:
             body = response.read().decode("utf-8", errors="replace")
-            response_headers = {key.lower(): value for key, value in response.headers.items()}
+            response_headers = {
+                key.lower(): value for key, value in response.headers.items()
+            }
             return response.status, response_headers, body
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")

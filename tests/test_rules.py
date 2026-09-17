@@ -21,7 +21,16 @@ def _init_rules_repo(root: Path) -> None:
     subprocess.run(["git", "init", "-q"], cwd=root, check=True)
     subprocess.run(["git", "add", "-A"], cwd=root, check=True)
     subprocess.run(
-        ["git", "-c", "user.email=t@t.com", "-c", "user.name=t", "commit", "-qm", "init"],
+        [
+            "git",
+            "-c",
+            "user.email=t@t.com",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-qm",
+            "init",
+        ],
         cwd=root,
         check=True,
     )
@@ -47,13 +56,23 @@ class RulesTests(unittest.TestCase):
         os.environ["RULES_REPO_PATH"] = str(self.rules_path)
         os.environ["RULES_PROJECT_NAME"] = "channel-cast"
 
-        for module in ("ai_agent.config", "ai_agent.projects", "ai_agent.shell", "ai_agent.rules"):
+        for module in (
+            "ai_agent.config",
+            "ai_agent.projects",
+            "ai_agent.shell",
+            "ai_agent.rules",
+        ):
             sys.modules.pop(module, None)
 
     def tearDown(self) -> None:
         os.environ.clear()
         os.environ.update(self.previous_env)
-        for module in ("ai_agent.config", "ai_agent.projects", "ai_agent.shell", "ai_agent.rules"):
+        for module in (
+            "ai_agent.config",
+            "ai_agent.projects",
+            "ai_agent.shell",
+            "ai_agent.rules",
+        ):
             sys.modules.pop(module, None)
 
     def test_load_rules_includes_global_and_project(self) -> None:
@@ -70,7 +89,12 @@ class RulesTests(unittest.TestCase):
 
     def test_disabled_returns_empty(self) -> None:
         os.environ["RULES_ENABLED"] = "false"
-        for module in ("ai_agent.config", "ai_agent.projects", "ai_agent.shell", "ai_agent.rules"):
+        for module in (
+            "ai_agent.config",
+            "ai_agent.projects",
+            "ai_agent.shell",
+            "ai_agent.rules",
+        ):
             sys.modules.pop(module, None)
         rules = importlib.import_module("ai_agent.rules")
         self.assertEqual(rules.load_rules_text(), "")
@@ -79,14 +103,24 @@ class RulesTests(unittest.TestCase):
     def test_missing_repo_returns_empty_not_error(self) -> None:
         os.environ["RULES_REPO_PATH"] = str(Path(self.tmp) / "does-not-exist")
         os.environ["RULES_REPO_URL"] = "file:///nonexistent/repo.git"
-        for module in ("ai_agent.config", "ai_agent.projects", "ai_agent.shell", "ai_agent.rules"):
+        for module in (
+            "ai_agent.config",
+            "ai_agent.projects",
+            "ai_agent.shell",
+            "ai_agent.rules",
+        ):
             sys.modules.pop(module, None)
         rules = importlib.import_module("ai_agent.rules")
         self.assertEqual(rules.rules_prompt_block(), "")
 
     def test_project_rules_absent_still_returns_global(self) -> None:
         os.environ["RULES_PROJECT_NAME"] = "nonexistent-project"
-        for module in ("ai_agent.config", "ai_agent.projects", "ai_agent.shell", "ai_agent.rules"):
+        for module in (
+            "ai_agent.config",
+            "ai_agent.projects",
+            "ai_agent.shell",
+            "ai_agent.rules",
+        ):
             sys.modules.pop(module, None)
         rules = importlib.import_module("ai_agent.rules")
         text = rules.load_rules_text()

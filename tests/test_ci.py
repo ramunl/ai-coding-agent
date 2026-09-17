@@ -1,7 +1,12 @@
 import unittest
 from unittest.mock import patch
 
-from ai_agent.ci import CiResult, build_failure_context, evaluate_ci, summarize_failed_jobs
+from ai_agent.ci import (
+    CiResult,
+    build_failure_context,
+    evaluate_ci,
+    summarize_failed_jobs,
+)
 
 
 class CiTests(unittest.TestCase):
@@ -14,7 +19,13 @@ class CiTests(unittest.TestCase):
 
     @patch(
         "ai_agent.ci.list_workflow_runs",
-        return_value=[{"name": "Build", "status": "in_progress", "html_url": "https://example.test/run"}],
+        return_value=[
+            {
+                "name": "Build",
+                "status": "in_progress",
+                "html_url": "https://example.test/run",
+            }
+        ],
     )
     def test_evaluate_ci_reports_running_workflows(self, _mock_runs) -> None:
         result = evaluate_ci("abc123")
@@ -25,7 +36,14 @@ class CiTests(unittest.TestCase):
 
     @patch(
         "ai_agent.ci.list_workflow_runs",
-        return_value=[{"name": "Build", "status": "completed", "conclusion": "success", "html_url": "https://example.test/run"}],
+        return_value=[
+            {
+                "name": "Build",
+                "status": "completed",
+                "conclusion": "success",
+                "html_url": "https://example.test/run",
+            }
+        ],
     )
     def test_evaluate_ci_reports_successful_workflows(self, _mock_runs) -> None:
         result = evaluate_ci("abc123")
@@ -56,7 +74,9 @@ class CiTests(unittest.TestCase):
             },
         ],
     )
-    def test_evaluate_ci_ignores_older_failed_run_for_same_workflow(self, _mock_runs) -> None:
+    def test_evaluate_ci_ignores_older_failed_run_for_same_workflow(
+        self, _mock_runs
+    ) -> None:
         result = evaluate_ci("abc123")
 
         self.assertEqual(result.state, "passed")
@@ -76,7 +96,14 @@ class CiTests(unittest.TestCase):
     )
     def test_summarize_failed_jobs_includes_failed_steps(self, _mock_jobs) -> None:
         summary = summarize_failed_jobs(
-            [{"id": 7, "name": "Build", "conclusion": "failure", "html_url": "https://example.test/run"}]
+            [
+                {
+                    "id": 7,
+                    "name": "Build",
+                    "conclusion": "failure",
+                    "html_url": "https://example.test/run",
+                }
+            ]
         )
 
         self.assertIn("compile (Kotlin compile)", summary)
@@ -89,8 +116,12 @@ class CiTests(unittest.TestCase):
             {"body": "**Build failed**\n\n```\ne: compile failed\n```"},
         ],
     )
-    def test_build_failure_context_includes_latest_build_failure_comment(self, _mock_request) -> None:
-        context = build_failure_context(12, CiResult("failed", "CI failed: build", "https://example.test/run"))
+    def test_build_failure_context_includes_latest_build_failure_comment(
+        self, _mock_request
+    ) -> None:
+        context = build_failure_context(
+            12, CiResult("failed", "CI failed: build", "https://example.test/run")
+        )
 
         self.assertIn("CI failed: build", context)
         self.assertIn("https://example.test/run", context)

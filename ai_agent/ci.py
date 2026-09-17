@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
-from ai_agent.projects import active_project
 from ai_agent.github import github_request
+from ai_agent.projects import active_project
 
 
 @dataclass(frozen=True)
@@ -21,39 +21,54 @@ def list_workflow_runs(head_sha: str) -> list[dict]:
 
 
 def list_workflow_jobs(run_id: int) -> list[dict]:
-    response = github_request("GET", f"/repos/{active_project().github_repository}/actions/runs/{run_id}/jobs")
+    response = github_request(
+        "GET", f"/repos/{active_project().github_repository}/actions/runs/{run_id}/jobs"
+    )
     return response.get("jobs", [])
 
 
 def summarize_failed_jobs(runs: list[dict]) -> str:
     lines = []
     for run_data in runs:
-        if run_data.get("conclusion") not in {"failure", "cancelled", "timed_out", "action_required"}:
+        if run_data.get("conclusion") not in {
+            "failure",
+            "cancelled",
+            "timed_out",
+            "action_required",
+        }:
             continue
         jobs = list_workflow_jobs(int(run_data["id"]))
         failed_jobs = [
             job
             for job in jobs
-            if job.get("conclusion") in {"failure", "cancelled", "timed_out", "action_required"}
+            if job.get("conclusion")
+            in {"failure", "cancelled", "timed_out", "action_required"}
         ]
         if not failed_jobs:
-            lines.append(f"- {run_data.get('name', 'workflow')} failed: {run_data.get('html_url')}")
+            lines.append(
+                f"- {run_data.get('name', 'workflow')} failed: {run_data.get('html_url')}"
+            )
             continue
         for job in failed_jobs:
             failed_steps = [
                 step.get("name", "unknown step")
                 for step in job.get("steps", [])
-                if step.get("conclusion") in {"failure", "cancelled", "timed_out", "action_required"}
+                if step.get("conclusion")
+                in {"failure", "cancelled", "timed_out", "action_required"}
             ]
             step_text = f" ({', '.join(failed_steps[:3])})" if failed_steps else ""
-            lines.append(f"- {job.get('name', 'job')}{step_text}: {job.get('html_url')}")
+            lines.append(
+                f"- {job.get('name', 'job')}{step_text}: {job.get('html_url')}"
+            )
     return "\n".join(lines)
 
 
 def latest_runs_by_workflow(runs: list[dict]) -> list[dict]:
     latest: dict[str, dict] = {}
     for run_data in runs:
-        workflow_key = str(run_data.get("workflow_id") or run_data.get("name") or run_data.get("id"))
+        workflow_key = str(
+            run_data.get("workflow_id") or run_data.get("name") or run_data.get("id")
+        )
         current = latest.get(workflow_key)
         if current is None or run_sort_key(run_data) > run_sort_key(current):
             latest[workflow_key] = run_data
@@ -73,7 +88,12 @@ def evaluate_ci(head_sha: str) -> CiResult:
     if not runs:
         return CiResult("waiting", "CI has not started yet")
 
-    active = [run_data for run_data in runs if run_data.get("status") in {"queued", "requested", "waiting", "pending", "in_progress"}]
+    active = [
+        run_data
+        for run_data in runs
+        if run_data.get("status")
+        in {"queued", "requested", "waiting", "pending", "in_progress"}
+    ]
     if active:
         names = ", ".join(run_data.get("name", "workflow") for run_data in active[:5])
         return CiResult("running", f"CI running: {names}", active[0].get("html_url"))
@@ -81,7 +101,8 @@ def evaluate_ci(head_sha: str) -> CiResult:
     failed = [
         run_data
         for run_data in runs
-        if run_data.get("conclusion") in {"failure", "cancelled", "timed_out", "action_required"}
+        if run_data.get("conclusion")
+        in {"failure", "cancelled", "timed_out", "action_required"}
     ]
     if failed:
         details = summarize_failed_jobs(failed)
@@ -96,13 +117,17 @@ def evaluate_ci(head_sha: str) -> CiResult:
         if run_data.get("conclusion") in {"success", "skipped", "neutral"}
     ]
     if successful:
-        names = ", ".join(run_data.get("name", "workflow") for run_data in successful[:5])
+        names = ", ".join(
+            run_data.get("name", "workflow") for run_data in successful[:5]
+        )
         return CiResult("passed", f"CI passed: {names}", successful[0].get("html_url"))
 
     return CiResult("waiting", "CI status is not final yet")
 
 
-def build_failure_context(pr_number: int, result: CiResult, max_chars: int = 3500) -> str:
+def build_failure_context(
+    pr_number: int, result: CiResult, max_chars: int = 3500
+) -> str:
     comments = github_request(
         "GET",
         f"/repos/{active_project().github_repository}/issues/{pr_number}/comments",

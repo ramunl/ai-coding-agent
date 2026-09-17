@@ -6,13 +6,17 @@ from pathlib import Path
 
 import anthropic
 
-from ai_agent.config import ANTHROPIC_KEY, ANTHROPIC_MODEL, CODEX_TIMEOUT_SECONDS, PLANNING_AGENT
+from ai_agent.config import (
+    ANTHROPIC_KEY,
+    ANTHROPIC_MODEL,
+    CODEX_TIMEOUT_SECONDS,
+    PLANNING_AGENT,
+)
 from ai_agent.github_links import enrich_feature_description
-from ai_agent.projects import active_project
 from ai_agent.model_errors import model_error_message
+from ai_agent.projects import active_project
 from ai_agent.rules import rules_prompt_block
 from ai_agent.shell import run
-
 
 client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
 SCHEMAS_DIR = Path(__file__).with_name("schemas")
@@ -32,7 +36,9 @@ def planning_agent_label(agent: str | None = None) -> str:
 
 def _codex_message(prompt: str, schema_name: str) -> str:
     schema_path = SCHEMAS_DIR / schema_name
-    with tempfile.NamedTemporaryFile(prefix="ai-agent-codex-", suffix=".json") as output:
+    with tempfile.NamedTemporaryFile(
+        prefix="ai-agent-codex-", suffix=".json"
+    ) as output:
         run(
             [
                 "codex",
@@ -60,7 +66,9 @@ def _create_message(**kwargs):
         raise RuntimeError(model_error_message()) from error
 
 
-def _planner_message(prompt: str, provider: str | None, schema_name: str, max_tokens: int) -> str:
+def _planner_message(
+    prompt: str, provider: str | None, schema_name: str, max_tokens: int
+) -> str:
     selected = normalize_planning_agent(provider)
     if selected == "codex":
         return _codex_message(prompt, schema_name)
@@ -101,15 +109,47 @@ IMPLEMENTATION_QUESTION_PATTERNS = (
 
 
 SOURCE_EXTENSIONS = {
-    ".kt", ".kts", ".java", ".xml", ".gradle", ".properties",
-    ".py", ".js", ".jsx", ".ts", ".tsx", ".go", ".rb", ".rs",
-    ".c", ".h", ".cpp", ".hpp", ".cs", ".php", ".swift", ".m",
-    ".sh", ".yaml", ".yml", ".json", ".toml",
+    ".kt",
+    ".kts",
+    ".java",
+    ".xml",
+    ".gradle",
+    ".properties",
+    ".py",
+    ".js",
+    ".jsx",
+    ".ts",
+    ".tsx",
+    ".go",
+    ".rb",
+    ".rs",
+    ".c",
+    ".h",
+    ".cpp",
+    ".hpp",
+    ".cs",
+    ".php",
+    ".swift",
+    ".m",
+    ".sh",
+    ".yaml",
+    ".yml",
+    ".json",
+    ".toml",
 }
 
 EXCLUDED_DIR_NAMES = {
-    "build", ".gradle", "node_modules", ".git", ".venv", "venv",
-    "dist", "target", "__pycache__", ".mypy_cache", ".pytest_cache",
+    "build",
+    ".gradle",
+    "node_modules",
+    ".git",
+    ".venv",
+    "venv",
+    "dist",
+    "target",
+    "__pycache__",
+    ".mypy_cache",
+    ".pytest_cache",
 }
 
 
@@ -128,7 +168,9 @@ def repo_file_sample() -> str:
     return "\n".join(files)
 
 
-def codebase_search_context(query: str, max_files: int = 80, max_matches: int = 80) -> str:
+def codebase_search_context(
+    query: str, max_files: int = 80, max_matches: int = 80
+) -> str:
     """Return lightweight local repo context so bug triage can be codebase-first.
 
     This intentionally avoids sending full files to Claude. It provides enough
@@ -190,7 +232,12 @@ def codebase_search_context(query: str, max_files: int = 80, max_matches: int = 
         if len(files) >= max_files and len(matches) >= max_matches:
             break
 
-    return "Files:\n" + "\n".join(files[:max_files]) + "\n\nRelevant matches:\n" + "\n".join(matches[:max_matches])
+    return (
+        "Files:\n"
+        + "\n".join(files[:max_files])
+        + "\n\nRelevant matches:\n"
+        + "\n".join(matches[:max_matches])
+    )
 
 
 def plan_feature(feature_description: str, provider: str | None = None) -> str:
@@ -354,7 +401,11 @@ def bugfix_questions(assessment: str) -> str | None:
         if status == "questions":
             questions_value = assessment_json.get("questions", [])
             if isinstance(questions_value, list):
-                questions = "\n".join(str(question).strip() for question in questions_value if str(question).strip())
+                questions = "\n".join(
+                    str(question).strip()
+                    for question in questions_value
+                    if str(question).strip()
+                )
             else:
                 questions = str(questions_value).strip()
             return _filter_product_questions(questions)

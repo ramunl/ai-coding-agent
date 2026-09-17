@@ -13,7 +13,9 @@ class AnthropicLimitsTests(unittest.TestCase):
 
         row = format_limit_row(headers, "requests", "Requests")
 
-        self.assertEqual(row, "- Requests, 42/100 remaining, resets 2026-05-21T12:00:00Z")
+        self.assertEqual(
+            row, "- Requests, 42/100 remaining, resets 2026-05-21T12:00:00Z"
+        )
 
     def test_format_limit_row_returns_none_when_headers_are_missing(self) -> None:
         self.assertIsNone(format_limit_row({}, "requests", "Requests"))

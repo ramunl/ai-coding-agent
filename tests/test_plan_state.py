@@ -36,15 +36,19 @@ class PlanStateTests(unittest.TestCase):
     def test_plan_without_codex_prompt_builds_an_instruction(self) -> None:
         # This is the shape Claude actually returns: no codex_prompt field.
         # The regression that shipped raw JSON to Codex lived exactly here.
-        plan_text = "```json\n" + json.dumps(
-            {
-                "branch": "feature/telegram-rich-text",
-                "summary": "Add rich text to command responses",
-                "files": ["Formatter.kt"],
-                "steps": ["1. Add formatter", "2. Wire it in"],
-                "risks": ["Escaping is strict"],
-            }
-        ) + "\n```"
+        plan_text = (
+            "```json\n"
+            + json.dumps(
+                {
+                    "branch": "feature/telegram-rich-text",
+                    "summary": "Add rich text to command responses",
+                    "files": ["Formatter.kt"],
+                    "steps": ["1. Add formatter", "2. Wire it in"],
+                    "risks": ["Escaping is strict"],
+                }
+            )
+            + "\n```"
+        )
 
         document = parse_plan_document(plan_text, "improve readability")
 
@@ -75,7 +79,9 @@ class PlanStateTests(unittest.TestCase):
 
         document = parse_plan_document(truncated, "improve readability")
 
-        self.assertEqual(document.summary, "Improve readability of command response text")
+        self.assertEqual(
+            document.summary, "Improve readability of command response text"
+        )
         self.assertEqual(document.branch, "feature/improve-command")
         # All three completed file entries survive; nothing is dumped as steps.
         self.assertEqual(len(document.files), 3)
@@ -85,7 +91,9 @@ class PlanStateTests(unittest.TestCase):
     def test_plan_json_with_prose_preamble_is_parsed(self) -> None:
         plan_text = (
             "Here is my implementation plan:\n\n```json\n"
-            + json.dumps({"branch": "feature/x", "summary": "Do the thing", "files": ["A.kt"]})
+            + json.dumps(
+                {"branch": "feature/x", "summary": "Do the thing", "files": ["A.kt"]}
+            )
             + "\n```\nLet me know if you'd like changes."
         )
 
@@ -101,8 +109,12 @@ class PlanStateTests(unittest.TestCase):
         self.assertIn("just do the thing", document.codex_prompt)
 
     def test_render_plan_and_history_include_revision_data(self) -> None:
-        plan = new_plan_state("Feature", json.dumps({"summary": "First", "steps": ["Do it"]}))
-        revised = revise_plan_state(plan, json.dumps({"summary": "Second", "steps": ["Do it differently"]}))
+        plan = new_plan_state(
+            "Feature", json.dumps({"summary": "First", "steps": ["Do it"]})
+        )
+        revised = revise_plan_state(
+            plan, json.dumps({"summary": "Second", "steps": ["Do it differently"]})
+        )
 
         self.assertIn("Revision: 2", render_plan(revised))
         self.assertIn("Revision 1: First", render_history(revised))

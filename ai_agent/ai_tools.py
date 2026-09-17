@@ -26,7 +26,7 @@ class ModelInfo:
     tool: str
     model: str
     manageable: bool  # can this agent change the model?
-    note: str = ""    # where the model actually lives, when not manageable
+    note: str = ""  # where the model actually lives, when not manageable
 
 
 class AITool:

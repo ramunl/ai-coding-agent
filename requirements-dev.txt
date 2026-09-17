@@ -3,3 +3,4 @@
 -r requirements.txt
 
 pytest>=9.0
+ruff==0.16.8

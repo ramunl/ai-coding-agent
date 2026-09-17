@@ -15,7 +15,9 @@ class TestRunnerTests(unittest.TestCase):
 
         self.assertIn("Tests passed (0)", result)
         call_kwargs = mock_run.call_args.kwargs
-        self.assertEqual(call_kwargs["env"]["TELEGRAM_BOT_TOKEN"], "test-telegram-token")
+        self.assertEqual(
+            call_kwargs["env"]["TELEGRAM_BOT_TOKEN"], "test-telegram-token"
+        )
         self.assertEqual(call_kwargs["env"]["YOUR_CHAT_ID"], "1")
         self.assertEqual(call_kwargs["env"]["ANTHROPIC_API_KEY"], "test-anthropic-key")
         self.assertEqual(call_kwargs["env"]["GITHUB_TOKEN"], "test-github-token")

@@ -79,7 +79,9 @@ def parse_verbosity(value: str) -> Verbosity | None:
 def parse_plan_document(plan_text: str, feature: str = "") -> PlanDocument:
     data = _loads_plan_json(plan_text)
     if not data:
-        fallback_branch = slugify_branch_name(feature or _first_line(plan_text) or "change")
+        fallback_branch = slugify_branch_name(
+            feature or _first_line(plan_text) or "change"
+        )
         fallback_prompt = (
             "Implement the following change in this repository. Edit the files "
             "directly and make the actual code changes — do not merely describe "
@@ -113,7 +115,9 @@ def parse_plan_document(plan_text: str, feature: str = "") -> PlanDocument:
     )
 
 
-def _build_codex_prompt(summary: str, files: list[str], steps: list[str], risks: list[str]) -> str:
+def _build_codex_prompt(
+    summary: str, files: list[str], steps: list[str], risks: list[str]
+) -> str:
     """Turn a parsed plan into a direct implementation instruction for the agent."""
     sections = [
         "Implement the following change in this repository. "
@@ -124,14 +128,18 @@ def _build_codex_prompt(summary: str, files: list[str], steps: list[str], risks:
     ]
     has_files = bool(files)
     if has_files:
-        sections.extend(["", "Files to create or modify:", *[f"- {file}" for file in files]])
+        sections.extend(
+            ["", "Files to create or modify:", *[f"- {file}" for file in files]]
+        )
     has_steps = bool(steps)
     if has_steps:
         sections.extend(["", "Implementation steps:", *steps])
     has_risks = bool(risks)
     if has_risks:
         sections.extend(["", "Watch out for:", *[f"- {risk}" for risk in risks]])
-    sections.extend(["", "Follow the repository's existing conventions and coding rules."])
+    sections.extend(
+        ["", "Follow the repository's existing conventions and coding rules."]
+    )
     return "\n".join(sections)
 
 
@@ -154,7 +162,13 @@ def render_plan(plan: PlanState) -> str:
     if document.files:
         lines.extend(["", "Files:", *[f"- {file}" for file in document.files]])
     if document.steps:
-        lines.extend(["", "Implementation:", *[f"{index}. {step}" for index, step in enumerate(document.steps, 1)]])
+        lines.extend(
+            [
+                "",
+                "Implementation:",
+                *[f"{index}. {step}" for index, step in enumerate(document.steps, 1)],
+            ]
+        )
     if document.risks:
         lines.extend(["", "Risks:", *[f"- {risk}" for risk in document.risks]])
     lines.extend(["", "Commands:", "- /discuss <feedback>", "- /approve", "- /cancel"])
@@ -171,8 +185,16 @@ def render_history(plan: PlanState) -> str:
 
 
 def render_diff_summary(diff_text: str, files: list[str]) -> str:
-    added = sum(1 for line in diff_text.splitlines() if line.startswith("+") and not line.startswith("+++"))
-    removed = sum(1 for line in diff_text.splitlines() if line.startswith("-") and not line.startswith("---"))
+    added = sum(
+        1
+        for line in diff_text.splitlines()
+        if line.startswith("+") and not line.startswith("+++")
+    )
+    removed = sum(
+        1
+        for line in diff_text.splitlines()
+        if line.startswith("-") and not line.startswith("---")
+    )
     lines = ["Modified files:"]
     if files:
         lines.extend(f"{index}. {file}" for index, file in enumerate(files, 1))
@@ -183,18 +205,31 @@ def render_diff_summary(diff_text: str, files: list[str]) -> str:
 
 
 def render_completion(execution: ExecutionState, verbosity: Verbosity) -> str:
-    heading = "Implementation failed." if execution.tests == "FAIL" else "Implementation completed."
-    lines = [heading, "", f"Files changed: {len(execution.files_changed)}", f"Tests: {execution.tests}"]
+    heading = (
+        "Implementation failed."
+        if execution.tests == "FAIL"
+        else "Implementation completed."
+    )
+    lines = [
+        heading,
+        "",
+        f"Files changed: {len(execution.files_changed)}",
+        f"Tests: {execution.tests}",
+    ]
     if execution.pr_url:
         lines.append(f"PR: {execution.pr_url}")
     if verbosity in {Verbosity.NORMAL, Verbosity.DEBUG} and execution.files_changed:
-        lines.extend(["", "Files changed:", *[f"- {file}" for file in execution.files_changed]])
+        lines.extend(
+            ["", "Files changed:", *[f"- {file}" for file in execution.files_changed]]
+        )
     if verbosity == Verbosity.DEBUG:
         if execution.full_diff:
             lines.extend(["", "Diff:", execution.full_diff])
         if execution.logs:
             lines.extend(["", "Logs:", execution.logs])
-    lines.extend(["", "Commands:", "- /diff", "- /show <file-number>", "- /logs", "- /pr"])
+    lines.extend(
+        ["", "Commands:", "- /diff", "- /show <file-number>", "- /logs", "- /pr"]
+    )
     return "\n".join(lines)
 
 
@@ -236,7 +271,9 @@ def _plan_json_candidates(text: str) -> list[str]:
 
 
 def _strip_code_fence(text: str) -> str:
-    fenced = re.search(r"```(?:json)?\s*(.*?)```", text, flags=re.IGNORECASE | re.DOTALL)
+    fenced = re.search(
+        r"```(?:json)?\s*(.*?)```", text, flags=re.IGNORECASE | re.DOTALL
+    )
     if fenced:
         return fenced.group(1).strip()
     # An opening fence with no closing fence means the output was truncated.

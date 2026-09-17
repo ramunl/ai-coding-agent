@@ -1,15 +1,14 @@
 import base64
 import html
 import re
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from urllib.parse import urlparse
-import urllib.error
-import urllib.request
 
 from ai_agent.config import COMMAND_TIMEOUT_SECONDS, LINK_ALLOWED_DOMAINS
 from ai_agent.github import github_request
-
 
 MAX_LINK_CONTEXT_CHARS = 6000
 MAX_COMMENTS = 5
@@ -88,7 +87,15 @@ def find_github_references(text: str) -> list[GitHubReference]:
         reference = parse_github_reference(url)
         if not reference:
             continue
-        key = (reference.owner, reference.repo, reference.kind, reference.number, reference.ref, reference.path, reference.sha)
+        key = (
+            reference.owner,
+            reference.repo,
+            reference.kind,
+            reference.number,
+            reference.ref,
+            reference.path,
+            reference.sha,
+        )
         if key in seen:
             continue
         references.append(reference)
@@ -109,7 +116,10 @@ def find_web_references(text: str) -> list[WebReference]:
 
 
 def is_allowed_web_domain(domain: str) -> bool:
-    return any(domain == allowed or domain.endswith(f".{allowed}") for allowed in LINK_ALLOWED_DOMAINS)
+    return any(
+        domain == allowed or domain.endswith(f".{allowed}")
+        for allowed in LINK_ALLOWED_DOMAINS
+    )
 
 
 def parse_github_reference(url: str) -> GitHubReference | None:
@@ -126,7 +136,9 @@ def parse_github_reference(url: str) -> GitHubReference | None:
         number_text = parts[3]
         if not number_text.isdigit():
             return None
-        return GitHubReference(owner=owner, repo=repo, kind=kind, number=int(number_text), url=url)
+        return GitHubReference(
+            owner=owner, repo=repo, kind=kind, number=int(number_text), url=url
+        )
 
     if kind == "commit":
         sha = parts[3]
@@ -137,7 +149,9 @@ def parse_github_reference(url: str) -> GitHubReference | None:
     if kind == "blob" and len(parts) >= 5:
         ref = parts[3]
         path = "/".join(parts[4:])
-        return GitHubReference(owner=owner, repo=repo, kind=kind, ref=ref, path=path, url=url)
+        return GitHubReference(
+            owner=owner, repo=repo, kind=kind, ref=ref, path=path, url=url
+        )
 
     return None
 
@@ -147,7 +161,9 @@ def fetch_github_reference_context(reference: GitHubReference) -> str:
     if reference.kind == "pull":
         if reference.number is None:
             raise ValueError("Pull request reference is missing number")
-        item = github_request("GET", f"/repos/{repo_full_name}/pulls/{reference.number}")
+        item = github_request(
+            "GET", f"/repos/{repo_full_name}/pulls/{reference.number}"
+        )
         title = item.get("title", "")
         body = item.get("body") or ""
         state = item.get("state", "unknown")
@@ -165,7 +181,9 @@ def fetch_github_reference_context(reference: GitHubReference) -> str:
     if reference.kind == "issues":
         if reference.number is None:
             raise ValueError("Issue reference is missing number")
-        item = github_request("GET", f"/repos/{repo_full_name}/issues/{reference.number}")
+        item = github_request(
+            "GET", f"/repos/{repo_full_name}/issues/{reference.number}"
+        )
         title = item.get("title", "")
         body = item.get("body") or ""
         state = item.get("state", "unknown")
@@ -178,7 +196,9 @@ def fetch_github_reference_context(reference: GitHubReference) -> str:
     if reference.kind == "commit":
         if not reference.sha:
             raise ValueError("Commit reference is missing SHA")
-        commit = github_request("GET", f"/repos/{repo_full_name}/commits/{reference.sha}")
+        commit = github_request(
+            "GET", f"/repos/{repo_full_name}/commits/{reference.sha}"
+        )
         message = commit.get("commit", {}).get("message", "")
         author = commit.get("commit", {}).get("author", {}).get("name", "unknown")
         files = commit.get("files", [])
@@ -235,7 +255,9 @@ def fetch_issue_comments(repo_full_name: str, number: int) -> list[dict]:
     return comments if isinstance(comments, list) else []
 
 
-def format_issue_like_context(header: str, url: str, extra: list[str], body: str, comments: list[dict]) -> str:
+def format_issue_like_context(
+    header: str, url: str, extra: list[str], body: str, comments: list[dict]
+) -> str:
     comment_lines = []
     for comment in comments[:MAX_COMMENTS]:
         commenter = comment.get("user", {}).get("login", "unknown")
@@ -244,7 +266,9 @@ def format_issue_like_context(header: str, url: str, extra: list[str], body: str
 
     sections = [header, url, *extra, "", "Body:", body or "(empty)"]
     if comment_lines:
-        sections.extend(["", f"Recent comments ({len(comment_lines)}):", *comment_lines])
+        sections.extend(
+            ["", f"Recent comments ({len(comment_lines)}):", *comment_lines]
+        )
     return truncate("\n".join(sections), MAX_LINK_CONTEXT_CHARS)
 
 
@@ -255,7 +279,9 @@ def fetch_web_reference_context(reference: WebReference) -> str:
         method="GET",
     )
     try:
-        with urllib.request.urlopen(request, timeout=COMMAND_TIMEOUT_SECONDS) as response:
+        with urllib.request.urlopen(
+            request, timeout=COMMAND_TIMEOUT_SECONDS
+        ) as response:
             content_type = response.headers.get("content-type", "")
             body = response.read(MAX_WEB_BYTES).decode("utf-8", errors="replace")
     except urllib.error.HTTPError as exc:

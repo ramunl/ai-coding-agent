@@ -8,7 +8,9 @@ from ai_agent.config import validate_required_config
 class ConfigTests(unittest.TestCase):
     def test_validate_required_config_reports_missing_values(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
-            with self.assertRaisesRegex(RuntimeError, "TELEGRAM_BOT_TOKEN, YOUR_CHAT_ID"):
+            with self.assertRaisesRegex(
+                RuntimeError, "TELEGRAM_BOT_TOKEN, YOUR_CHAT_ID"
+            ):
                 validate_required_config()
 
     def test_validate_required_config_accepts_required_values(self) -> None:
@@ -29,7 +31,9 @@ class ConfigTests(unittest.TestCase):
         with patch.dict(os.environ, env, clear=True):
             validate_required_config()
 
-    def test_validate_required_config_requires_key_for_default_claude_planner(self) -> None:
+    def test_validate_required_config_requires_key_for_default_claude_planner(
+        self,
+    ) -> None:
         env = {
             "TELEGRAM_BOT_TOKEN": "telegram-secret",
             "YOUR_CHAT_ID": "123",
@@ -39,7 +43,9 @@ class ConfigTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "ANTHROPIC_API_KEY is required"):
                 validate_required_config()
 
-    def test_validate_required_config_rejects_unknown_implementation_agent(self) -> None:
+    def test_validate_required_config_rejects_unknown_implementation_agent(
+        self,
+    ) -> None:
         env = {
             "TELEGRAM_BOT_TOKEN": "telegram-secret",
             "YOUR_CHAT_ID": "123",
@@ -47,7 +53,9 @@ class ConfigTests(unittest.TestCase):
             "IMPLEMENTATION_AGENT": "other",
         }
         with patch.dict(os.environ, env, clear=True):
-            with self.assertRaisesRegex(RuntimeError, "IMPLEMENTATION_AGENT must be codex or claude"):
+            with self.assertRaisesRegex(
+                RuntimeError, "IMPLEMENTATION_AGENT must be codex or claude"
+            ):
                 validate_required_config()
 
 

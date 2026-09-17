@@ -168,6 +168,28 @@ Run the unit tests with dummy environment values:
 TELEGRAM_BOT_TOKEN=t YOUR_CHAT_ID=1 ANTHROPIC_API_KEY=k python -m unittest discover -v
 ```
 
+## Development and architecture
+
+Follow the [Python coding rules](https://github.com/ramunl/ai-rules/blob/main/global/python.md).
+Telegram commands are grouped by responsibility under `ai_agent/bot`; see the
+[module map and execution flow](docs/telegram_bot.py.md). `ai_agent/telegram_bot.py`
+contains application wiring and command dispatch.
+
+Install development dependencies and run the same checks as CI:
+
+```bash
+python -m pip install -r requirements-dev.txt
+ruff check agent.py ai_agent tests
+ruff format --check agent.py ai_agent tests
+ruff check ai_agent/bot ai_agent/telegram_bot.py --select ANN001,ANN201,ANN202,D100,D103
+python -m pytest -q
+```
+
+Before committing, apply formatting with `ruff format agent.py ai_agent tests`.
+The repository uses Python 3.12 and an 88-character formatter target. The shared
+core remains pinned as a submodule; initialize it with
+`git submodule update --init --recursive` before running tests.
+
 ## Deployment
 
 This repo auto-deploys from `main` through GitHub Actions and the server webhook.

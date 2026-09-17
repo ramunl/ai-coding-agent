@@ -30,7 +30,9 @@ class PlannerTests(unittest.TestCase):
         class FakeMessages:
             def create(self, **kwargs):
                 self.kwargs = kwargs
-                return types.SimpleNamespace(content=[types.SimpleNamespace(text="planned")])
+                return types.SimpleNamespace(
+                    content=[types.SimpleNamespace(text="planned")]
+                )
 
         self.fake_anthropic_class = FakeAnthropic
         anthropic_module.Anthropic = FakeAnthropic
@@ -52,7 +54,10 @@ class PlannerTests(unittest.TestCase):
         planner = importlib.import_module("ai_agent.planner")
 
         with patch("ai_agent.planner.repo_file_sample", return_value="App.kt"):
-            with patch("ai_agent.planner.enrich_feature_description", return_value="enriched request"):
+            with patch(
+                "ai_agent.planner.enrich_feature_description",
+                return_value="enriched request",
+            ):
                 result = planner.plan_feature("original request", "claude")
 
         prompt = planner.client.messages.kwargs["messages"][0]["content"]
@@ -63,7 +68,10 @@ class PlannerTests(unittest.TestCase):
         planner = importlib.import_module("ai_agent.planner")
 
         with patch("ai_agent.planner.repo_file_sample", return_value="App.kt"):
-            with patch("ai_agent.planner.enrich_feature_description", return_value="enriched request"):
+            with patch(
+                "ai_agent.planner.enrich_feature_description",
+                return_value="enriched request",
+            ):
                 with patch(
                     "ai_agent.planner.rules_prompt_block",
                     return_value="\nMANDATORY CODING RULES\n- Avoid return operators\n",
@@ -77,7 +85,9 @@ class PlannerTests(unittest.TestCase):
     def test_build_bugfix_prompt_uses_enriched_bug_description(self) -> None:
         planner = importlib.import_module("ai_agent.planner")
 
-        with patch("ai_agent.planner.enrich_feature_description", return_value="enriched bug"):
+        with patch(
+            "ai_agent.planner.enrich_feature_description", return_value="enriched bug"
+        ):
             prompt = planner.build_bugfix_prompt("original bug")
 
         self.assertIn("Fix this bug", prompt)
@@ -87,7 +97,9 @@ class PlannerTests(unittest.TestCase):
     def test_assess_bugfix_report_uses_enriched_bug_description(self) -> None:
         planner = importlib.import_module("ai_agent.planner")
 
-        with patch("ai_agent.planner.enrich_feature_description", return_value="enriched bug"):
+        with patch(
+            "ai_agent.planner.enrich_feature_description", return_value="enriched bug"
+        ):
             result = planner.assess_bugfix_report("original bug", "claude")
 
         prompt = planner.client.messages.kwargs["messages"][0]["content"]
@@ -98,6 +110,7 @@ class PlannerTests(unittest.TestCase):
         planner = importlib.import_module("ai_agent.planner")
 
         with patch("ai_agent.planner.run") as run_mock:
+
             def write_output(args, timeout):
                 output_path = args[args.index("--output-last-message") + 1]
                 with open(output_path, "w", encoding="utf-8") as output:

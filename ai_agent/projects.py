@@ -13,7 +13,6 @@ from ai_agent.config import (
     RULES_PROJECT_NAME,
 )
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -84,9 +83,13 @@ def load_registry() -> dict:
             has_projects = isinstance(data, dict) and bool(data.get("projects"))
             if has_projects:
                 return data
-            logger.warning("Projects file has no projects; using env fallback: %s", PROJECTS_FILE)
+            logger.warning(
+                "Projects file has no projects; using env fallback: %s", PROJECTS_FILE
+            )
         except (OSError, json.JSONDecodeError) as error:
-            logger.warning("Could not read projects file, using env fallback: %s", error)
+            logger.warning(
+                "Could not read projects file, using env fallback: %s", error
+            )
     else:
         logger.info("No projects file at %s; using env fallback", PROJECTS_FILE)
     return _fallback_registry()
@@ -111,7 +114,9 @@ def _to_project(name: str, entry: dict) -> Project:
 
 def list_projects() -> list[Project]:
     registry = load_registry()
-    return [_to_project(name, entry) for name, entry in sorted(registry["projects"].items())]
+    return [
+        _to_project(name, entry) for name, entry in sorted(registry["projects"].items())
+    ]
 
 
 def active_project() -> Project:
@@ -147,7 +152,9 @@ def set_active(name: str) -> Project:
     return _to_project(name, registry["projects"][name])
 
 
-def add_project(repository: str, repo_path: str | None = None, base_branch: str | None = None) -> tuple[Project, bool]:
+def add_project(
+    repository: str, repo_path: str | None = None, base_branch: str | None = None
+) -> tuple[Project, bool]:
     """Register a project. Returns (project, needs_clone).
 
     needs_clone is True when the local path is absent, so the caller can clone
