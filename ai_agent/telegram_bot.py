@@ -1,9 +1,10 @@
 import asyncio
 import logging
+from copy import copy
 from pathlib import Path
 
-from telegram import BotCommand, Update
-from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
+from telegram import BotCommand, ForceReply, Update
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
 from ai_agent.anthropic_limits import get_anthropic_limits
 from ai_agent.ci import build_failure_context, evaluate_ci
@@ -354,7 +355,79 @@ def extract_file_diff(diff_text: str, file_name: str) -> str:
 
 def _cmd(text: str) -> dict:
     """Return a Telegram command entity, which clients render as a tappable link."""
-    return {"type": "bot_command", "text": text}
+    # Usage placeholders are display text, never arguments to execute.
+    command = text.split()[0]
+    if text.startswith(("/core update", "/core release")):
+        command = " ".join(text.split()[:2])
+    return {"type": "bot_command", "text": text, "bot_command": command}
+
+
+async def prompt_for_arguments(update, context, command: str, prompt: str) -> None:
+    message = await update.message.reply_text(
+        prompt + "\nReply to this message, or use /cancel.",
+        reply_markup=ForceReply(selective=True),
+    )
+    context.user_data["argument_prompt"] = (message.message_id, command)
+
+
+async def argument_reply(update, context) -> None:
+    if not require_authorized(update):
+        return
+    pending = context.user_data.get("argument_prompt")
+    reply = update.message.reply_to_message
+    if not pending or not reply or reply.message_id != pending[0]:
+        return
+    text = update.message.text.strip()
+    if not text:
+        return
+    context.user_data.pop("argument_prompt", None)
+    command = pending[1]
+    handlers = {
+        "plan": plan, "implement": implement_cmd, "bugfix": bugfix_cmd,
+        "discuss": discuss, "answer": answer, "repo_add": repo_add,
+        "core release": core,
+    }
+    handler = handlers.get(command)
+    if handler:
+        invocation = copy(context)
+        invocation.args = (["release"] if command == "core release" else []) + text.split()
+        await handler(update, invocation)
+
+
+async def choose_pull_request(update, context, command: str) -> None:
+    try:
+        ensure_github_configured()
+        repository = active_project().github_repository
+        pulls = await asyncio.to_thread(
+            github_request, "GET", f"/repos/{repository}/pulls",
+            query={"state": "open", "per_page": 100},
+        )
+    except RuntimeError as error:
+        await reply_chunks(update, f"Could not list pull requests: {error}")
+        return
+    if command == "fixpr":
+        pulls = [pr for pr in pulls if
+                 ((pr.get("head") or {}).get("repo") or {}).get("full_name") == repository]
+    if not pulls:
+        await reply_chunks(update, "No eligible open pull requests in the active project.")
+        return
+    await update.message.reply_text(
+        "Choose a pull request:",
+        reply_markup=choice_keyboard(command, [str(pr["number"]) for pr in pulls]),
+    )
+
+
+async def _on_pull_request_tap(update, context, selection: str) -> None:
+    if not require_authorized(update):
+        return
+    command = update.callback_query.data.split(":", 1)[0]
+    if command not in ("ci", "fixpr") or not selection.isdigit():
+        return
+    # Reuse the command handlers, including their execution guards.
+    invocation = copy(context)
+    invocation.args = [selection]
+    message_update = Update(update.update_id, message=update.callback_query.message)
+    await {"ci": ci, "fixpr": fixpr}[command](message_update, invocation)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -789,7 +862,7 @@ async def plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     feature = " ".join(context.args).strip()
     if not feature:
-        await reply_chunks(update, "Usage: /plan <feature description>")
+        await prompt_for_arguments(update, context, "plan", "Describe the feature to plan.")
         return
 
     provider = current_planning_agent(context)
@@ -811,7 +884,7 @@ async def discuss(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     feedback = " ".join(context.args).strip()
     if not feedback:
-        await reply_chunks(update, "Usage: /discuss <plan feedback>")
+        await prompt_for_arguments(update, context, "discuss", "Describe the changes to the current plan.")
         return
 
     provider = current_planning_agent(context)
@@ -889,7 +962,7 @@ async def implement_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
     feature = " ".join(context.args).strip()
     if not feature:
-        await reply_chunks(update, "Usage: /implement <feature description>")
+        await prompt_for_arguments(update, context, "implement", "Describe the feature to implement.")
         return
 
     provider = current_planning_agent(context)
@@ -915,7 +988,7 @@ async def bugfix_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         return
     bug = " ".join(context.args).strip()
     if not bug:
-        await reply_chunks(update, "Usage: /bugfix <bug description>")
+        await prompt_for_arguments(update, context, "bugfix", "Describe the bug and the expected behavior.")
         return
 
     await reply_chunks(update, "Checking whether the bug report is actionable...")
@@ -942,7 +1015,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     details = " ".join(context.args).strip()
     if not details:
-        await reply_chunks(update, "Usage: /answer <details>")
+        await prompt_for_arguments(update, context, "answer", "Provide the answers to the bugfix questions.")
         return
 
     combined_bug = f"{pending['bug']}\n\nUser clarification:\n{details}"
@@ -1139,7 +1212,10 @@ async def fixpr(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await reply_chunks(update, f"An implementation is already running.\n\n{active_text}")
         return
 
-    if not context.args or not context.args[0].isdigit():
+    if not context.args:
+        await choose_pull_request(update, context, "fixpr")
+        return
+    if not context.args[0].isdigit():
         await reply_chunks(update, "Usage: /fixpr <pr-number>")
         return
 
@@ -1273,7 +1349,10 @@ def final_ci_status_message(ci_result) -> str:
 async def ci(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not require_authorized(update):
         return
-    if not context.args or not context.args[0].isdigit():
+    if not context.args:
+        await choose_pull_request(update, context, "ci")
+        return
+    if not context.args[0].isdigit():
         await reply_chunks(update, "Usage: /ci <pr-number>")
         return
 
@@ -1356,6 +1435,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await reply_chunks(update, f"No queued task #{task_id}. Running tasks cannot be cancelled.")
         return
 
+    context.user_data.pop("argument_prompt", None)
     context.user_data.pop("pending_implementation", None)
     context.user_data.pop("pending_plan", None)
     context.user_data.pop("pending_bugfix_clarification", None)
@@ -1406,10 +1486,9 @@ async def repo_add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not require_authorized(update):
         return
     if not context.args:
-        await reply_chunks(
-            update,
-            "Usage: /repo_add <owner/repo> [local-path]\n"
-            "Example: /repo_add ramunl/channel-cast",
+        await prompt_for_arguments(
+            update, context, "repo_add",
+            "Enter owner/repo and optionally a local path.",
         )
         return
     repository = context.args[0]
@@ -1717,6 +1796,8 @@ async def _on_core_update_tap(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 _callback_router = CallbackRouter()
+_callback_router.register("ci", _on_pull_request_tap)
+_callback_router.register("fixpr", _on_pull_request_tap)
 _callback_router.register("repo_use", _on_repo_use_tap)
 _callback_router.register("repo_remove", _on_repo_remove_tap)
 _callback_router.register("planner", _on_planner_tap)
@@ -1796,12 +1877,9 @@ async def core(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         version = context.args[1] if len(context.args) > 1 else None
         note = " ".join(context.args[2:]) if len(context.args) > 2 else ""
         if version is None or not note:
-            await reply_chunks(
-                update,
-                "Usage: /core release <version> <what changed>\n"
-                "Example: /core release v2.0 added inline button helpers\n"
-                "Tags origin/main of ai-agent-common. Refuses hollow or "
-                "backwards releases.",
+            await prompt_for_arguments(
+                update, context, "core release",
+                "Enter a version and release note, e.g. v2.0 added inline button helpers.",
             )
             return
         await reply_chunks(update, f"Releasing core {version}...")
@@ -1875,5 +1953,6 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("status", status))
     app.add_handler(CommandHandler("logs", logs))
     app.add_handler(CallbackQueryHandler(_callback_router.dispatch))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, argument_reply))
     app.add_error_handler(error_handler)
     return app

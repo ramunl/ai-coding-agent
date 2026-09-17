@@ -36,7 +36,9 @@ class TelegramBotTests(unittest.TestCase):
 
         telegram_module = types.ModuleType("telegram")
         telegram_module.BotCommand = lambda command, description: types.SimpleNamespace(command=command, description=description)
-        telegram_module.Update = type("Update", (), {})
+        telegram_module.Update = lambda update_id, message: types.SimpleNamespace(
+            update_id=update_id, message=message, effective_chat=message.chat)
+        telegram_module.ForceReply = lambda **kwargs: types.SimpleNamespace(**kwargs)
 
         ext_module = types.ModuleType("telegram.ext")
         ext_module.ApplicationHandlerStop = type("ApplicationHandlerStop", (Exception,), {})
@@ -96,6 +98,13 @@ class TelegramBotTests(unittest.TestCase):
         ext_module.Application = FakeApplication
         ext_module.CommandHandler = FakeCommandHandler
         ext_module.CallbackQueryHandler = FakeCallbackQueryHandler
+        ext_module.MessageHandler = lambda filters, callback: types.SimpleNamespace(callback=callback)
+        class FakeFilter:
+            def __and__(self, other):
+                return self
+            def __invert__(self):
+                return self
+        ext_module.filters = types.SimpleNamespace(TEXT=FakeFilter(), COMMAND=FakeFilter())
         ext_module.ContextTypes = types.SimpleNamespace(DEFAULT_TYPE=object)
 
         anthropic_module = types.ModuleType("anthropic")
@@ -290,6 +299,10 @@ class TelegramBotTests(unittest.TestCase):
         self.assertTrue(commands)
         for command in commands:
             self.assertTrue(command.startswith("/"), command)
+        for block in blocks:
+            for item in block.get("text", []):
+                if isinstance(item, dict) and item.get("type") == "bot_command":
+                    self.assertEqual(item["bot_command"], item["text"].split()[0])
 
     def test_full_help_contains_every_registered_command_as_clickable_markup(self) -> None:
         telegram_bot = importlib.import_module("ai_agent.telegram_bot")
@@ -307,6 +320,63 @@ class TelegramBotTests(unittest.TestCase):
                 if isinstance(item, dict) and item.get("type") == "bot_command"
             }
             self.assertEqual(expected, clickable)
+            for block in blocks:
+                for item in block.get("text", []):
+                    if isinstance(item, dict) and item.get("type") == "bot_command":
+                        self.assertTrue(item["bot_command"].startswith("/"))
+                        self.assertFalse(any(c in item["bot_command"] for c in "<>[]|"))
+            self.assertEqual(telegram_bot._cmd("/core update <bot>")["bot_command"], "/core update")
+
+    def test_pull_request_choices_filter_forks_for_repair(self):
+        bot = importlib.import_module("ai_agent.telegram_bot")
+        message = types.SimpleNamespace(reply_text=AsyncMock())
+        update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=message)
+        context = types.SimpleNamespace(args=[], user_data={})
+        pulls = [
+            {"number": 1, "head": {"repo": {"full_name": "owner/repo"}}},
+            {"number": 2, "head": {"repo": {"full_name": "fork/repo"}}},
+        ]
+        with patch.object(bot, "active_project", return_value=types.SimpleNamespace(github_repository="owner/repo")), patch.object(bot, "ensure_github_configured"), patch.object(bot, "github_request", return_value=pulls), patch.object(bot, "choice_keyboard", return_value=object()) as choices:
+            asyncio.run(bot.fixpr(update, context))
+            choices.assert_called_with("fixpr", ["1"])
+            asyncio.run(bot.ci(update, context))
+            choices.assert_called_with("ci", ["1", "2"])
+
+    def test_pull_request_callback_reuses_handler_and_answers_query(self):
+        bot = importlib.import_module("ai_agent.telegram_bot")
+        message = types.SimpleNamespace(chat=types.SimpleNamespace(id=123))
+        query = types.SimpleNamespace(data="fixpr:19", answer=AsyncMock(), message=message)
+        update = types.SimpleNamespace(update_id=1, effective_chat=message.chat, callback_query=query)
+        context = types.SimpleNamespace(args=["old"], user_data={})
+        with patch.object(bot, "fixpr", new_callable=AsyncMock) as handler:
+            asyncio.run(bot._callback_router.dispatch(update, context))
+            query.answer.assert_awaited_once()
+            self.assertIs(handler.await_args.args[0].message, message)
+            self.assertEqual(handler.await_args.args[1].args, ["19"])
+            self.assertEqual(context.args, ["old"])
+            update.effective_chat = types.SimpleNamespace(id=999)
+            asyncio.run(bot._callback_router.dispatch(update, context))
+            self.assertEqual(handler.await_count, 1)
+
+    def test_free_text_requires_reply_to_prompt_and_cancel_clears_it(self):
+        bot = importlib.import_module("ai_agent.telegram_bot")
+        message = types.SimpleNamespace(reply_text=AsyncMock(return_value=types.SimpleNamespace(message_id=10)))
+        update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=message)
+        context = types.SimpleNamespace(args=[], user_data={})
+        asyncio.run(bot.plan(update, context))
+        self.assertEqual(context.user_data["argument_prompt"], (10, "plan"))
+        message.text = "Build a dashboard"
+        message.reply_to_message = types.SimpleNamespace(message_id=9)
+        with patch.object(bot, "plan", new_callable=AsyncMock) as handler:
+            asyncio.run(bot.argument_reply(update, context))
+            handler.assert_not_awaited()
+            message.reply_to_message.message_id = 10
+            asyncio.run(bot.argument_reply(update, context))
+            self.assertEqual(handler.await_args.args[1].args, ["Build", "a", "dashboard"])
+            self.assertNotIn("argument_prompt", context.user_data)
+        context.user_data["argument_prompt"] = (11, "implement")
+        asyncio.run(bot.cancel(update, context))
+        self.assertNotIn("argument_prompt", context.user_data)
 
     def test_version_reports_shared_runtime_version(self) -> None:
         telegram_bot = importlib.import_module("ai_agent.telegram_bot")
