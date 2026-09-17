@@ -80,6 +80,7 @@ logger = logging.getLogger(__name__)
 BOT_COMMANDS = [
     BotCommand("start", "Show help"),
     BotCommand("help", "Show help"),
+    BotCommand("more", "Full command reference"),
     BotCommand("plan", "Create a plan for discussion"),
     BotCommand("discuss", "Revise the current plan"),
     BotCommand("approve", "Approve the current plan"),
@@ -362,98 +363,117 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         {
             "type": "paragraph",
             "text": [
-                {"type": "bold", "text": "Coding AI Agent ready"},
-                "\nActive project: ", {"type": "bold", "text": project.name},
-                "\nRepository: ", _cmd(f"{project.github_repository} [{project.base_branch}]"),
-                "\nPath: ", _cmd(str(project.repo_path)),
+                {"type": "bold", "text": "Coding AI Agent"},
+                "\nProject: ", {"type": "bold", "text": project.name},
+                "  ", _cmd(f"{project.github_repository} [{project.base_branch}]"),
             ],
         },
-        {"type": "heading", "size": 2, "text": "Planning workflow"},
+        {"type": "heading", "size": 2, "text": "Build something"},
         {
             "type": "paragraph",
             "text": [
-                "0. ", _cmd("/planner codex|claude"), " - choose who writes the plan\n",
-                "   ", _cmd("/agent codex|claude"), " - choose who implements it\n",
-                "1. ", _cmd("plan <feature>"), "\n",
-                "2. ", _cmd("discuss <feedback>"), " as needed\n",
-                "3. ", _cmd("/approve"), "\n",
-                "4. ", _cmd("/confirm"),
+                _cmd("/implement <feature>"), " - plan it, then ", _cmd("/confirm"), " to run\n",
+                _cmd("/bugfix <bug>"), " - same flow, on a bugfix branch\n",
+                _cmd("/plan <feature>"), " - plan only, no implementation\n",
+                _cmd("/discuss <feedback>"), " - revise the plan  ",
+                _cmd("/approve"), " - accept it\n",
+                _cmd("/queue"), " - what is running and pending",
             ],
         },
-        {"type": "heading", "size": 2, "text": "Provider examples"},
+        {"type": "heading", "size": 2, "text": "Projects"},
         {
             "type": "paragraph",
             "text": [
-                _cmd("/planner codex"), " + ", _cmd("/agent codex"), " = Codex plans and implements\n",
-                _cmd("/planner claude"), " + ", _cmd("/agent codex"), " = Claude plans, Codex implements\n",
-                "Use ", _cmd("/planner"), " or ", _cmd("/agent"), " without an option to show the current choice.",
+                _cmd("/repo_list"), " - projects, active marked *\n",
+                _cmd("/repo_use <name>"), " - switch active project\n",
+                _cmd("/status"), "  ", _cmd("/branches"), "  ", _cmd("/pull"),
+                " - act on the active project\n",
+                _cmd("/pr"), "  ", _cmd("/ci <pr>"), "  ", _cmd("/fixpr <pr>"),
+                " - pull requests and CI",
             ],
         },
-        {"type": "heading", "size": 2, "text": "Existing PR repair"},
-        {
-            "type": "paragraph",
-            "text": [_cmd("fixpr <pr-number>"), " - repair failed CI on an existing same-repository PR branch"],
-        },
-        {"type": "heading", "size": 2, "text": "Commands"},
+        {"type": "heading", "size": 2, "text": "Agent itself"},
         {
             "type": "paragraph",
             "text": [
-                _cmd("plan <feature>"), " - create a plan for discussion\n",
-                _cmd("discuss <feedback>"), " - revise the current plan\n",
-                _cmd("/approve"), " - approve the current plan before implementation\n",
-                _cmd("/showplan"), " - show the current plan\n",
-                _cmd("/history"), " - show plan revisions\n",
-                _cmd("implement <feature>"), " - shortcut: plan, approve, then wait for /confirm\n",
-                _cmd("bugfix <bug>"), " - clarify if needed, then wait for /confirm on a bugfix branch\n",
-                _cmd("answer <details>"), " - answer pending bugfix clarification questions\n",
-                _cmd("/confirm"), " - add approved work to the FIFO queue and run queued tasks\n",
-                _cmd("/queue"), " - show the running task and pending FIFO queue\n",
-                _cmd("planner [codex|claude]"), " - show or choose planning and bug-triage AI\n",
-                _cmd("agent [codex|claude]"), " - show or choose implementation and CI-repair AI\n",
-                _cmd("verbosity concise|normal|debug"), " - set output detail\n",
-                _cmd("/diff"), " - show changed files and line counts from the last run\n",
-                _cmd("show <file-number>"), " - show a specific file diff from the last run\n",
-                _cmd("logs [lines]"), " - last run logs in debug mode, or service logs when no run exists\n",
-                _cmd("/repo_list"), " - list projects, active marked with *\n",
-                _cmd("repo_add <owner/repo> [path]"), " - register and clone a project\n",
-                _cmd("repo_use <name>"), " - switch the active project\n",
-                _cmd("repo_remove <name>"), " - unregister a project\n",
-                _cmd("/pr"), " - show the last PR URL\n",
-                _cmd("cancel [task-id]"), " - discard pending work or remove a queued task\n",
-                _cmd("ci <pr-number>"), " - show current GitHub Actions result for a PR\n",
-                _cmd("fixpr <pr-number>"), " - repair failed CI on an existing same-repository PR\n",
-                _cmd("limits [all|codex|claude|planner|agent]"), " - show provider limits/status\n",
-                _cmd("/model"), " - list AI tools + models; ", _cmd("/model <tool> list"), " to see options, ", _cmd("/model <tool> set <name>"), " to switch\n",
-                _cmd("/codex"), " - show Codex CLI/login status\n",
-                _cmd("/test"), " - run agent unit tests\n",
-                _cmd("/help"), " - show this help",
+                _cmd("/version"), "  ", _cmd("/core"), " - versions  ",
+                _cmd("/deploy <branch>"), " - go live\n",
+                _cmd("/model"), " - AI tools and models  ", _cmd("/limits"), " - quota",
             ],
         },
-        {"type": "heading", "size": 2, "text": "Git commands (target project)"},
+        {"type": "heading", "size": 2, "text": "More"},
         {
             "type": "paragraph",
             "text": [
-                "These act on the ", {"type": "bold", "text": "active project"}, " (switch it with ",
-                _cmd("/repo_use <name>"), ") — never on the Coding agent's own code.",
+                _cmd("/more"), " - full command list, provider setup, and details",
             ],
         },
+    ]
+    await send_rich_message(update, context, blocks)
+
+
+
+async def more(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Full reference: everything not in the short /help."""
+    if not require_authorized(update):
+        return
+    blocks = [
+        {"type": "heading", "size": 2, "text": "Planning, step by step"},
         {
             "type": "paragraph",
             "text": [
-                _cmd("/pull"), " - git pull the active project\n",
-                _cmd("/branches"), " - list branches\n",
-                _cmd("/branch [name]"), " - show current branch, or switch to <name>\n",
-                _cmd("/status"), " - running implementation status, or git status when idle",
+                "1. ", _cmd("/plan <feature>"), "  2. ", _cmd("/discuss <feedback>"),
+                "  3. ", _cmd("/approve"), "  4. ", _cmd("/confirm"), "\n",
+                _cmd("/implement <feature>"), " is the shortcut for 1-3.\n",
+                _cmd("/showplan"), " - current plan   ", _cmd("/history"), " - revisions\n",
+                _cmd("/answer <details>"), " - answer bugfix clarifications\n",
+                _cmd("/cancel [task-id]"), " - discard pending or queued work",
             ],
         },
-        {"type": "heading", "size": 2, "text": "Live deploy"},
+        {"type": "heading", "size": 2, "text": "Choosing the AI"},
         {
             "type": "paragraph",
             "text": [
-                "Targets the live bot for the active project.\n",
-                _cmd("/deploy <branch>"), " - fetch, checkout, fast-forward pull <branch> "
-                "for the active coding, pm, or ops project, and restart its service. "
-                "coding deploys this bot itself and restarts it via a detached restart.",
+                _cmd("/planner [codex|claude]"), " - who writes plans and triages bugs\n",
+                _cmd("/agent [codex|claude]"), " - who implements and repairs CI\n",
+                "Either without an option shows the current choice.\n",
+                _cmd("/model <tool> list"), " - options   ",
+                _cmd("/model <tool> set <name>"), " - switch\n",
+                _cmd("/codex"), " - Codex CLI/login status",
+            ],
+        },
+        {"type": "heading", "size": 2, "text": "Projects"},
+        {
+            "type": "paragraph",
+            "text": [
+                _cmd("/repo_add <owner/repo> [path]"), " - register and clone\n",
+                _cmd("/repo_remove <name>"), " - unregister\n",
+                _cmd("/branch [name]"), " - show or switch branch\n",
+                _cmd("/ci <pr-number>"), " - GitHub Actions result for a PR\n",
+                _cmd("/fixpr <pr-number>"), " - repair failed CI on an existing "
+                "same-repository PR branch\n",
+                "Git commands act on the ", {"type": "bold", "text": "active project"},
+                " - never on this agent's own code.",
+            ],
+        },
+        {"type": "heading", "size": 2, "text": "Core (shared code)"},
+        {
+            "type": "paragraph",
+            "text": [
+                _cmd("/core"), " - this bot's core version\n",
+                _cmd("/core update <bot>"), " - adopt the latest core (coding|pm|ops)\n",
+                _cmd("/core release <version> <note>"), " - publish a new core release",
+            ],
+        },
+        {"type": "heading", "size": 2, "text": "Output and diagnostics"},
+        {
+            "type": "paragraph",
+            "text": [
+                _cmd("/verbosity concise|normal|debug"), " - output detail\n",
+                _cmd("/diff"), " - changed files from the last run   ",
+                _cmd("/show <file-number>"), " - one file's diff\n",
+                _cmd("/logs [lines]"), " - last run logs, or service logs when idle\n",
+                _cmd("/test"), " - run this agent's unit tests",
             ],
         },
     ]
@@ -1675,6 +1695,7 @@ def build_application() -> Application:
     app = builder.build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", start))
+    app.add_handler(CommandHandler("more", more))
     app.add_handler(CommandHandler("plan", plan))
     app.add_handler(CommandHandler("discuss", discuss))
     app.add_handler(CommandHandler("approve", approve))

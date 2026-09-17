@@ -128,6 +128,7 @@ class TelegramBotTests(unittest.TestCase):
             [
                 "start",
                 "help",
+                "more",
                 "plan",
                 "discuss",
                 "approve",
@@ -250,7 +251,8 @@ class TelegramBotTests(unittest.TestCase):
             return "".join(TelegramBotTests._flatten_rich_text(item) for item in value)
         return ""
 
-    def test_help_text_includes_fixpr_description(self) -> None:
+    def test_help_is_short_and_scannable(self) -> None:
+        """/help must stay a short overview, not a full manual."""
         telegram_bot = importlib.import_module("ai_agent.telegram_bot")
 
         update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=object())
@@ -260,17 +262,17 @@ class TelegramBotTests(unittest.TestCase):
 
         blocks = context.bot._post.await_args.kwargs["data"]["rich_message"]["blocks"]
         help_text = "\n".join(self._flatten_rich_text(block) for block in blocks)
-        self.assertIn("fixpr <pr-number>", help_text)
-        self.assertIn("repair failed CI on an existing same-repository PR branch", help_text)
-        self.assertIn("/queue", help_text)
-        self.assertIn("/planner codex + /agent codex = Codex plans and implements", help_text)
-        self.assertIn("/planner claude + /agent codex = Claude plans, Codex implements", help_text)
-        self.assertIn("planner [codex|claude]", help_text)
-        self.assertIn("agent [codex|claude]", help_text)
-        self.assertNotIn("/plan <feature>", help_text)
-        self.assertNotIn("/fixpr <pr-number>", help_text)
 
-    def test_help_text_has_separate_git_commands_section_for_active_project(self) -> None:
+        # The everyday commands are present...
+        for command in ("/implement", "/bugfix", "/repo_use", "/queue", "/deploy"):
+            self.assertIn(command, help_text)
+        # ...and it points at the full reference.
+        self.assertIn("/more", help_text)
+        # Reference material moved out of the short help.
+        self.assertNotIn("/planner codex + /agent codex", help_text)
+
+    def test_every_command_in_help_is_slash_prefixed(self) -> None:
+        """Mixed '/plan' and 'plan' broke Telegram's auto-linking."""
         telegram_bot = importlib.import_module("ai_agent.telegram_bot")
 
         update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=object())
@@ -279,29 +281,34 @@ class TelegramBotTests(unittest.TestCase):
         asyncio.run(telegram_bot.start(update, context))
 
         blocks = context.bot._post.await_args.kwargs["data"]["rich_message"]["blocks"]
-        headings = [block["text"] for block in blocks if block.get("type") == "heading"]
-        self.assertIn("Git commands (target project)", headings)
-
-        git_section_index = headings.index("Git commands (target project)")
-        heading_positions = [i for i, block in enumerate(blocks) if block.get("type") == "heading"]
-        git_block_index = blocks.index(
-            next(b for b in blocks if b.get("type") == "heading" and b["text"] == "Git commands (target project)")
-        )
-        next_heading_index = next(
-            (i for i in heading_positions if i > git_block_index), len(blocks)
-        )
-        git_paragraphs = [
-            block for block in blocks[git_block_index + 1 : next_heading_index] if block.get("type") == "paragraph"
+        codes = [
+            item["text"]
+            for block in blocks
+            for item in block.get("text", [])
+            if isinstance(item, dict) and item.get("type") == "code"
         ]
-        git_text = "\n".join(self._flatten_rich_text(block) for block in git_paragraphs)
-        self.assertIn("active project", git_text)
-        self.assertIn("/repo_use <name>", git_text)
-        self.assertIn("/pull", git_text)
-        self.assertIn("git pull the active project", git_text)
-        self.assertIn("/branches", git_text)
-        self.assertIn("/branch [name]", git_text)
-        self.assertIn("/status", git_text)
-        self.assertGreaterEqual(git_section_index, 0)
+        # The header shows the repo and path in code style; those are not commands.
+        commands = [code for code in codes if "/" in code and not code.startswith("/") or code.startswith("/")]
+        commands = [c for c in commands if not c.startswith(("/opt", "/home", "/root"))]
+        commands = [c for c in commands if " [" not in c or c.startswith("/")]
+        for code in commands:
+            self.assertTrue(code.startswith("/"), f"command not slash-prefixed: {code!r}")
+
+    def test_more_carries_the_full_reference(self) -> None:
+        """Detail removed from /help must still be reachable via /more."""
+        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
+
+        update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=object())
+        context = types.SimpleNamespace(user_data={}, bot=types.SimpleNamespace(_post=AsyncMock()))
+
+        asyncio.run(telegram_bot.more(update, context))
+
+        blocks = context.bot._post.await_args.kwargs["data"]["rich_message"]["blocks"]
+        more_text = "\n".join(self._flatten_rich_text(block) for block in blocks)
+
+        for detail in ("/planner", "/agent", "/fixpr", "/verbosity", "/showplan",
+                       "/core release", "/repo_add", "active project"):
+            self.assertIn(detail, more_text)
 
     def test_configure_bot_commands_includes_fixpr(self) -> None:
         telegram_bot = importlib.import_module("ai_agent.telegram_bot")
