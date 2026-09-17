@@ -38,6 +38,8 @@ class TelegramBotTests(unittest.TestCase):
         telegram_module.BotCommand = lambda command, description: types.SimpleNamespace(command=command, description=description)
         telegram_module.Update = lambda update_id, message: types.SimpleNamespace(
             update_id=update_id, message=message, effective_chat=message.chat)
+        telegram_module.InlineKeyboardButton = lambda text, callback_data: types.SimpleNamespace(text=text, callback_data=callback_data)
+        telegram_module.InlineKeyboardMarkup = lambda rows: types.SimpleNamespace(inline_keyboard=rows)
         telegram_module.ForceReply = lambda **kwargs: types.SimpleNamespace(**kwargs)
 
         ext_module = types.ModuleType("telegram.ext")
@@ -261,71 +263,53 @@ class TelegramBotTests(unittest.TestCase):
             return "".join(TelegramBotTests._flatten_rich_text(item) for item in value)
         return ""
 
-    def test_help_is_short_and_scannable(self) -> None:
-        """/help must stay a short overview, not a full manual."""
-        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
+    def test_help_and_more_send_standard_messages_with_all_command_buttons(self):
+        bot = importlib.import_module("ai_agent.telegram_bot")
+        expected = {"command:" + c.command for c in bot.BOT_COMMANDS}
+        expected.update({"command:core update", "command:core release"})
+        for handler in (bot.start, bot.more):
+            update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123))
+            context = types.SimpleNamespace(user_data={}, bot=types.SimpleNamespace(send_message=AsyncMock()))
+            asyncio.run(handler(update, context))
+            payload = context.bot.send_message.await_args.kwargs
+            self.assertEqual(payload["chat_id"], 123)
+            self.assertIsNone(payload["parse_mode"])
+            self.assertLess(len(payload["text"]), 4096)
+            self.assertIn("/version", payload["text"])
+            rows = payload["reply_markup"].inline_keyboard
+            self.assertTrue(all(len(row) <= 3 for row in rows))
+            self.assertEqual({button.callback_data for row in rows for button in row}, expected)
+            for row in rows:
+                for button in row:
+                    self.assertLessEqual(len(button.callback_data.encode()), 64)
+                    self.assertIs(bot._callback_router.resolve(button.callback_data)[0], bot._on_command_tap)
 
-        update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=object())
-        context = types.SimpleNamespace(user_data={}, bot=types.SimpleNamespace(_post=AsyncMock()))
-
-        asyncio.run(telegram_bot.start(update, context))
-
-        blocks = context.bot._post.await_args.kwargs["data"]["rich_message"]["blocks"]
-        help_text = "\n".join(self._flatten_rich_text(block) for block in blocks)
-
-        # The everyday commands are present...
-        for command in ("/implement", "/bugfix", "/repo_use", "/queue", "/deploy"):
-            self.assertIn(command, help_text)
-        # ...and it points at the full reference.
-        self.assertIn("/more", help_text)
-        # Reference material moved out of the short help.
-        self.assertNotIn("/planner codex + /agent codex", help_text)
-
-    def test_help_commands_are_clickable_bot_command_entities(self) -> None:
-        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
-
-        update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=object())
-        context = types.SimpleNamespace(user_data={}, bot=types.SimpleNamespace(_post=AsyncMock()))
-
-        asyncio.run(telegram_bot.start(update, context))
-
-        blocks = context.bot._post.await_args.kwargs["data"]["rich_message"]["blocks"]
-        commands = [
-            item["text"]
-            for block in blocks
-            for item in block.get("text", [])
-            if isinstance(item, dict) and item.get("type") == "bot_command"
-        ]
-        self.assertTrue(commands)
-        for command in commands:
-            self.assertTrue(command.startswith("/"), command)
-        for block in blocks:
-            for item in block.get("text", []):
-                if isinstance(item, dict) and item.get("type") == "bot_command":
-                    self.assertEqual(item["bot_command"], item["text"].split()[0])
-
-    def test_full_help_contains_every_registered_command_as_clickable_markup(self) -> None:
-        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
-        expected = {command.command for command in telegram_bot.BOT_COMMANDS}
-
-        for help_command in (telegram_bot.start, telegram_bot.more):
-            update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=object())
-            context = types.SimpleNamespace(user_data={}, bot=types.SimpleNamespace(_post=AsyncMock()))
-            asyncio.run(help_command(update, context))
-            blocks = context.bot._post.await_args.kwargs["data"]["rich_message"]["blocks"]
-            clickable = {
-                item["text"].split()[0].removeprefix("/")
-                for block in blocks
-                for item in block.get("text", [])
-                if isinstance(item, dict) and item.get("type") == "bot_command"
-            }
-            self.assertEqual(expected, clickable)
-            for block in blocks:
-                for item in block.get("text", []):
-                    if isinstance(item, dict) and item.get("type") == "bot_command":
-                        self.assertTrue(item["bot_command"].startswith("/"))
-                        self.assertFalse(any(c in item["bot_command"] for c in "<>[]|"))
-            self.assertEqual(telegram_bot._cmd("/core update <bot>")["bot_command"], "/core update")
+    def test_command_buttons_execute_same_handlers_as_typed_commands(self):
+        bot = importlib.import_module("ai_agent.telegram_bot")
+        app = bot.build_application()
+        typed = {h.command: h.callback for h in app.handlers if hasattr(h, "command")}
+        self.assertEqual(typed, bot.command_handlers())
+        message = types.SimpleNamespace(chat=types.SimpleNamespace(id=123), reply_text=AsyncMock())
+        query = types.SimpleNamespace(data="command:version", answer=AsyncMock(), message=message)
+        update = types.SimpleNamespace(update_id=1, effective_chat=message.chat, callback_query=query)
+        context = types.SimpleNamespace(args=["stale"], user_data={})
+        with patch.object(bot, "get_runtime_version", return_value="shared version"):
+            asyncio.run(bot._callback_router.dispatch(update, context))
+        message.reply_text.assert_awaited_once_with("shared version")
+        query.answer.assert_awaited_once()
+        query.data = "command:planner"
+        asyncio.run(bot._callback_router.dispatch(update, context))
+        rows = message.reply_text.await_args.kwargs["reply_markup"].inline_keyboard
+        self.assertEqual([b.callback_data for row in rows for b in row], ["planner:codex", "planner:claude"])
+        self.assertEqual(context.args, ["stale"])
+        query.data = "command:core update"
+        with patch.object(bot, "core", new_callable=AsyncMock) as core:
+            asyncio.run(bot._callback_router.dispatch(update, context))
+            self.assertEqual(core.await_args.args[1].args, ["update"])
+        message.reply_text.reset_mock()
+        update.effective_chat = types.SimpleNamespace(id=999)
+        asyncio.run(bot._callback_router.dispatch(update, context))
+        message.reply_text.assert_not_awaited()
 
     def test_pull_request_choices_filter_forks_for_repair(self):
         bot = importlib.import_module("ai_agent.telegram_bot")
@@ -423,12 +407,11 @@ class TelegramBotTests(unittest.TestCase):
         telegram_bot = importlib.import_module("ai_agent.telegram_bot")
 
         update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=object())
-        context = types.SimpleNamespace(user_data={}, bot=types.SimpleNamespace(_post=AsyncMock()))
+        context = types.SimpleNamespace(user_data={}, bot=types.SimpleNamespace(send_message=AsyncMock()))
 
         asyncio.run(telegram_bot.more(update, context))
 
-        blocks = context.bot._post.await_args.kwargs["data"]["rich_message"]["blocks"]
-        more_text = "\n".join(self._flatten_rich_text(block) for block in blocks)
+        more_text = context.bot.send_message.await_args.kwargs["text"]
 
         for detail in ("/planner", "/agent", "/fixpr", "/verbosity", "/showplan",
                        "/core release", "/repo_add", "active project"):

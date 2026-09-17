@@ -45,7 +45,7 @@ from ai_agent.planner import (
 )
 from ai_agent.self_update import schedule_restart
 from ai_agent.ai_tools import all_info, get_tool, known_tools
-from ai_agent_common import CallbackRouter, CoreCommand, bump_to_latest, choice_keyboard
+from ai_agent_common import CallbackRouter, CoreCommand, bump_to_latest, choice_keyboard, keyboard
 
 try:
     from ai_agent_common import create_release
@@ -362,6 +362,43 @@ def _cmd(text: str) -> dict:
     return {"type": "bot_command", "text": text, "bot_command": command}
 
 
+def _menu_text(value) -> str:
+    """Render menu copy as ordinary text so slash commands remain detectable."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        return "".join(_menu_text(item) for item in value)
+    return _menu_text(value.get("text", ""))
+
+
+async def send_command_menu(update, context, blocks) -> None:
+    options = [(f"/{command.command}", f"command:{command.command}")
+               for command in BOT_COMMANDS]
+    options.extend([
+        ("/core update", "command:core update"),
+        ("/core release", "command:core release"),
+    ])
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text="\n\n".join(_menu_text(block) for block in blocks),
+        reply_markup=keyboard(options, columns=3),
+        parse_mode=None,
+    )
+
+
+async def _on_command_tap(update, context, selection: str) -> None:
+    if not require_authorized(update):
+        return
+    command, *args = selection.split()
+    handler = command_handlers().get(command)
+    if handler is None or (args and selection not in ("core update", "core release")):
+        return
+    invocation = copy(context)
+    invocation.args = args
+    message_update = Update(update.update_id, message=update.callback_query.message)
+    await handler(message_update, invocation)
+
+
 async def prompt_for_arguments(update, context, command: str, prompt: str) -> None:
     message = await update.message.reply_text(
         prompt + "\nReply to this message, or use /cancel.",
@@ -495,7 +532,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             ],
         },
     ]
-    await send_rich_message(update, context, blocks)
+    await send_command_menu(update, context, blocks)
 
 
 
@@ -583,7 +620,7 @@ async def more(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             ],
         },
     ]
-    await send_rich_message(update, context, blocks)
+    await send_command_menu(update, context, blocks)
 
 
 async def branches(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1796,6 +1833,7 @@ async def _on_core_update_tap(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 _callback_router = CallbackRouter()
+_callback_router.register("command", _on_command_tap)
 _callback_router.register("ci", _on_pull_request_tap)
 _callback_router.register("fixpr", _on_pull_request_tap)
 _callback_router.register("repo_use", _on_repo_use_tap)
@@ -1907,6 +1945,49 @@ async def core(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await reply_chunks(update, result)
 
 
+def command_handlers() -> dict:
+    return {
+        "start": start,
+        "help": start,
+        "more": more,
+        "version": version,
+        "plan": plan,
+        "discuss": discuss,
+        "approve": approve,
+        "showplan": showplan,
+        "history": history,
+        "verbosity": verbosity,
+        "implement": implement_cmd,
+        "bugfix": bugfix_cmd,
+        "answer": answer,
+        "confirm": confirm,
+        "queue": queue_cmd,
+        "planner": planner_cmd,
+        "agent": agent_cmd,
+        "cancel": cancel,
+        "ci": ci,
+        "fixpr": fixpr,
+        "diff": diff,
+        "show": show,
+        "pr": pr,
+        "limits": limits,
+        "model": model,
+        "core": core,
+        "codex": codex_status,
+        "test": test,
+        "pull": pull,
+        "repo_list": repo_list,
+        "repo_add": repo_add,
+        "repo_use": repo_use,
+        "repo_remove": repo_remove,
+        "branches": branches,
+        "branch": branch,
+        "deploy": deploy,
+        "status": status,
+        "logs": logs,
+    }
+
+
 def build_application() -> Application:
     builder = Application.builder().token(TELEGRAM_TOKEN)
     if hasattr(builder, "concurrent_updates"):
@@ -1914,44 +1995,8 @@ def build_application() -> Application:
     if hasattr(builder, "post_init"):
         builder = builder.post_init(configure_bot_commands)
     app = builder.build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", start))
-    app.add_handler(CommandHandler("more", more))
-    app.add_handler(CommandHandler("version", version))
-    app.add_handler(CommandHandler("plan", plan))
-    app.add_handler(CommandHandler("discuss", discuss))
-    app.add_handler(CommandHandler("approve", approve))
-    app.add_handler(CommandHandler("showplan", showplan))
-    app.add_handler(CommandHandler("history", history))
-    app.add_handler(CommandHandler("verbosity", verbosity))
-    app.add_handler(CommandHandler("implement", implement_cmd))
-    app.add_handler(CommandHandler("bugfix", bugfix_cmd))
-    app.add_handler(CommandHandler("answer", answer))
-    app.add_handler(CommandHandler("confirm", confirm))
-    app.add_handler(CommandHandler("queue", queue_cmd))
-    app.add_handler(CommandHandler("planner", planner_cmd))
-    app.add_handler(CommandHandler("agent", agent_cmd))
-    app.add_handler(CommandHandler("cancel", cancel))
-    app.add_handler(CommandHandler("ci", ci))
-    app.add_handler(CommandHandler("fixpr", fixpr))
-    app.add_handler(CommandHandler("diff", diff))
-    app.add_handler(CommandHandler("show", show))
-    app.add_handler(CommandHandler("pr", pr))
-    app.add_handler(CommandHandler("limits", limits))
-    app.add_handler(CommandHandler("model", model))
-    app.add_handler(CommandHandler("core", core))
-    app.add_handler(CommandHandler("codex", codex_status))
-    app.add_handler(CommandHandler("test", test))
-    app.add_handler(CommandHandler("pull", pull))
-    app.add_handler(CommandHandler("repo_list", repo_list))
-    app.add_handler(CommandHandler("repo_add", repo_add))
-    app.add_handler(CommandHandler("repo_use", repo_use))
-    app.add_handler(CommandHandler("repo_remove", repo_remove))
-    app.add_handler(CommandHandler("branches", branches))
-    app.add_handler(CommandHandler("branch", branch))
-    app.add_handler(CommandHandler("deploy", deploy))
-    app.add_handler(CommandHandler("status", status))
-    app.add_handler(CommandHandler("logs", logs))
+    for name, handler in command_handlers().items():
+        app.add_handler(CommandHandler(name, handler))
     app.add_handler(CallbackQueryHandler(_callback_router.dispatch))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, argument_reply))
     app.add_error_handler(error_handler)
