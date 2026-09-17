@@ -61,6 +61,7 @@ from ai_agent.projects import (
 )
 from ai_agent.shell import run
 from ai_agent.test_runner import run_unit_tests
+from ai_agent.version import get_runtime_version
 from ai_agent.workflow import (
     create_pull_request,
     implement,
@@ -81,6 +82,7 @@ BOT_COMMANDS = [
     BotCommand("start", "Show help"),
     BotCommand("help", "Show help"),
     BotCommand("more", "Full command reference"),
+    BotCommand("version", "Show the running agent version"),
     BotCommand("plan", "Create a plan for discussion"),
     BotCommand("discuss", "Revise the current plan"),
     BotCommand("approve", "Approve the current plan"),
@@ -351,7 +353,8 @@ def extract_file_diff(diff_text: str, file_name: str) -> str:
 
 
 def _cmd(text: str) -> dict:
-    return {"type": "code", "text": text}
+    """Return a Telegram command entity, which clients render as a tappable link."""
+    return {"type": "bot_command", "text": text}
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -365,7 +368,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "text": [
                 {"type": "bold", "text": "Coding AI Agent"},
                 "\nProject: ", {"type": "bold", "text": project.name},
-                "  ", _cmd(f"{project.github_repository} [{project.base_branch}]"),
+                "  ", {"type": "code", "text": f"{project.github_repository} [{project.base_branch}]"},
             ],
         },
         {"type": "heading", "size": 2, "text": "Build something"},
@@ -408,6 +411,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 _cmd("/more"), " - full command list, provider setup, and details",
             ],
         },
+        {"type": "heading", "size": 2, "text": "All commands"},
+        {
+            "type": "paragraph",
+            "text": [
+                item
+                for index, command in enumerate(BOT_COMMANDS)
+                for item in (("   " if index else ""), _cmd(f"/{command.command}"))
+                if item
+            ],
+        },
     ]
     await send_rich_message(update, context, blocks)
 
@@ -418,6 +431,14 @@ async def more(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not require_authorized(update):
         return
     blocks = [
+        {
+            "type": "paragraph",
+            "text": [
+                _cmd("/start"), "  ", _cmd("/help"), " - short help   ",
+                _cmd("/more"), " - this reference\n",
+                _cmd("/version"), " - running agent version",
+            ],
+        },
         {"type": "heading", "size": 2, "text": "Planning, step by step"},
         {
             "type": "paragraph",
@@ -425,6 +446,7 @@ async def more(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 "1. ", _cmd("/plan <feature>"), "  2. ", _cmd("/discuss <feedback>"),
                 "  3. ", _cmd("/approve"), "  4. ", _cmd("/confirm"), "\n",
                 _cmd("/implement <feature>"), " is the shortcut for 1-3.\n",
+                _cmd("/bugfix <bug>"), " - prepare a bugfix plan\n",
                 _cmd("/showplan"), " - current plan   ", _cmd("/history"), " - revisions\n",
                 _cmd("/answer <details>"), " - answer bugfix clarifications\n",
                 _cmd("/cancel [task-id]"), " - discard pending or queued work",
@@ -474,6 +496,17 @@ async def more(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 _cmd("/show <file-number>"), " - one file's diff\n",
                 _cmd("/logs [lines]"), " - last run logs, or service logs when idle\n",
                 _cmd("/test"), " - run this agent's unit tests",
+            ],
+        },
+        {"type": "heading", "size": 2, "text": "Everyday status"},
+        {
+            "type": "paragraph",
+            "text": [
+                _cmd("/queue"), "  ", _cmd("/status"), "  ", _cmd("/branches"),
+                "  ", _cmd("/pull"), "\n",
+                _cmd("/repo_list"), "  ", _cmd("/repo_use"), "  ",
+                _cmd("/pr"), "  ", _cmd("/ci"), "  ", _cmd("/limits"), "\n",
+                _cmd("/deploy"), "  ", _cmd("/logs"),
             ],
         },
     ]
@@ -703,10 +736,10 @@ async def planner_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     if not context.args:
         selected = current_planning_agent(context)
-        await reply_chunks(
-            update,
+        await update.message.reply_text(
             f"Planning agent: {planning_agent_label(selected)}\n\n"
-            "Use /planner codex or /planner claude.",
+            "Tap to choose:",
+            reply_markup=choice_keyboard("planner", ["codex", "claude"], active=selected),
         )
         return
 
@@ -726,7 +759,10 @@ async def agent_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if not context.args:
         selected_agent = current_implementation_agent(context)
-        await reply_chunks(update, f"Implementation agent: {implementation_agent_label(selected_agent)}\n\nUse /agent codex or /agent claude.")
+        await update.message.reply_text(
+            f"Implementation agent: {implementation_agent_label(selected_agent)}\n\nTap to choose:",
+            reply_markup=choice_keyboard("agent", ["codex", "claude"], active=selected_agent),
+        )
         return
 
     try:
@@ -832,7 +868,13 @@ async def verbosity(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not require_authorized(update):
         return
     if not context.args:
-        await reply_chunks(update, f"Verbosity: {get_verbosity(context).value}")
+        selected = get_verbosity(context).value
+        await update.message.reply_text(
+            f"Verbosity: {selected}\n\nTap to choose:",
+            reply_markup=choice_keyboard(
+                "verbosity", [level.value for level in Verbosity], active=selected
+            ),
+        )
         return
     selected = parse_verbosity(context.args[0])
     if not selected:
@@ -1264,7 +1306,12 @@ async def show(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await reply_chunks(update, "No implementation diff is available yet.")
         return
     if not context.args:
-        await reply_chunks(update, "Usage: /show <file-number>")
+        choices = [str(index) for index in range(1, len(execution.files_changed) + 1)]
+        await update.message.reply_text(
+            "Tap a file number to show its diff:\n"
+            + "\n".join(f"{index}. {name}" for index, name in enumerate(execution.files_changed, 1)),
+            reply_markup=choice_keyboard("show", choices),
+        )
         return
 
     selector = context.args[0]
@@ -1438,7 +1485,15 @@ async def repo_remove(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if not require_authorized(update):
         return
     if not context.args:
-        await reply_chunks(update, "Usage: /repo_remove <name>")
+        current = active_project()
+        names = [project.name for project in list_projects() if project.name != current.name]
+        if not names:
+            await reply_chunks(update, "There are no inactive projects to remove.")
+            return
+        await update.message.reply_text(
+            "Tap a project to remove:",
+            reply_markup=choice_keyboard("repo_remove", names),
+        )
         return
     try:
         await asyncio.to_thread(remove_project, context.args[0])
@@ -1584,8 +1639,91 @@ async def _on_repo_use_tap(update: Update, context: ContextTypes.DEFAULT_TYPE, p
     )
 
 
+async def _on_planner_tap(update: Update, context: ContextTypes.DEFAULT_TYPE, selected: str) -> None:
+    if not require_authorized(update):
+        return
+    try:
+        selected = normalize_planning_agent(selected)
+    except ValueError as error:
+        await update.callback_query.edit_message_text(str(error))
+        return
+    context.user_data["planning_agent"] = selected
+    await update.callback_query.edit_message_text(
+        f"Planning agent set to {planning_agent_label(selected)}."
+    )
+
+
+async def _on_agent_tap(update: Update, context: ContextTypes.DEFAULT_TYPE, selected: str) -> None:
+    if not require_authorized(update):
+        return
+    try:
+        selected = normalize_implementation_agent(selected)
+    except ValueError as error:
+        await update.callback_query.edit_message_text(str(error))
+        return
+    context.user_data["implementation_agent"] = selected
+    await update.callback_query.edit_message_text(
+        f"Implementation agent set to {implementation_agent_label(selected)}."
+    )
+
+
+async def _on_verbosity_tap(update: Update, context: ContextTypes.DEFAULT_TYPE, value: str) -> None:
+    if not require_authorized(update):
+        return
+    selected = parse_verbosity(value)
+    if not selected:
+        await update.callback_query.edit_message_text("Unknown verbosity choice.")
+        return
+    context.user_data["verbosity"] = selected.value
+    await update.callback_query.edit_message_text(f"Verbosity set to {selected.value}.")
+
+
+async def _on_repo_remove_tap(update: Update, context: ContextTypes.DEFAULT_TYPE, name: str) -> None:
+    if not require_authorized(update):
+        return
+    try:
+        await asyncio.to_thread(remove_project, name)
+    except ProjectError as error:
+        await update.callback_query.edit_message_text(str(error))
+        return
+    await update.callback_query.edit_message_text(
+        f"Removed project: {name}\nActive is now: {active_project().name}"
+    )
+
+
+async def _on_show_tap(update: Update, context: ContextTypes.DEFAULT_TYPE, selector: str) -> None:
+    if not require_authorized(update):
+        return
+    execution = last_execution(context)
+    if not execution or not selector.isdigit():
+        await update.callback_query.edit_message_text("That diff is no longer available.")
+        return
+    index = int(selector) - 1
+    if index < 0 or index >= len(execution.files_changed):
+        await update.callback_query.edit_message_text("File number is out of range.")
+        return
+    file_name = execution.files_changed[index]
+    await update.callback_query.edit_message_text(
+        extract_file_diff(execution.full_diff, file_name) or f"No diff captured for {file_name}."
+    )
+
+
+async def _on_core_update_tap(update: Update, context: ContextTypes.DEFAULT_TYPE, target: str) -> None:
+    if not require_authorized(update):
+        return
+    await update.callback_query.edit_message_text(f"Updating core for {target}...")
+    result = await asyncio.to_thread(_core_update_target, target)
+    await update.callback_query.edit_message_text(result)
+
+
 _callback_router = CallbackRouter()
 _callback_router.register("repo_use", _on_repo_use_tap)
+_callback_router.register("repo_remove", _on_repo_remove_tap)
+_callback_router.register("planner", _on_planner_tap)
+_callback_router.register("agent", _on_agent_tap)
+_callback_router.register("verbosity", _on_verbosity_tap)
+_callback_router.register("show", _on_show_tap)
+_callback_router.register("core_update", _on_core_update_tap)
 
 
 
@@ -1604,6 +1742,12 @@ _core_command = CoreCommand(
 def core_version_line() -> str:
     """One local-only line for /version. Never hits the network."""
     return _core_command.short_line()
+
+
+async def version(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not require_authorized(update):
+        return
+    await reply_chunks(update, get_runtime_version())
 
 
 def _run_target_deploy(target: dict) -> str:
@@ -1671,10 +1815,9 @@ async def core(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if wants_update:
         target_name = context.args[1] if len(context.args) > 1 else None
         if target_name is None:
-            await reply_chunks(
-                update,
-                "Usage: /core update <bot>  (coding | pm | ops)\n"
-                "Bumps that bot's core pin to the latest tag and deploys it.",
+            await update.message.reply_text(
+                "Tap the bot whose shared core should be updated:",
+                reply_markup=choice_keyboard("core_update", sorted(DEPLOY_TARGETS)),
             )
             return
         await reply_chunks(update, f"Updating core for {target_name}...")
@@ -1696,6 +1839,7 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", start))
     app.add_handler(CommandHandler("more", more))
+    app.add_handler(CommandHandler("version", version))
     app.add_handler(CommandHandler("plan", plan))
     app.add_handler(CommandHandler("discuss", discuss))
     app.add_handler(CommandHandler("approve", approve))
