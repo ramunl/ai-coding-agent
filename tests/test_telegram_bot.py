@@ -129,6 +129,7 @@ class TelegramBotTests(unittest.TestCase):
                 "start",
                 "help",
                 "more",
+                "version",
                 "plan",
                 "discuss",
                 "approve",
@@ -271,8 +272,7 @@ class TelegramBotTests(unittest.TestCase):
         # Reference material moved out of the short help.
         self.assertNotIn("/planner codex + /agent codex", help_text)
 
-    def test_every_command_in_help_is_slash_prefixed(self) -> None:
-        """Mixed '/plan' and 'plan' broke Telegram's auto-linking."""
+    def test_help_commands_are_clickable_bot_command_entities(self) -> None:
         telegram_bot = importlib.import_module("ai_agent.telegram_bot")
 
         update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=object())
@@ -281,18 +281,72 @@ class TelegramBotTests(unittest.TestCase):
         asyncio.run(telegram_bot.start(update, context))
 
         blocks = context.bot._post.await_args.kwargs["data"]["rich_message"]["blocks"]
-        codes = [
+        commands = [
             item["text"]
             for block in blocks
             for item in block.get("text", [])
-            if isinstance(item, dict) and item.get("type") == "code"
+            if isinstance(item, dict) and item.get("type") == "bot_command"
         ]
-        # The header shows the repo and path in code style; those are not commands.
-        commands = [code for code in codes if "/" in code and not code.startswith("/") or code.startswith("/")]
-        commands = [c for c in commands if not c.startswith(("/opt", "/home", "/root"))]
-        commands = [c for c in commands if " [" not in c or c.startswith("/")]
-        for code in commands:
-            self.assertTrue(code.startswith("/"), f"command not slash-prefixed: {code!r}")
+        self.assertTrue(commands)
+        for command in commands:
+            self.assertTrue(command.startswith("/"), command)
+
+    def test_full_help_contains_every_registered_command_as_clickable_markup(self) -> None:
+        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
+        expected = {command.command for command in telegram_bot.BOT_COMMANDS}
+
+        for help_command in (telegram_bot.start, telegram_bot.more):
+            update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=object())
+            context = types.SimpleNamespace(user_data={}, bot=types.SimpleNamespace(_post=AsyncMock()))
+            asyncio.run(help_command(update, context))
+            blocks = context.bot._post.await_args.kwargs["data"]["rich_message"]["blocks"]
+            clickable = {
+                item["text"].split()[0].removeprefix("/")
+                for block in blocks
+                for item in block.get("text", [])
+                if isinstance(item, dict) and item.get("type") == "bot_command"
+            }
+            self.assertEqual(expected, clickable)
+
+    def test_version_reports_shared_runtime_version(self) -> None:
+        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
+        message = types.SimpleNamespace(reply_text=AsyncMock())
+        update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=message)
+        context = types.SimpleNamespace(args=[], user_data={})
+
+        with patch.object(telegram_bot, "get_runtime_version", return_value="ai-coding-agent v9") as runtime:
+            asyncio.run(telegram_bot.version(update, context))
+
+        runtime.assert_called_once_with()
+        message.reply_text.assert_awaited_once_with("ai-coding-agent v9")
+
+    def test_planner_without_argument_shows_choice_grid(self) -> None:
+        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
+        message = types.SimpleNamespace(reply_text=AsyncMock())
+        update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=message)
+        context = types.SimpleNamespace(args=[], user_data={})
+        keyboard = object()
+
+        with patch.object(telegram_bot, "choice_keyboard", return_value=keyboard) as choices:
+            asyncio.run(telegram_bot.planner_cmd(update, context))
+
+        choices.assert_called_once_with("planner", ["codex", "claude"], active="codex")
+        self.assertIs(message.reply_text.await_args.kwargs["reply_markup"], keyboard)
+
+    def test_verbosity_without_argument_shows_choice_grid(self) -> None:
+        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
+        message = types.SimpleNamespace(reply_text=AsyncMock())
+        update = types.SimpleNamespace(effective_chat=types.SimpleNamespace(id=123), message=message)
+        context = types.SimpleNamespace(args=[], user_data={})
+        keyboard = object()
+
+        with patch.object(telegram_bot, "choice_keyboard", return_value=keyboard) as choices:
+            asyncio.run(telegram_bot.verbosity(update, context))
+
+        choices.assert_called_once_with(
+            "verbosity", ["concise", "normal", "debug"], active="concise"
+        )
+        self.assertIs(message.reply_text.await_args.kwargs["reply_markup"], keyboard)
 
     def test_more_carries_the_full_reference(self) -> None:
         """Detail removed from /help must still be reachable via /more."""
