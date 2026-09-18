@@ -84,7 +84,7 @@ async def logs(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     lines = max(1, min(requested_lines, MAX_LOG_LINES))
     result = await asyncio.to_thread(
         run,
-        ["journalctl", "-u", "ai-agent.service", "-n", str(lines), "--no-pager"],
+        ["journalctl", "-u", "ai-coding-agent.service", "-n", str(lines), "--no-pager"],
         Path("/"),
         COMMAND_TIMEOUT_SECONDS,
     )

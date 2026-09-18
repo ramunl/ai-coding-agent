@@ -4,15 +4,16 @@
 
 `ai-coding-agent` deploys automatically when changes are pushed to `main`.
 
-The server directory remains `/opt/ai-coding-agent`, and the systemd service remains `ai-agent.service`.
-Those operational names do not need to change when the GitHub repository is renamed.
+The server directory is `/opt/ai-coding-agent`, and the systemd service is `ai-coding-agent.service`
+(renamed 2026-09-18 from `ai-agent.service` to match the repo name; the env file, webhook hook id,
+update script, and log path were renamed to match at the same time).
 
 ```text
 git push origin main
 -> GitHub Actions
 -> deploy webhook
 -> update script
--> ai-agent.service restart
+-> ai-coding-agent.service restart
 ```
 
 ## GitHub Actions
@@ -38,7 +39,7 @@ DEPLOY_WEBHOOK_URL
 Expected value format:
 
 ```text
-http://<deploy-host>:9000/hooks/ai-agent-update?secret=<webhook-secret>
+http://<deploy-host>:9000/hooks/ai-coding-agent-update?secret=<webhook-secret>
 ```
 
 The webhook secret is stored on the server in `/etc/webhook.conf`.
@@ -49,7 +50,7 @@ expected host and port. When unset, only the scheme, path, and secret are valida
 
 ## Server Webhook
 
-The server uses the distro `webhook.service`, not a separate `ai-agent-webhook.service`.
+The server uses the distro `webhook.service`, not a separate `ai-coding-agent-webhook.service`.
 
 Service:
 
@@ -66,13 +67,13 @@ Config:
 Hook id:
 
 ```text
-ai-agent-update
+ai-coding-agent-update
 ```
 
 Command executed:
 
 ```text
-/usr/local/sbin/update-ai-agent
+/usr/local/sbin/update-ai-coding-agent
 ```
 
 Expected listener:
@@ -122,7 +123,7 @@ git push origin main
 Then check the update log:
 
 ```bash
-tail -100 /var/log/ai-agent/update.log
+tail -100 /var/log/ai-coding-agent/update.log
 ```
 
 Successful deploy log shape:
@@ -136,19 +137,17 @@ Successful deploy log shape:
 Check the service:
 
 ```bash
-systemctl status ai-agent.service --no-pager
+systemctl status ai-coding-agent.service --no-pager
 ```
 
 ## Current Known-Good State
 
-Verified on 2026-05-28:
+Verified on 2026-09-18:
 
-- `DEPLOY_WEBHOOK_URL` format validation passed in GitHub Actions.
-- `webhook.service` listened on `*:9000`.
-- UFW allowed `9000/tcp`.
-- GitHub Actions reached the webhook after the firewall rule was added.
-- `/var/log/ai-agent/update.log` showed a successful update at `2026-05-28T13:50:18+00:00`.
-- `ai-agent.service` restarted successfully at `2026-05-28T13:50:23+00:00`.
+- Webhook hook id renamed `ai-agent-update` -> `ai-coding-agent-update`; old hook id now 404s.
+- `DEPLOY_WEBHOOK_URL` GitHub secret updated to `.../hooks/ai-coding-agent-update?secret=...`.
+- New service `ai-coding-agent.service` active; old `ai-agent.service` unit removed.
+- Manual webhook POST to the new hook id triggered `update-ai-coding-agent` and logged to `/var/log/ai-coding-agent/update.log` successfully.
 
 ## Troubleshooting
 

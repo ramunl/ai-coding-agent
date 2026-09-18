@@ -26,7 +26,7 @@ jobs:
           checks = [
               (bool(url), "DEPLOY_WEBHOOK_URL is empty"),
               (parsed.scheme in ("http", "https"), "DEPLOY_WEBHOOK_URL must use http or https"),
-              (parsed.path == "/hooks/ai-agent-update", "DEPLOY_WEBHOOK_URL path must be /hooks/ai-agent-update"),
+              (parsed.path == "/hooks/ai-coding-agent-update", "DEPLOY_WEBHOOK_URL path must be /hooks/ai-coding-agent-update"),
               (parsed.query.startswith("secret="), "DEPLOY_WEBHOOK_URL must include the secret query parameter"),
           ]
 

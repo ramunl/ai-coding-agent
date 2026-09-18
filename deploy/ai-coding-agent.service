@@ -7,7 +7,7 @@ Wants=network-online.target
 Type=simple
 WorkingDirectory=/opt/ai-coding-agent
 Environment=HOME=/root
-EnvironmentFile=/etc/ai-agent/ai-agent.env
+EnvironmentFile=/etc/ai-coding-agent/ai-coding-agent.env
 ExecStartPre=/usr/bin/git -C /opt/ai-coding-agent submodule update --init --recursive
 ExecStart=/opt/ai_coding_venv/bin/python /opt/ai-coding-agent/agent.py
 Restart=on-failure
