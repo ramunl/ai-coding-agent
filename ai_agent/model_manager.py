@@ -26,7 +26,9 @@ from ai_agent.model_errors import is_model_not_found
 
 logger = logging.getLogger(__name__)
 
-ENV_FILE = Path(os.environ.get("AGENT_ENV_FILE", "/etc/ai-coding-agent/ai-coding-agent.env"))
+ENV_FILE = Path(
+    os.environ.get("AGENT_ENV_FILE", "/etc/ai-coding-agent/ai-coding-agent.env")
+)
 ANTHROPIC_MODELS_URL = "https://api.anthropic.com/v1/models"
 
 # Conservative: matches Anthropic model strings without allowing shell-unsafe
