@@ -8,13 +8,14 @@ from telegram import ForceReply, Update
 from telegram.ext import ContextTypes
 
 from ai_agent.config import CHAT_ID, MAX_TELEGRAM_MESSAGE_LENGTH, redact_sensitive
+from ai_agent_common import is_authorized as shared_is_authorized
 
 logger = logging.getLogger(__name__)
 
 
 def is_authorized(update: Update) -> bool:
     """Check whether the update belongs to the configured owner."""
-    return bool(update.effective_chat and update.effective_chat.id == CHAT_ID)
+    return shared_is_authorized(update, CHAT_ID)
 
 
 def require_authorized(update: Update) -> bool:
