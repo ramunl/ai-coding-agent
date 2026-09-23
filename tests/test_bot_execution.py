@@ -378,3 +378,57 @@ class ExecutionTests(TelegramTestCase):
         self.assertNotIn("active_execution", context.user_data)
         self.assertNotIn("queue_runner_active", context.user_data)
         self.assertEqual(context.user_data["task_queue"], [])
+
+
+class ResumeRestoredQueueTests(TelegramTestCase):
+    """After a restart the queue is restored but no runner is active."""
+
+    def _run_confirm(self, user_data: dict):
+        execution = importlib.import_module("ai_agent.bot.execution")
+
+        class FakeMessage:
+            def __init__(self) -> None:
+                self.replies = []
+
+            async def reply_text(self, text: str) -> None:
+                self.replies.append(text)
+
+        message = FakeMessage()
+        update = types.SimpleNamespace(
+            effective_chat=types.SimpleNamespace(id=123), message=message
+        )
+        context = types.SimpleNamespace(user_data=user_data)
+        with patch.object(
+            execution, "run_queued_implementation", AsyncMock()
+        ) as run_one:
+            asyncio.run(execution.confirm(update, context))
+        return message.replies, run_one, context
+
+    def test_confirm_resumes_restored_queue_when_nothing_is_pending(self) -> None:
+        tasks = [
+            {"id": 4, "branch_name": "feature/a"},
+            {"id": 5, "branch_name": "feature/b"},
+        ]
+        replies, run_one, context = self._run_confirm({"task_queue": list(tasks)})
+
+        self.assertIn("Resuming 2 queued task(s).", replies[0])
+        self.assertEqual(
+            [call.args[2]["id"] for call in run_one.await_args_list], [4, 5]
+        )
+        self.assertEqual(context.user_data["task_queue"], [])
+        self.assertNotIn("queue_runner_active", context.user_data)
+
+    def test_confirm_does_not_start_a_second_runner(self) -> None:
+        replies, run_one, _ = self._run_confirm(
+            {
+                "task_queue": [{"id": 1, "branch_name": "feature/a"}],
+                "queue_runner_active": True,
+            }
+        )
+        run_one.assert_not_awaited()
+        self.assertIn("No pending implementation", replies[0])
+
+    def test_confirm_with_empty_queue_keeps_existing_message(self) -> None:
+        replies, run_one, _ = self._run_confirm({})
+        run_one.assert_not_awaited()
+        self.assertIn("No pending implementation", replies[0])

@@ -68,6 +68,11 @@ async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
     if not pending:
+        restored = task_queue(context)
+        if restored and not context.user_data.get("queue_runner_active"):
+            await reply_chunks(update, f"Resuming {len(restored)} queued task(s).")
+            await run_task_queue(update, context)
+            return
         await reply_chunks(
             update,
             "No pending implementation. Use /implement <feature> or /bugfix <bug> first.",

@@ -203,6 +203,31 @@ class ApplicationTests(TelegramTestCase):
         self.assertIn("planner", command_names)
         self.assertIn("agent", command_names)
 
+    def test_startup_reports_queue_restored_after_restart(self) -> None:
+        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
+        app = telegram_bot.build_application()
+        app.bot.send_message = AsyncMock()
+        app.user_data = {123: {"task_queue": [{"id": 1, "branch_name": "feature/a"}]}}
+
+        with patch.object(asyncio, "to_thread", new=AsyncMock(return_value=None)):
+            asyncio.run(telegram_bot.configure_bot_commands(app))
+
+        app.bot.send_message.assert_awaited_once()
+        text = app.bot.send_message.await_args.kwargs["text"]
+        self.assertIn("Restored 1 queued task(s)", text)
+        self.assertIn("/confirm", text)
+
+    def test_startup_is_silent_when_nothing_was_queued(self) -> None:
+        telegram_bot = importlib.import_module("ai_agent.telegram_bot")
+        app = telegram_bot.build_application()
+        app.bot.send_message = AsyncMock()
+        app.user_data = {123: {}}
+
+        with patch.object(asyncio, "to_thread", new=AsyncMock(return_value=None)):
+            asyncio.run(telegram_bot.configure_bot_commands(app))
+
+        app.bot.send_message.assert_not_awaited()
+
     def test_configure_bot_commands_sends_core_drift_notice(self) -> None:
         telegram_bot = importlib.import_module("ai_agent.telegram_bot")
         app = telegram_bot.build_application()

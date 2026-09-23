@@ -19,6 +19,10 @@ PROJECTS_FILE = Path(
     os.environ.get("PROJECTS_FILE", "/etc/ai-agent-projects.json")
 ).expanduser()
 PROJECTS_ROOT = Path(os.environ.get("PROJECTS_ROOT", "/opt/projects")).expanduser()
+# Restart-safe bot state (task queue, pending plan, provider choices).
+STATE_FILE = Path(
+    os.environ.get("AGENT_STATE_FILE", "/var/lib/ai-coding-agent/state.json")
+).expanduser()
 RULES_ENABLED = os.environ.get("RULES_ENABLED", "true").strip().lower() not in {
     "false",
     "0",

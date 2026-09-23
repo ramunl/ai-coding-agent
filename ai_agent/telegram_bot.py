@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from copy import copy
 
 from telegram import Update
@@ -69,15 +70,40 @@ from ai_agent.bot.repositories import (
     repo_remove,
     repo_use,
 )
+from ai_agent.bot.state import task_queue
 from ai_agent.bot.transport import error_handler, require_authorized
-from ai_agent.config import TELEGRAM_TOKEN
+from ai_agent.config import CHAT_ID, STATE_FILE, TELEGRAM_TOKEN
 from ai_agent_common import CallbackRouter
+
+logger = logging.getLogger(__name__)
 
 
 async def configure_bot_commands(app: Application) -> None:
     """Register autocomplete commands and check for shared-core drift."""
     await app.bot.set_my_commands(BOT_COMMANDS)
     await _notify_core_drift_on_startup(app)
+    await _notify_restored_queue(app)
+
+
+async def _notify_restored_queue(app: Application) -> None:
+    """Tell the owner when queued work survived a restart.
+
+    The queue is not resumed automatically: there is no update to reply to at
+    boot, and auto-running work on startup could turn a crash into a restart
+    loop. /confirm resumes it.
+    """
+    try:
+        restored = task_queue(app.user_data.get(CHAT_ID, {}))
+        if restored:
+            await app.bot.send_message(
+                chat_id=CHAT_ID,
+                text=(
+                    f"Restored {len(restored)} queued task(s) after restart.\n"
+                    "Send /confirm to resume, /queue to review, or /cancel <id> to drop one."
+                ),
+            )
+    except Exception as error:  # a notice must never block startup
+        logger.warning("Could not report restored queue (ignored): %s", error)
 
 
 async def _on_command_tap(
@@ -225,6 +251,11 @@ def build_application() -> Application:
         builder = builder.concurrent_updates(True)
     if hasattr(builder, "post_init"):
         builder = builder.post_init(configure_bot_commands)
+    if hasattr(builder, "persistence"):
+        # Imported here: only a real Application needs the PTB persistence base.
+        from ai_agent.bot.persistence import JsonStatePersistence
+
+        builder = builder.persistence(JsonStatePersistence(STATE_FILE))
     app = builder.build()
     for name, handler in command_handlers().items():
         app.add_handler(CommandHandler(name, handler))
