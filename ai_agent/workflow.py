@@ -8,8 +8,9 @@ from ai_agent.config import (
     IMPLEMENTATION_AGENT,
 )
 from ai_agent.github import PullRequest, ensure_github_configured, github_request
+from ai_agent.model_errors import codex_capacity_explained
 from ai_agent.projects import active_project
-from ai_agent.shell import run
+from ai_agent.shell import CommandResult, run
 
 
 @dataclass(frozen=True)
@@ -71,8 +72,9 @@ def implementation_command(prompt: str, agent: str | None = None) -> list[str]:
     return ["codex", "exec", "-s", "workspace-write", prompt]
 
 
-def run_implementation_agent(prompt: str, agent: str | None = None):
-    return run(implementation_command(prompt, agent), timeout=CODEX_TIMEOUT_SECONDS)
+def run_implementation_agent(prompt: str, agent: str | None = None) -> CommandResult:
+    with codex_capacity_explained():
+        return run(implementation_command(prompt, agent), timeout=CODEX_TIMEOUT_SECONDS)
 
 
 def slugify_branch_name(

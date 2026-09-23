@@ -41,6 +41,39 @@ class ModelErrorTests(unittest.TestCase):
         self.assertIn("claude-old-1", msg)
         self.assertIn("ANTHROPIC_MODEL", msg)
 
+    def test_detects_codex_at_capacity(self) -> None:
+        output = "Command failed (1): codex exec ...\nERROR: Selected model is at capacity. Please try a different model."
+        self.assertTrue(self.model_errors.is_codex_at_capacity(output))
+
+    def test_ignores_other_codex_failures(self) -> None:
+        self.assertFalse(
+            self.model_errors.is_codex_at_capacity(
+                "Command failed (1): codex exec\nNot logged in"
+            )
+        )
+
+    def test_capacity_failure_becomes_short_codex_capacity_error(self) -> None:
+        failure = RuntimeError(
+            "Command failed (1): codex exec huge prompt\n"
+            "ERROR: Selected model is at capacity."
+        )
+
+        with self.assertRaises(self.model_errors.CodexCapacityError) as raised:
+            with self.model_errors.codex_capacity_explained():
+                raise failure
+
+        self.assertNotIn("huge prompt", str(raised.exception))
+        self.assertIs(raised.exception.__cause__, failure)
+
+    def test_other_codex_failures_pass_through_unchanged(self) -> None:
+        failure = RuntimeError("Command failed (1): codex exec\nNot logged in")
+
+        with self.assertRaises(RuntimeError) as raised:
+            with self.model_errors.codex_capacity_explained():
+                raise failure
+
+        self.assertIs(raised.exception, failure)
+
 
 class ModelManagerTests(unittest.TestCase):
     def setUp(self) -> None:

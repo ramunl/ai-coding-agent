@@ -7,8 +7,12 @@ so a model retirement presents as a clear instruction rather than a mystery.
 """
 
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager
 
 from ai_agent.config import ANTHROPIC_MODEL
+
+CODEX_CAPACITY_MARKER = "Selected model is at capacity"
 
 
 def is_model_not_found(status: int, body: str) -> bool:
@@ -32,3 +36,38 @@ def model_error_message(model: str = ANTHROPIC_MODEL) -> str:
         "claude-sonnet-4-6) and restart, or use /model to switch.\n\n"
         "Current model strings: https://docs.claude.com/en/docs/about-claude/models/overview"
     )
+
+
+class CodexCapacityError(RuntimeError):
+    """The Codex CLI refused a run because its model is temporarily overloaded."""
+
+
+def is_codex_at_capacity(output: str) -> bool:
+    """True when the Codex CLI refused the run because its model is overloaded."""
+    return CODEX_CAPACITY_MARKER in output
+
+
+def codex_capacity_message() -> str:
+    """A clear explanation shown instead of the raw, prompt-sized Codex failure."""
+    return (
+        "Codex's model is at capacity right now (a temporary OpenAI-side limit), "
+        "so nothing was changed.\n\n"
+        "Fix: retry in a few minutes, switch agent with /planner claude or "
+        "/agent claude, or pick another model via `model = ...` in "
+        "~/.codex/config.toml."
+    )
+
+
+@contextmanager
+def codex_capacity_explained() -> Iterator[None]:
+    """Replace a Codex 'at capacity' failure with a short, actionable error.
+
+    The raw command failure echoes the whole prompt, which buries the real
+    cause once the Telegram error message is truncated.
+    """
+    try:
+        yield
+    except RuntimeError as error:
+        if is_codex_at_capacity(str(error)):
+            raise CodexCapacityError(codex_capacity_message()) from error
+        raise

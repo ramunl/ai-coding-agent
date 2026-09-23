@@ -11,4 +11,4 @@ cd /opt/ai-coding-agent
 source /opt/ai_coding_venv/bin/activate
 pip install -r requirements.txt
 
-sudo systemctl restart ai-agent
+sudo systemctl restart ai-coding-agent

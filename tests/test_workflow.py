@@ -7,6 +7,7 @@ from ai_agent.workflow import (
     repair_implementation,
     repair_pull_request_branch,
     return_to_base_branch,
+    run_implementation_agent,
     slugify_branch_name,
     truncate_slug,
     validate_branch_name,
@@ -71,6 +72,18 @@ class WorkflowTests(unittest.TestCase):
             with self.subTest(branch_name=branch_name):
                 with self.assertRaises(ValueError):
                     validate_branch_name(branch_name)
+
+    def test_run_implementation_agent_reports_codex_capacity_clearly(self) -> None:
+        failure = RuntimeError(
+            "Command failed (1): codex exec huge prompt\n"
+            "ERROR: Selected model is at capacity."
+        )
+        with patch("ai_agent.workflow.run", side_effect=failure):
+            with self.assertRaises(RuntimeError) as raised:
+                run_implementation_agent("huge prompt", "codex")
+
+        self.assertIn("at capacity", str(raised.exception))
+        self.assertNotIn("huge prompt", str(raised.exception))
 
     def test_implementation_command_defaults_to_codex(self) -> None:
         self.assertEqual(

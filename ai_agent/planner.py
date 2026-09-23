@@ -13,7 +13,10 @@ from ai_agent.config import (
     PLANNING_AGENT,
 )
 from ai_agent.github_links import enrich_feature_description
-from ai_agent.model_errors import model_error_message
+from ai_agent.model_errors import (
+    codex_capacity_explained,
+    model_error_message,
+)
 from ai_agent.projects import active_project
 from ai_agent.rules import rules_prompt_block
 from ai_agent.shell import run
@@ -39,21 +42,22 @@ def _codex_message(prompt: str, schema_name: str) -> str:
     with tempfile.NamedTemporaryFile(
         prefix="ai-agent-codex-", suffix=".json"
     ) as output:
-        run(
-            [
-                "codex",
-                "exec",
-                "--sandbox",
-                "read-only",
-                "--ephemeral",
-                "--output-schema",
-                str(schema_path),
-                "--output-last-message",
-                output.name,
-                prompt,
-            ],
-            timeout=CODEX_TIMEOUT_SECONDS,
-        )
+        with codex_capacity_explained():
+            run(
+                [
+                    "codex",
+                    "exec",
+                    "--sandbox",
+                    "read-only",
+                    "--ephemeral",
+                    "--output-schema",
+                    str(schema_path),
+                    "--output-last-message",
+                    output.name,
+                    prompt,
+                ],
+                timeout=CODEX_TIMEOUT_SECONDS,
+            )
         return Path(output.name).read_text(encoding="utf-8").strip()
 
 
