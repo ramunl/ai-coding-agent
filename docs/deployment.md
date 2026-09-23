@@ -76,6 +76,17 @@ Command executed:
 /usr/local/sbin/update-ai-coding-agent
 ```
 
+Both server files are versioned in `deploy/`; install them after changing either:
+
+```bash
+install -m 755 deploy/update-ai-coding-agent /usr/local/sbin/update-ai-coding-agent
+# Merge deploy/webhook.conf.example into /etc/webhook.conf, replacing
+# PASTE_WEBHOOK_SECRET with the real secret, then:
+systemctl restart webhook.service
+```
+
+The update script logs to `/var/log/ai-coding-agent/update.log`.
+
 Expected listener:
 
 ```text

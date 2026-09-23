@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -euo pipefail
+exec 9>/var/lock/ai-coding-agent-update.lock
+flock -n 9 || exit 0
+
+BRANCH="main"
+NO_RESTART=0
+for arg in "$@"; do
+  case "$arg" in
+    --no-restart) NO_RESTART=1 ;;
+    *) BRANCH="$arg" ;;
+  esac
+done
+
+{
+  echo "[$(date -Is)] update started (branch: $BRANCH)"
+  cd /opt/ai-coding-agent
+  GIT_SSH_COMMAND="ssh -i /root/.ssh/ai_agent_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new" git fetch origin "$BRANCH"
+  if [ "$(git rev-parse --abbrev-ref HEAD)" != "$BRANCH" ]; then
+    git checkout "$BRANCH" 2>/dev/null || git checkout -B "$BRANCH" "origin/$BRANCH"
+  fi
+  GIT_SSH_COMMAND="ssh -i /root/.ssh/ai_agent_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new" git pull --ff-only origin "$BRANCH"
+  /opt/ai_coding_venv/bin/pip install -r /opt/ai-coding-agent/requirements.txt
+  if [ "$NO_RESTART" -eq 1 ]; then
+    echo "ai-coding-agent restart skipped: --no-restart requested by caller"
+  elif ! grep -q "PASTE_" /etc/ai-coding-agent/ai-coding-agent.env && systemctl is-enabled --quiet ai-coding-agent.service; then
+    systemctl restart ai-coding-agent.service
+  else
+    echo "ai-coding-agent restart skipped: service disabled or env placeholders remain"
+  fi
+  echo "[$(date -Is)] update finished (branch: $BRANCH)"
+} >> /var/log/ai-coding-agent/update.log 2>&1

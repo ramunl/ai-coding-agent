@@ -1,0 +1,18 @@
+[
+  {
+    "id": "ai-coding-agent-update",
+    "execute-command": "/usr/local/sbin/update-ai-coding-agent",
+    "command-working-directory": "/opt/ai-coding-agent",
+    "response-message": "ai-coding-agent update triggered",
+    "trigger-rule": {
+      "match": {
+        "type": "value",
+        "value": "PASTE_WEBHOOK_SECRET",
+        "parameter": {
+          "source": "url",
+          "name": "secret"
+        }
+      }
+    }
+  }
+]
