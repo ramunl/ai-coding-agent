@@ -2,6 +2,7 @@
 
 import os
 import sys
+import tempfile
 import types
 import unittest
 from pathlib import Path
@@ -13,7 +14,15 @@ class TelegramTestCase(unittest.TestCase):
             "TELEGRAM_BOT_TOKEN": os.environ.get("TELEGRAM_BOT_TOKEN"),
             "YOUR_CHAT_ID": os.environ.get("YOUR_CHAT_ID"),
             "ANTHROPIC_API_KEY": os.environ.get("ANTHROPIC_API_KEY"),
+            "AGENT_STATE_FILE": os.environ.get("AGENT_STATE_FILE"),
+            "AGENT_SNAPSHOT_FILE": os.environ.get("AGENT_SNAPSHOT_FILE"),
         }
+        # Tests must never write the real /var/lib state or dashboard files.
+        self._state_dir = tempfile.mkdtemp()
+        os.environ["AGENT_STATE_FILE"] = os.path.join(self._state_dir, "state.json")
+        os.environ["AGENT_SNAPSHOT_FILE"] = os.path.join(
+            self._state_dir, "snapshot.json"
+        )
         os.environ["TELEGRAM_BOT_TOKEN"] = "telegram-secret"
         os.environ["YOUR_CHAT_ID"] = "123"
         os.environ["ANTHROPIC_API_KEY"] = "anthropic-secret"
