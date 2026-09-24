@@ -199,9 +199,9 @@ Flow:
 ```text
 git push origin main
 -> GitHub Actions deploy workflow
--> http://<deploy-host>:9000/hooks/ai-agent-update?secret=...
--> /usr/local/sbin/update-ai-agent
--> git pull, install requirements, restart ai-agent.service
+-> http://<deploy-host>:9000/hooks/ai-coding-agent-update?secret=...
+-> /usr/local/sbin/update-ai-coding-agent
+-> git pull, install requirements, restart ai-coding-agent.service
 ```
 
 The server uses the distro `webhook.service` with `/etc/webhook.conf`. It listens on `*:9000`, and UFW must allow `9000/tcp` for GitHub-hosted runners to reach it.
