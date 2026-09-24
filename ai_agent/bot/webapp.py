@@ -16,6 +16,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from aiohttp import web
+from telegram.ext import Application
 
 from ai_agent.bot.state import snapshot
 from ai_agent.bot.webapp_auth import InitDataError, verify_init_data
@@ -78,7 +79,9 @@ def _project_and_versions() -> dict:
     }
 
 
-def dashboard_state_provider(ptb_app, owner_id: int) -> StateProvider:
+def dashboard_state_provider(ptb_app: Application, owner_id: int) -> StateProvider:
+    """Build the /api/state source: the owner's bot state plus project info."""
+
     async def provide() -> dict:
         # Queue state is read on the event-loop thread, where handlers mutate it,
         # so the dashboard sees a consistent picture.
@@ -90,7 +93,7 @@ def dashboard_state_provider(ptb_app, owner_id: int) -> StateProvider:
 
 
 async def start_dashboard(
-    ptb_app, bot_token: str, owner_id: int, host: str, port: int
+    ptb_app: Application, bot_token: str, owner_id: int, host: str, port: int
 ) -> bool:
     """Start serving; return False (and log) instead of raising on any failure."""
     global _runner
@@ -114,6 +117,7 @@ async def start_dashboard(
 
 
 async def stop_dashboard() -> None:
+    """Stop serving and free the port; a no-op if the dashboard never started."""
     global _runner
     if _runner is not None:
         await _runner.cleanup()
