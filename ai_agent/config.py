@@ -23,6 +23,10 @@ PROJECTS_ROOT = Path(os.environ.get("PROJECTS_ROOT", "/opt/projects")).expanduse
 STATE_FILE = Path(
     os.environ.get("AGENT_STATE_FILE", "/var/lib/ai-coding-agent/state.json")
 ).expanduser()
+# Mini App dashboard. Off unless WEBAPP_URL (the public https:// address) is set.
+WEBAPP_URL = os.environ.get("WEBAPP_URL", "").strip()
+WEBAPP_HOST = os.environ.get("WEBAPP_HOST", "127.0.0.1")
+WEBAPP_PORT = int(os.environ.get("WEBAPP_PORT", "8787"))
 RULES_ENABLED = os.environ.get("RULES_ENABLED", "true").strip().lower() not in {
     "false",
     "0",

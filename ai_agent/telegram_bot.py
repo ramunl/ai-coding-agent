@@ -72,7 +72,14 @@ from ai_agent.bot.repositories import (
 )
 from ai_agent.bot.state import task_queue
 from ai_agent.bot.transport import error_handler, require_authorized
-from ai_agent.config import CHAT_ID, STATE_FILE, TELEGRAM_TOKEN
+from ai_agent.config import (
+    CHAT_ID,
+    STATE_FILE,
+    TELEGRAM_TOKEN,
+    WEBAPP_HOST,
+    WEBAPP_PORT,
+    WEBAPP_URL,
+)
 from ai_agent_common import CallbackRouter
 
 logger = logging.getLogger(__name__)
@@ -83,6 +90,56 @@ async def configure_bot_commands(app: Application) -> None:
     await app.bot.set_my_commands(BOT_COMMANDS)
     await _notify_core_drift_on_startup(app)
     await _notify_restored_queue(app)
+    await _start_dashboard(app)
+
+
+async def _start_dashboard(app: Application) -> None:
+    """Serve the Mini App and point this chat's menu button at it.
+
+    Runs only when WEBAPP_URL is configured. Every failure is logged, never
+    raised: the dashboard is optional, the bot is not.
+    """
+    if not WEBAPP_URL:
+        return
+    if not WEBAPP_URL.startswith("https://"):
+        logger.error(
+            "Dashboard disabled: WEBAPP_URL must be https:// (got %s)", WEBAPP_URL
+        )
+        return
+    try:
+        from ai_agent.bot.webapp import start_dashboard
+    except ImportError as error:
+        logger.error(
+            "Dashboard disabled, dependency missing (pip install -r requirements.txt): %s",
+            error,
+        )
+        return
+    if not await start_dashboard(
+        app, TELEGRAM_TOKEN, CHAT_ID, WEBAPP_HOST, WEBAPP_PORT
+    ):
+        return
+    try:
+        from telegram import MenuButtonWebApp, WebAppInfo
+
+        await app.bot.set_chat_menu_button(
+            chat_id=CHAT_ID,
+            menu_button=MenuButtonWebApp(
+                text="Dashboard", web_app=WebAppInfo(url=WEBAPP_URL)
+            ),
+        )
+    except Exception as error:
+        logger.warning("Could not set the dashboard menu button (ignored): %s", error)
+
+
+async def shutdown_hooks(app: Application) -> None:
+    """Release the dashboard port on a clean stop."""
+    if not WEBAPP_URL:
+        return
+    try:
+        from ai_agent.bot.webapp import stop_dashboard
+    except ImportError:
+        return
+    await stop_dashboard()
 
 
 async def _notify_restored_queue(app: Application) -> None:
@@ -251,6 +308,8 @@ def build_application() -> Application:
         builder = builder.concurrent_updates(True)
     if hasattr(builder, "post_init"):
         builder = builder.post_init(configure_bot_commands)
+    if hasattr(builder, "post_shutdown"):
+        builder = builder.post_shutdown(shutdown_hooks)
     if hasattr(builder, "persistence"):
         # Imported here: only a real Application needs the PTB persistence base.
         from ai_agent.bot.persistence import JsonStatePersistence
