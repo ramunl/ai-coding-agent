@@ -3,6 +3,8 @@
 import asyncio
 import importlib
 import types
+import unittest
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 from tests.bot_fixtures import TelegramTestCase
@@ -190,7 +192,7 @@ class MaintenanceTests(TelegramTestCase):
             asyncio.run(telegram_bot.deploy(update, context))
 
         self.assertEqual(
-            calls[0], ["/usr/local/sbin/update-ai-agent", "main", "--no-restart"]
+            calls[0], ["/usr/local/sbin/update-ai-coding-agent", "main", "--no-restart"]
         )
         mock_restart.assert_called_once()
         self.assertIn("Restart scheduled in 3s.", message.replies[-1])
@@ -212,8 +214,10 @@ class MaintenanceTests(TelegramTestCase):
         context = types.SimpleNamespace(args=["main"], user_data={})
 
         def fake_run(args, cwd=None, timeout=None, interactive=False):
-            if args[0] == "/usr/local/sbin/update-ai-agent":
-                raise RuntimeError("Command failed (1): update-ai-agent\nconflict")
+            if args[0] == "/usr/local/sbin/update-ai-coding-agent":
+                raise RuntimeError(
+                    "Command failed (1): update-ai-coding-agent\nconflict"
+                )
             return types.SimpleNamespace(output="update failed log tail")
 
         async def fake_to_thread(func, *args, **kwargs):
@@ -235,3 +239,21 @@ class MaintenanceTests(TelegramTestCase):
 
         mock_restart.assert_not_called()
         self.assertIn("Deploy failed", message.replies[-1])
+
+
+class DeployTargetPathTests(unittest.TestCase):
+    """The self-deploy target must match the script this repo ships.
+
+    A rename once left /deploy calling /usr/local/sbin/update-ai-agent after
+    the script became update-ai-coding-agent; tests pinned the stale path.
+    """
+
+    def test_self_deploy_matches_shipped_script_and_log(self) -> None:
+        from ai_agent.bot.constants import DEPLOY_TARGETS
+
+        repo = Path(__file__).resolve().parent.parent
+        target = DEPLOY_TARGETS["coding"]
+        script_name = Path(target["script"]).name
+        shipped = repo / "deploy" / script_name
+        self.assertTrue(shipped.is_file(), f"deploy/{script_name} not in repo")
+        self.assertIn(str(target["log"]), shipped.read_text())

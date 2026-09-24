@@ -51,8 +51,8 @@ BOT_COMMANDS = [
 DEPLOY_TARGETS = {
     "coding": {
         "label": "ai-coding-agent (self)",
-        "script": "/usr/local/sbin/update-ai-agent",
-        "log": Path("/var/log/ai-agent/update.log"),
+        "script": "/usr/local/sbin/update-ai-coding-agent",
+        "log": Path("/var/log/ai-coding-agent/update.log"),
         "repo": Path("/opt/ai-coding-agent"),
         "self": True,
     },
