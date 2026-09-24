@@ -3,7 +3,7 @@
 # setup-dashboard-https.sh
 #
 # Gives the Coding Agent's Mini App dashboard a public HTTPS address:
-#   https://<your-ip-with-dashes>.sslip.io  ->  Caddy (Let's Encrypt)  ->  127.0.0.1:8787
+#   https://<your-ip-with-dashes>.sslip.io[:port]  ->  Caddy (Let's Encrypt)  ->  127.0.0.1:8787
 #
 # Prerequisite: the dashboard code is deployed on /opt/ai-coding-agent.
 #
@@ -16,7 +16,12 @@
 # Usage:   sudo bash setup-dashboard-https.sh            # auto-detect public IP
 #          sudo bash setup-dashboard-https.sh 1.2.3.4    # or pass it explicitly
 #
+# HTTPS_PORT (default 443) picks the public port, for hosts where 443 is taken
+# (e.g. by an MTProto proxy). The certificate is still issued over port 80:
+#          sudo HTTPS_PORT=8443 bash setup-dashboard-https.sh
+#
 set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive  # no whiptail dialogs (e.g. needrestart) mid-install
 
 SERVICE="ai-coding-agent"
 APP_DIR="/opt/ai-coding-agent"
@@ -26,6 +31,7 @@ CADDYFILE="/etc/caddy/Caddyfile"
 SITES_DIR="/etc/caddy/sites"
 SITE_FILE="${SITES_DIR}/ai-coding-agent-dashboard.caddy"
 IMPORT_LINE="import ${SITES_DIR}/*.caddy"
+HTTPS_PORT="${HTTPS_PORT:-443}"
 
 say()  { printf '\n=== %s ===\n' "$*"; }
 ok()   { printf '    OK: %s\n' "$*"; }
@@ -33,6 +39,8 @@ stop() { printf '\nSTOP: %s\n' "$*" >&2; exit 1; }
 stamp() { date +%Y%m%d-%H%M%S; }
 
 [ "$(id -u)" -eq 0 ] || stop "run as root: sudo bash $0"
+[[ "${HTTPS_PORT}" =~ ^[0-9]+$ ]] && [ "${HTTPS_PORT}" -ne 80 ] \
+  || stop "HTTPS_PORT must be a port number other than 80 (got '${HTTPS_PORT}')"
 
 # --------------------------------------------------------------------------
 say "1. Dashboard code is deployed"
@@ -69,12 +77,12 @@ RESOLVED="$(getent ahostsv4 "${DOMAIN}" 2>/dev/null | awk 'NR==1 {print $1}' || 
 ok "${DOMAIN} -> ${IP}"
 
 # --------------------------------------------------------------------------
-say "4. Ports 80 and 443 are free (or already Caddy's)"
-BUSY="$(ss -ltnpH '( sport = :80 or sport = :443 )' | grep -v caddy || true)"
-[ -z "${BUSY}" ] || stop "something else listens on 80/443:
+say "4. Ports 80 and ${HTTPS_PORT} are free (or already Caddy's)"
+BUSY="$(ss -ltnpH "( sport = :80 or sport = :${HTTPS_PORT} )" | grep -v caddy || true)"
+[ -z "${BUSY}" ] || stop "something else listens on 80/${HTTPS_PORT}:
 ${BUSY}
-Stop it, or move its site into Caddy (${CADDYFILE}), then re-run."
-ok "80/443 available"
+Stop it, move its site into Caddy (${CADDYFILE}), or pick another HTTPS_PORT, then re-run."
+ok "80/${HTTPS_PORT} available"
 
 # --------------------------------------------------------------------------
 say "5. Caddy"
@@ -109,8 +117,14 @@ restore_caddy() {
 }
 
 mkdir -p "${SITES_DIR}"
-printf '# Managed by setup-dashboard-https.sh: Coding Agent Mini App\n%s {\n\tencode gzip\n\treverse_proxy 127.0.0.1:%s\n}\n' \
-  "${DOMAIN}" "${PORT}" > "${SITE_FILE}"
+TLS_BLOCK=""
+if [ "${HTTPS_PORT}" != "443" ]; then
+  # Port 443 belongs to something else, so Let's Encrypt's TLS-ALPN check
+  # (always on 443) would hit that service; validate over port 80 only.
+  TLS_BLOCK=$'\ttls {\n\t\tissuer acme {\n\t\t\tdisable_tlsalpn_challenge\n\t\t}\n\t}\n'
+fi
+printf '# Managed by setup-dashboard-https.sh: Coding Agent Mini App\n%s:%s {\n%s\tencode gzip\n\treverse_proxy 127.0.0.1:%s\n}\n' \
+  "${DOMAIN}" "${HTTPS_PORT}" "${TLS_BLOCK}" "${PORT}" > "${SITE_FILE}"
 
 if [ -f "${CADDYFILE}" ] && grep -q "The Caddyfile is an easy way to configure your Caddy web server" "${CADDYFILE}"; then
   # Stock placeholder from the Debian package: its ":80 { file_server }" site
@@ -128,18 +142,18 @@ if ! caddy validate --config "${CADDYFILE}" --adapter caddyfile >/dev/null 2>&1;
   caddy validate --config ${CADDYFILE} --adapter caddyfile"
 fi
 [ -z "${SITE_BACKUP}" ] || rm -f "${SITE_BACKUP}"
-ok "${SITE_FILE}: ${DOMAIN} -> 127.0.0.1:${PORT}"
+ok "${SITE_FILE}: ${DOMAIN}:${HTTPS_PORT} -> 127.0.0.1:${PORT}"
 
 # --------------------------------------------------------------------------
 say "6. Firewall"
 if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
   ufw allow 80/tcp >/dev/null
-  ufw allow 443/tcp >/dev/null
-  ok "ufw: 80 and 443 allowed"
+  ufw allow "${HTTPS_PORT}/tcp" >/dev/null
+  ok "ufw: 80 and ${HTTPS_PORT} allowed"
 else
   ok "ufw not active on this host"
 fi
-echo "    NOTE: if the droplet has a DigitalOcean *cloud* firewall, allow inbound 80 and 443 there too."
+echo "    NOTE: if the droplet has a DigitalOcean *cloud* firewall, allow inbound 80 and ${HTTPS_PORT} there too."
 
 systemctl enable --now caddy >/dev/null
 systemctl reload caddy || systemctl restart caddy
@@ -149,6 +163,7 @@ ok "caddy running"
 say "7. Point the bot at the dashboard"
 cp "${ENV_FILE}" "${ENV_FILE}.bak.$(stamp)"
 URL="https://${DOMAIN}"
+[ "${HTTPS_PORT}" = "443" ] || URL="${URL}:${HTTPS_PORT}"
 if grep -q '^WEBAPP_URL=' "${ENV_FILE}"; then
   sed -i "s|^WEBAPP_URL=.*|WEBAPP_URL=${URL}|" "${ENV_FILE}"
 else
@@ -174,7 +189,7 @@ for _ in $(seq 1 30); do
 done
 if ! curl -sf --max-time 5 "${URL}/healthz" >/dev/null; then
   journalctl -u caddy -n 25 --no-pager || true
-  stop "${URL} is not reachable over HTTPS yet. Usual causes: inbound 80/443 blocked by a cloud
+  stop "${URL} is not reachable over HTTPS yet. Usual causes: inbound 80/${HTTPS_PORT} blocked by a cloud
 firewall (Let's Encrypt must reach port 80), or a certificate rate limit. See Caddy's log above."
 fi
 ok "${URL}/healthz answers over HTTPS"
