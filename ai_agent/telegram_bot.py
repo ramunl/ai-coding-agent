@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 from copy import copy
 
@@ -72,14 +74,7 @@ from ai_agent.bot.repositories import (
 )
 from ai_agent.bot.state import task_queue
 from ai_agent.bot.transport import error_handler, require_authorized
-from ai_agent.config import (
-    CHAT_ID,
-    STATE_FILE,
-    TELEGRAM_TOKEN,
-    WEBAPP_HOST,
-    WEBAPP_PORT,
-    WEBAPP_URL,
-)
+from ai_agent.config import CHAT_ID, SNAPSHOT_FILE, STATE_FILE, TELEGRAM_TOKEN
 from ai_agent_common import CallbackRouter
 
 logger = logging.getLogger(__name__)
@@ -90,66 +85,36 @@ async def configure_bot_commands(app: Application) -> None:
     await app.bot.set_my_commands(BOT_COMMANDS)
     await _notify_core_drift_on_startup(app)
     await _notify_restored_queue(app)
-    await _start_dashboard(app)
+    _start_snapshot_publisher(app)
 
 
-async def _start_dashboard(app: Application) -> None:
-    """Serve the Mini App and point this chat's menu button at it.
+_publisher_task: asyncio.Task | None = None
 
-    Runs only when WEBAPP_URL is configured. Every failure is logged, never
-    raised: the dashboard is optional, the bot is not.
+
+def _start_snapshot_publisher(app: Application) -> None:
+    """Publish the read model the dashboard service shows as the Coding window.
+
+    The dashboard is a separate service (so it survives this bot crashing) and
+    reads only this file. Publishing is best-effort and never blocks startup.
     """
-    if not WEBAPP_URL:
+    global _publisher_task
+    if _publisher_task is not None and not _publisher_task.done():
         return
-    if not WEBAPP_URL.startswith("https://"):
-        logger.error(
-            "Dashboard disabled: WEBAPP_URL must be https:// (got %s)", WEBAPP_URL
-        )
-        return
-    if not 0 < WEBAPP_PORT < 65536:
-        logger.error("Dashboard disabled: WEBAPP_PORT must be 1-65535")
-        return
-    # initData identifies a user, so the owner check compares against CHAT_ID;
-    # that only holds for a private chat, where chat id == user id.
-    if CHAT_ID <= 0:
-        logger.error(
-            "Dashboard disabled: YOUR_CHAT_ID must be your private chat (user) id"
-        )
-        return
-    try:
-        from ai_agent.bot.webapp import start_dashboard
-    except ImportError as error:
-        logger.error(
-            "Dashboard disabled, dependency missing (pip install -r requirements.txt): %s",
-            error,
-        )
-        return
-    if not await start_dashboard(
-        app, TELEGRAM_TOKEN, CHAT_ID, WEBAPP_HOST, WEBAPP_PORT
-    ):
-        return
-    try:
-        from telegram import MenuButtonWebApp, WebAppInfo
+    from ai_agent.bot.snapshot_publisher import publish_forever
 
-        await app.bot.set_chat_menu_button(
-            chat_id=CHAT_ID,
-            menu_button=MenuButtonWebApp(
-                text="Dashboard", web_app=WebAppInfo(url=WEBAPP_URL)
-            ),
-        )
-    except Exception as error:
-        logger.warning("Could not set the dashboard menu button (ignored): %s", error)
+    _publisher_task = asyncio.get_running_loop().create_task(
+        publish_forever(app, CHAT_ID, SNAPSHOT_FILE)
+    )
 
 
 async def shutdown_hooks(app: Application) -> None:
-    """Release the dashboard port on a clean stop."""
-    if not WEBAPP_URL:
-        return
-    try:
-        from ai_agent.bot.webapp import stop_dashboard
-    except ImportError:
-        return
-    await stop_dashboard()
+    """Stop publishing on a clean shutdown."""
+    global _publisher_task
+    if _publisher_task is not None:
+        _publisher_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await _publisher_task
+        _publisher_task = None
 
 
 async def _notify_restored_queue(app: Application) -> None:

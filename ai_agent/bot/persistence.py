@@ -22,14 +22,13 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
-import os
-import tempfile
 from dataclasses import asdict, fields, is_dataclass
 from pathlib import Path
 from typing import Any
 
 from telegram.ext import BasePersistence, PersistenceInput
 
+from ai_agent.bot.atomic_file import write_json_atomic
 from ai_agent.bot.state import PERSISTENT_KEYS
 from ai_agent.plan_state import ExecutionState, PlanState
 
@@ -121,25 +120,14 @@ def read_state_file(path: Path) -> dict[int, dict]:
 
 
 def write_state_file(path: Path, users: dict[int, dict]) -> None:
-    """Write atomically (temp file + rename) with owner-only permissions."""
-    payload = {
-        "version": FORMAT_VERSION,
-        "users": {str(user_id): data for user_id, data in users.items()},
-    }
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".state-", suffix=".tmp")
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                json.dump(payload, handle, ensure_ascii=False, indent=2)
-            os.chmod(tmp, 0o600)
-            os.replace(tmp, path)
-        except BaseException:
-            with contextlib.suppress(OSError):
-                os.unlink(tmp)
-            raise
-    except OSError as error:
-        logger.error("Could not save bot state to %s: %s", path, error)
+    """Persist all users' encoded state."""
+    write_json_atomic(
+        path,
+        {
+            "version": FORMAT_VERSION,
+            "users": {str(user_id): data for user_id, data in users.items()},
+        },
+    )
 
 
 # ---------------------------------------------------------------- PTB hook
