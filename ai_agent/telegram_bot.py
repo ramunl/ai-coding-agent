@@ -106,6 +106,16 @@ async def _start_dashboard(app: Application) -> None:
             "Dashboard disabled: WEBAPP_URL must be https:// (got %s)", WEBAPP_URL
         )
         return
+    if not 0 < WEBAPP_PORT < 65536:
+        logger.error("Dashboard disabled: WEBAPP_PORT must be 1-65535")
+        return
+    # initData identifies a user, so the owner check compares against CHAT_ID;
+    # that only holds for a private chat, where chat id == user id.
+    if CHAT_ID <= 0:
+        logger.error(
+            "Dashboard disabled: YOUR_CHAT_ID must be your private chat (user) id"
+        )
+        return
     try:
         from ai_agent.bot.webapp import start_dashboard
     except ImportError as error:

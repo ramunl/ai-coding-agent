@@ -91,9 +91,10 @@
       fill("running", el("div", "Idle", "muted"));
     }
 
-    if (s.queue.length) {
+    const queue = s.queue || [];
+    if (queue.length) {
       const list = el("ol");
-      s.queue.forEach((t) => list.append(el("li", `#${t.id} ${t.branch} (${t.label})`)));
+      queue.forEach((t) => list.append(el("li", `#${t.id} ${t.branch} (${t.label})`)));
       fill("queue", list);
     } else {
       fill("queue", el("div", "Empty", "muted"));
@@ -114,7 +115,7 @@
       fill("last",
         row("Branch", e.branch),
         row("Tests", e.tests),
-        row("Files", e.files_changed.length),
+        row("Files", (e.files_changed || []).length),
         row("PR", e.pr_url ? openLink(e.pr_url) : "—"));
     } else {
       fill("last", el("div", "No runs yet", "muted"));
@@ -142,8 +143,12 @@
     }
     try {
       const response = await fetch("api/state", { headers: { Authorization: "tma " + initData } });
-      const body = await response.json();
-      if (!response.ok) { showError(body.error || `HTTP ${response.status}`); return; }
+      // A proxy error (e.g. Caddy's 502 while the bot restarts) is not JSON.
+      const body = await response.json().catch(() => null);
+      if (!response.ok || !body) {
+        showError((body && body.error) || `The agent is not responding (HTTP ${response.status})`);
+        return;
+      }
       showError("");
       render(body);
       document.getElementById("updated").textContent =

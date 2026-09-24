@@ -26,7 +26,10 @@ STATE_FILE = Path(
 # Mini App dashboard. Off unless WEBAPP_URL (the public https:// address) is set.
 WEBAPP_URL = os.environ.get("WEBAPP_URL", "").strip()
 WEBAPP_HOST = os.environ.get("WEBAPP_HOST", "127.0.0.1")
-WEBAPP_PORT = int(os.environ.get("WEBAPP_PORT", "8787"))
+# Unlike other ints here, a bad value must disable the dashboard, not the bot:
+# 0 is caught by the startup check in telegram_bot._start_dashboard.
+_webapp_port = os.environ.get("WEBAPP_PORT", "8787").strip()
+WEBAPP_PORT = int(_webapp_port) if _webapp_port.isdigit() else 0
 RULES_ENABLED = os.environ.get("RULES_ENABLED", "true").strip().lower() not in {
     "false",
     "0",

@@ -135,13 +135,26 @@ class StartupTests(unittest.IsolatedAsyncioTestCase):
             blocker.close()
         self.assertFalse(started)
 
-    async def _run_start_hook(self, url: str, started: bool = True):
+    async def test_unexpected_startup_error_returns_false(self) -> None:
+        with patch.object(
+            webapp.web.TCPSite, "start", AsyncMock(side_effect=RuntimeError("boom"))
+        ):
+            started = await webapp.start_dashboard(
+                types.SimpleNamespace(user_data={}), TOKEN, OWNER, "127.0.0.1", 0
+            )
+        self.assertFalse(started)
+
+    async def _run_start_hook(
+        self, url: str, started: bool = True, port: int = 8787, chat_id: int = OWNER
+    ):
         telegram_bot = importlib.import_module("ai_agent.telegram_bot")
         app = types.SimpleNamespace(
             bot=types.SimpleNamespace(set_chat_menu_button=AsyncMock())
         )
         with (
             patch.object(telegram_bot, "WEBAPP_URL", url),
+            patch.object(telegram_bot, "WEBAPP_PORT", port),
+            patch.object(telegram_bot, "CHAT_ID", chat_id),
             patch.object(
                 webapp, "start_dashboard", AsyncMock(return_value=started)
             ) as start,
@@ -156,6 +169,18 @@ class StartupTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_refuses_plain_http(self) -> None:
         start, menu = await self._run_start_hook("http://1-2-3-4.sslip.io")
+        start.assert_not_awaited()
+        menu.assert_not_awaited()
+
+    async def test_disabled_when_port_invalid(self) -> None:
+        start, menu = await self._run_start_hook("https://1-2-3-4.sslip.io", port=0)
+        start.assert_not_awaited()
+        menu.assert_not_awaited()
+
+    async def test_disabled_for_group_chat_id(self) -> None:
+        start, menu = await self._run_start_hook(
+            "https://1-2-3-4.sslip.io", chat_id=-100123
+        )
         start.assert_not_awaited()
         menu.assert_not_awaited()
 

@@ -96,15 +96,17 @@ async def start_dashboard(
     global _runner
     if _runner is not None:
         return True
+    app = build_web_app(
+        dashboard_state_provider(ptb_app, owner_id), bot_token, owner_id
+    )
+    runner = web.AppRunner(app, access_log=None)
     try:
-        app = build_web_app(
-            dashboard_state_provider(ptb_app, owner_id), bot_token, owner_id
-        )
-        runner = web.AppRunner(app, access_log=None)
         await runner.setup()
         await web.TCPSite(runner, host, port).start()
-    except OSError as error:
+    # Broad on purpose: this runs in post_init, where any exception stops the bot.
+    except Exception as error:
         logger.error("Dashboard not started on %s:%s: %s", host, port, error)
+        await runner.cleanup()
         return False
     _runner = runner
     logger.info("Dashboard listening on %s:%s", host, port)
