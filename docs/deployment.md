@@ -122,6 +122,29 @@ Open the port if needed:
 ufw allow 9000/tcp
 ```
 
+## State Directory
+
+Both runtime files live in `/var/lib/ai-coding-agent`:
+
+```text
+/var/lib/ai-coding-agent/state.json     restart-safe bot state (task queue, pending plan)
+/var/lib/ai-coding-agent/snapshot.json  read model for the ai-dashboard service
+```
+
+`StateDirectory=ai-coding-agent` in the unit file makes systemd create the
+directory before the bot starts. Override either path with `AGENT_STATE_FILE`
+or `AGENT_SNAPSHOT_FILE` in `/etc/ai-coding-agent/ai-coding-agent.env`.
+
+`state.json` holds prompts and diffs, so it stays private to the bot.
+`snapshot.json` is secret-free and written mode 0600; the dashboard service
+reads it and treats it as stale after 90 s. See `docs/snapshot_publisher.py.md`.
+
+Check both after a deploy:
+
+```bash
+ls -l /var/lib/ai-coding-agent
+```
+
 ## Verification
 
 Push an empty commit to `main`:

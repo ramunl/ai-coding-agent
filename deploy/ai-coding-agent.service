@@ -6,6 +6,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/opt/ai-coding-agent
+StateDirectory=ai-coding-agent
 Environment=HOME=/root
 EnvironmentFile=/etc/ai-coding-agent/ai-coding-agent.env
 ExecStartPre=/usr/bin/git -C /opt/ai-coding-agent submodule update --init --recursive
