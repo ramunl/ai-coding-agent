@@ -7,7 +7,7 @@ import asyncio
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from ai_agent.ai_tools import all_info, get_tool, known_tools
+from ai_agent.ai_tools import AITool, all_info, get_tool, known_tools
 from ai_agent.anthropic_limits import get_anthropic_limits
 from ai_agent.bot.state import current_implementation_agent, current_planning_agent
 from ai_agent.bot.transport import reply_chunks, require_authorized
@@ -35,8 +35,12 @@ async def limits(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     async def claude_limits() -> str:
+        """Report unavailable credentials or fetch the Anthropic limit summary."""
         if not ANTHROPIC_KEY:
-            return "Claude API limits:\n- Unavailable: ANTHROPIC_API_KEY is not configured."
+            return (
+                "Claude API limits:\n- Unavailable: ANTHROPIC_API_KEY is not "
+                "configured."
+            )
         return await asyncio.to_thread(get_anthropic_limits)
 
     if requested == "codex":
@@ -96,7 +100,11 @@ async def agent_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not context.args:
         selected_agent = current_implementation_agent(context)
         await update.message.reply_text(
-            f"Implementation agent: {implementation_agent_label(selected_agent)}\n\nTap to choose:",
+            (
+                f"Implementation agent: {implementation_agent_label(selected_agent)}"
+                "\n\nTap "
+                f"to choose:"
+            ),
             reply_markup=choice_keyboard(
                 "agent", ["codex", "claude"], active=selected_agent
             ),
@@ -144,67 +152,65 @@ async def model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
 
-    # /model <tool>  -> show that tool; verify if manageable
-    wants_show = len(context.args) == 1
-    if wants_show:
-        if tool.manageable:
-            current = tool.current_model()
-            await reply_chunks(update, f"{tool.name}: {current}\nVerifying...")
-            reachable, detail = await asyncio.to_thread(tool.verify, current)
-            status = "reachable" if reachable else f"UNREACHABLE - {detail}"
-            await reply_chunks(update, f"{tool.name} {current}: {status}")
-        else:
-            await reply_chunks(
-                update,
-                f"{tool.name}: {tool.current_model()}\n{tool.info().note}",
-            )
-        return
-
-    # /model <tool> list  -> show models available to switch to
-    wants_list = context.args[1] == "list"
-    if wants_list:
-        if not tool.manageable:
-            await reply_chunks(
-                update, f"{tool.name} is read-only here. {tool.info().note}"
-            )
-            return
-        await reply_chunks(update, f"Fetching available models for {tool.name}...")
-        ok, result = await asyncio.to_thread(tool.list_models)
-        if not ok:
-            await reply_chunks(update, f"Could not list models: {result}")
-            return
-        current = tool.current_model()
-        lines = [f"Models available for {tool.name} (current: {current}):"]
-        for entry in result:
-            marker = " (current)" if entry["id"] == current else ""
-            lines.append(f"- {entry['id']} — {entry['display_name']}{marker}")
-        lines.extend(["", f"Switch: /model {tool.name} set <id>"])
-        await reply_chunks(update, "\n".join(lines))
-        return
-
-    # /model <tool> set <name>
-    is_set = context.args[1] == "set" and len(context.args) >= 3
-    if not is_set:
+    if len(context.args) == 1:
+        await _show_model(update, tool)
+    elif context.args[1] == "list":
+        await _list_models(update, tool)
+    elif context.args[1] == "set" and len(context.args) >= 3:
+        await _set_model(update, tool, context.args[2])
+    else:
         await reply_chunks(update, f"Usage: /model {tool.name} list | set <name>")
-        return
 
+
+async def _show_model(update: Update, tool: AITool) -> None:
+    """Show the selected model, verifying availability when supported."""
     if not tool.manageable:
         await reply_chunks(
-            update,
-            f"{tool.name} is read-only here. {tool.info().note}",
+            update, f"{tool.name}: {tool.current_model()}\n{tool.info().note}"
         )
         return
+    current = tool.current_model()
+    await reply_chunks(update, f"{tool.name}: {current}\nVerifying...")
+    reachable, detail = await asyncio.to_thread(tool.verify, current)
+    status = "reachable" if reachable else f"UNREACHABLE - {detail}"
+    await reply_chunks(update, f"{tool.name} {current}: {status}")
 
-    candidate = context.args[2]
+
+async def _list_models(update: Update, tool: AITool) -> None:
+    """List available models for a configurable tool."""
+    if not tool.manageable:
+        await reply_chunks(update, f"{tool.name} is read-only here. {tool.info().note}")
+        return
+    await reply_chunks(update, f"Fetching available models for {tool.name}...")
+    ok, result = await asyncio.to_thread(tool.list_models)
+    if not ok:
+        await reply_chunks(update, f"Could not list models: {result}")
+        return
+    current = tool.current_model()
+    lines = [f"Models available for {tool.name} (current: {current}):"]
+    for entry in result:
+        marker = " (current)" if entry["id"] == current else ""
+        lines.append(f"- {entry['id']} — {entry['display_name']}{marker}")
+    lines.extend(["", f"Switch: /model {tool.name} set <id>"])
+    await reply_chunks(update, "\n".join(lines))
+
+
+async def _set_model(update: Update, tool: AITool, candidate: str) -> None:
+    """Verify a requested model before persisting it and scheduling a restart."""
+    if not tool.manageable:
+        await reply_chunks(update, f"{tool.name} is read-only here. {tool.info().note}")
+        return
     await reply_chunks(update, f"Verifying {candidate} before switching {tool.name}...")
     reachable, detail = await asyncio.to_thread(tool.verify, candidate)
     if not reachable:
         await reply_chunks(
             update,
-            f"Refusing to switch: {candidate} is {detail}.\nThe current model is unchanged.",
+            (
+                f"Refusing to switch: {candidate} is {detail}.\nThe current model "
+                f"is unchanged."
+            ),
         )
         return
-
     await asyncio.to_thread(tool.set_model, candidate)
     restart_note = await asyncio.to_thread(schedule_restart)
     await reply_chunks(

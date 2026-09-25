@@ -132,7 +132,10 @@ def render_task_queue(context: ContextTypes.DEFAULT_TYPE) -> str:
         lines.append("Pending:")
         for index, task in enumerate(queue, 1):
             lines.append(
-                f"{index}. #{task['id']} {task['branch_name']} ({task.get('confirmation_label', 'implementation')})"
+                (
+                    f"{index}. #{task['id']} {task['branch_name']} "
+                    f"({task.get('confirmation_label', 'implementation')})"
+                )
             )
     return "\n".join(lines)
 

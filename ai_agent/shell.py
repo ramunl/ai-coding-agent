@@ -1,3 +1,5 @@
+"""Run bounded shell commands in the active repository."""
+
 import logging
 import subprocess
 from dataclasses import dataclass
@@ -11,6 +13,8 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class CommandResult:
+    """Capture a command, exit status, and combined output."""
+
     args: list[str]
     returncode: int
     output: str
@@ -23,6 +27,7 @@ def run(
     interactive: bool = False,
 ) -> CommandResult:
     # Resolved per call, not at import: the active project can change at runtime.
+    """Run a command with a timeout and raise on failure."""
     working_directory = cwd if cwd is not None else active_project().repo_path
     logger.info(
         "Running command: %s cwd=%s timeout=%s interactive=%s",

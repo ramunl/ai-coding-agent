@@ -1,3 +1,5 @@
+"""Summarize GitHub workflow results for implementation and repair runs."""
+
 from dataclasses import dataclass
 
 from ai_agent.github import github_request
@@ -6,12 +8,15 @@ from ai_agent.projects import active_project
 
 @dataclass(frozen=True)
 class CiResult:
+    """Describe the aggregate CI state, summary, and optional workflow URL."""
+
     state: str
     summary: str
     url: str | None = None
 
 
 def list_workflow_runs(head_sha: str) -> list[dict]:
+    """Fetch workflow runs associated with the requested commit."""
     response = github_request(
         "GET",
         f"/repos/{active_project().github_repository}/actions/runs",
@@ -21,6 +26,7 @@ def list_workflow_runs(head_sha: str) -> list[dict]:
 
 
 def list_workflow_jobs(run_id: int) -> list[dict]:
+    """Fetch the jobs belonging to a workflow run."""
     response = github_request(
         "GET", f"/repos/{active_project().github_repository}/actions/runs/{run_id}/jobs"
     )
@@ -28,6 +34,7 @@ def list_workflow_jobs(run_id: int) -> list[dict]:
 
 
 def summarize_failed_jobs(runs: list[dict]) -> str:
+    """Describe failed workflow jobs and their failing steps."""
     lines = []
     for run_data in runs:
         if run_data.get("conclusion") not in {
@@ -46,7 +53,10 @@ def summarize_failed_jobs(runs: list[dict]) -> str:
         ]
         if not failed_jobs:
             lines.append(
-                f"- {run_data.get('name', 'workflow')} failed: {run_data.get('html_url')}"
+                (
+                    f"- {run_data.get('name', 'workflow')} failed: "
+                    f"{run_data.get('html_url')}"
+                )
             )
             continue
         for job in failed_jobs:
@@ -64,6 +74,7 @@ def summarize_failed_jobs(runs: list[dict]) -> str:
 
 
 def latest_runs_by_workflow(runs: list[dict]) -> list[dict]:
+    """Keep the latest attempt of each workflow."""
     latest: dict[str, dict] = {}
     for run_data in runs:
         workflow_key = str(
@@ -76,6 +87,7 @@ def latest_runs_by_workflow(runs: list[dict]) -> list[dict]:
 
 
 def run_sort_key(run_data: dict) -> tuple[str, int, int]:
+    """Order runs by creation time, attempt number, and identifier."""
     return (
         str(run_data.get("created_at") or run_data.get("run_started_at") or ""),
         int(run_data.get("run_attempt") or 0),
@@ -84,6 +96,7 @@ def run_sort_key(run_data: dict) -> tuple[str, int, int]:
 
 
 def evaluate_ci(head_sha: str) -> CiResult:
+    """Classify the latest workflow runs for a commit."""
     runs = latest_runs_by_workflow(list_workflow_runs(head_sha))
     if not runs:
         return CiResult("waiting", "CI has not started yet")
@@ -128,6 +141,7 @@ def evaluate_ci(head_sha: str) -> CiResult:
 def build_failure_context(
     pr_number: int, result: CiResult, max_chars: int = 3500
 ) -> str:
+    """Combine CI results and recent build comments into bounded context."""
     comments = github_request(
         "GET",
         f"/repos/{active_project().github_repository}/issues/{pr_number}/comments",

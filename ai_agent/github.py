@@ -1,3 +1,5 @@
+"""Send authenticated GitHub requests for the active project."""
+
 import json
 import urllib.error
 import urllib.parse
@@ -10,12 +12,15 @@ from ai_agent.projects import active_project
 
 @dataclass(frozen=True)
 class PullRequest:
+    """Identify a pull request and its head commit."""
+
     number: int
     url: str
     head_sha: str
 
 
 def ensure_github_configured() -> None:
+    """Reject missing credentials or an invalid repository identifier."""
     if not GITHUB_TOKEN:
         raise RuntimeError("GITHUB_TOKEN is not configured in the agent environment")
     repository = active_project().github_repository
@@ -28,6 +33,7 @@ def ensure_github_configured() -> None:
 def github_request(
     method: str, path: str, data: dict | None = None, query: dict | None = None
 ) -> dict:
+    """Send an authenticated API request and decode its JSON response."""
     if not GITHUB_TOKEN:
         raise RuntimeError("GITHUB_TOKEN is not configured")
 

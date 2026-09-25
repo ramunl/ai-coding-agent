@@ -105,7 +105,10 @@ async def approve(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     document = parse_plan_document(plan_state.plan_text, plan_state.feature)
     await reply_chunks(
         update,
-        f"Plan approved.\n\nBranch:\n{document.branch}\n\nCommands:\n- /confirm to enqueue\n- /cancel",
+        (
+            f"Plan approved.\n\nBranch:\n{document.branch}\n\nCommands:\n- /confirm "
+            f"to enqueue\n- /cancel"
+        ),
     )
 
 

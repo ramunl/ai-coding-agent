@@ -1,3 +1,5 @@
+"""Run agent unit tests with placeholder credentials."""
+
 import os
 import subprocess
 import sys
@@ -6,6 +8,7 @@ from ai_agent.config import COMMAND_TIMEOUT_SECONDS
 
 
 def run_unit_tests() -> str:
+    """Run unittest discovery with placeholder credentials and report the result."""
     env = os.environ.copy()
     env.update(
         {

@@ -37,6 +37,7 @@ _MODEL_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
 def active_model() -> str:
+    """Return the configured Anthropic model identifier."""
     return ANTHROPIC_MODEL
 
 

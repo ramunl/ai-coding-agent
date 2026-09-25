@@ -1,3 +1,5 @@
+"""Load agent settings and validate required environment values."""
+
 import os
 import shlex
 from pathlib import Path
@@ -56,6 +58,7 @@ LINK_ALLOWED_DOMAINS = tuple(
 
 
 def validate_required_config() -> None:
+    """Reject missing settings needed to start the bot."""
     missing = [
         name
         for name in ("TELEGRAM_BOT_TOKEN", "YOUR_CHAT_ID")
@@ -78,6 +81,7 @@ def validate_required_config() -> None:
 
 
 def redact_sensitive(text: str) -> str:
+    """Replace configured secrets in text before displaying it."""
     redacted = text
     for secret in (TELEGRAM_TOKEN, ANTHROPIC_KEY, GITHUB_TOKEN):
         if secret:

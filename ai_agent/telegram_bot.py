@@ -131,7 +131,8 @@ async def _notify_restored_queue(app: Application) -> None:
                 chat_id=CHAT_ID,
                 text=(
                     f"Restored {len(restored)} queued task(s) after restart.\n"
-                    "Send /confirm to resume, /queue to review, or /cancel <id> to drop one."
+                    "Send /confirm to resume, /queue to review, "
+                    "or /cancel <id> to drop one."
                 ),
             )
     except Exception as error:  # a notice must never block startup

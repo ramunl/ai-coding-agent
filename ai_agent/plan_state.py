@@ -1,3 +1,5 @@
+"""Represent plan revisions and render plans and execution summaries."""
+
 import json
 import re
 import uuid
@@ -10,6 +12,8 @@ from ai_agent.workflow import slugify_branch_name
 
 
 class Verbosity(StrEnum):
+    """Select the amount of detail shown in bot responses."""
+
     CONCISE = "concise"
     NORMAL = "normal"
     DEBUG = "debug"
@@ -17,6 +21,8 @@ class Verbosity(StrEnum):
 
 @dataclass
 class PlanState:
+    """Keep a plan revision, approval state, and previous revisions."""
+
     id: str
     feature: str
     revision: int
@@ -27,6 +33,8 @@ class PlanState:
 
 @dataclass(frozen=True)
 class PlanDocument:
+    """Represent parsed plan content and the implementation prompt."""
+
     branch: str
     summary: str
     files: list[str]
@@ -37,6 +45,8 @@ class PlanDocument:
 
 @dataclass(frozen=True)
 class ExecutionState:
+    """Capture implementation output for completion and status responses."""
+
     branch: str
     files_changed: list[str]
     diff_summary: str
@@ -47,6 +57,7 @@ class ExecutionState:
 
 
 def new_plan_state(feature: str, plan_text: str) -> PlanState:
+    """Create an unapproved first revision for a feature."""
     return PlanState(
         id=str(uuid.uuid4())[:8],
         feature=feature,
@@ -58,6 +69,7 @@ def new_plan_state(feature: str, plan_text: str) -> PlanState:
 
 
 def revise_plan_state(plan: PlanState, plan_text: str) -> PlanState:
+    """Create an unapproved revision while preserving prior plan text."""
     return PlanState(
         id=plan.id,
         feature=plan.feature,
@@ -69,6 +81,7 @@ def revise_plan_state(plan: PlanState, plan_text: str) -> PlanState:
 
 
 def parse_verbosity(value: str) -> Verbosity | None:
+    """Resolve a verbosity name, returning None for unknown values."""
     normalized = value.strip().lower()
     for verbosity in Verbosity:
         if normalized == verbosity.value:
@@ -77,6 +90,7 @@ def parse_verbosity(value: str) -> Verbosity | None:
 
 
 def parse_plan_document(plan_text: str, feature: str = "") -> PlanDocument:
+    """Normalize structured or plain-text planner output into a plan."""
     data = _loads_plan_json(plan_text)
     if not data:
         fallback_branch = slugify_branch_name(
@@ -144,6 +158,7 @@ def _build_codex_prompt(
 
 
 def render_plan(plan: PlanState) -> str:
+    """Render a plan using the requested level of detail."""
     document = parse_plan_document(plan.plan_text, plan.feature)
     project = active_project()
     lines = [
@@ -176,6 +191,7 @@ def render_plan(plan: PlanState) -> str:
 
 
 def render_history(plan: PlanState) -> str:
+    """Describe the revisions retained for a plan."""
     revisions = [*plan.history, plan.plan_text]
     lines = [f"Plan #{plan.id} history"]
     for index, text in enumerate(revisions, 1):
@@ -185,6 +201,7 @@ def render_history(plan: PlanState) -> str:
 
 
 def render_diff_summary(diff_text: str, files: list[str]) -> str:
+    """Summarize file changes from a unified diff."""
     added = sum(
         1
         for line in diff_text.splitlines()
@@ -205,6 +222,7 @@ def render_diff_summary(diff_text: str, files: list[str]) -> str:
 
 
 def render_completion(execution: ExecutionState, verbosity: Verbosity) -> str:
+    """Render captured execution results at the requested verbosity."""
     heading = (
         "Implementation failed."
         if execution.tests == "FAIL"

@@ -24,7 +24,10 @@ def schedule_restart() -> str:
     the restart survives the bot's own death. Falls back to a double-forked
     shell if systemd-run is unavailable.
     """
-    command = f"sleep {RESTART_DELAY_SECONDS} && systemctl restart {shlex.quote(SERVICE_NAME)}"
+    command = (
+        f"sleep {RESTART_DELAY_SECONDS} && systemctl restart "
+        f"{shlex.quote(SERVICE_NAME)}"
+    )
     try:
         subprocess.run(
             [

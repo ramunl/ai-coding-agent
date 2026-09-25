@@ -161,7 +161,8 @@ async def repo_add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 update,
                 f"Project '{project.name}' was registered, but cloning failed:\n"
                 f"{redact_sensitive(str(error))}\n\n"
-                f"Clone it manually to {project.repo_path}, or remove it with: /repo_remove {project.name}",
+                f"Clone it manually to {project.repo_path}, or remove it with: "
+                f"/repo_remove {project.name}",
             )
             return
 

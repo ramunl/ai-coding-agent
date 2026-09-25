@@ -26,7 +26,6 @@ jobs:
         run: |
           ruff check agent.py ai_agent tests
           ruff format --check agent.py ai_agent tests
-          ruff check ai_agent/bot ai_agent/telegram_bot.py --select ANN001,ANN201,ANN202,D100,D103
 
       - name: Run tests
         run: pytest

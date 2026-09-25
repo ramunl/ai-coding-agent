@@ -1,3 +1,5 @@
+"""Persist the project registry and resolve the active repository."""
+
 import json
 import logging
 import re
@@ -21,6 +23,8 @@ DEFAULT_PROJECT_NAME = "default"
 
 @dataclass(frozen=True)
 class Project:
+    """Describe a registered repository and its branch and rule settings."""
+
     name: str
     repo_path: Path
     github_repository: str
@@ -46,10 +50,12 @@ def normalize_repository(value: str) -> str:
 
 
 def project_name_from_repository(repository: str) -> str:
+    """Take the project name from a normalized owner/repository pair."""
     return repository.split("/", 1)[1]
 
 
 def clone_url(repository: str) -> str:
+    """Build the SSH clone URL for a normalized GitHub repository."""
     return f"git@github.com:{repository}.git"
 
 
@@ -76,6 +82,7 @@ def _fallback_registry() -> dict:
 
 
 def load_registry() -> dict:
+    """Read registered projects, falling back to environment configuration."""
     file_present = PROJECTS_FILE.is_file()
     if file_present:
         try:
@@ -96,6 +103,7 @@ def load_registry() -> dict:
 
 
 def save_registry(registry: dict) -> None:
+    """Persist the project registry as JSON."""
     PROJECTS_FILE.parent.mkdir(parents=True, exist_ok=True)
     PROJECTS_FILE.write_text(json.dumps(registry, indent=2) + "\n", encoding="utf-8")
     logger.info("Saved projects registry to %s", PROJECTS_FILE)
@@ -113,6 +121,7 @@ def _to_project(name: str, entry: dict) -> Project:
 
 
 def list_projects() -> list[Project]:
+    """Return registered projects sorted by name."""
     registry = load_registry()
     return [
         _to_project(name, entry) for name, entry in sorted(registry["projects"].items())
@@ -120,6 +129,7 @@ def list_projects() -> list[Project]:
 
 
 def active_project() -> Project:
+    """Resolve the selected project, falling back to the first known project."""
     registry = load_registry()
     name = registry.get("active", "")
     entries = registry["projects"]
@@ -131,6 +141,7 @@ def active_project() -> Project:
 
 
 def get_project(name: str) -> Project:
+    """Resolve a project by name or raise a user-correctable error."""
     registry = load_registry()
     entries = registry["projects"]
     is_known = name in entries
@@ -141,6 +152,7 @@ def get_project(name: str) -> Project:
 
 
 def set_active(name: str) -> Project:
+    """Persist a known project as the active selection."""
     registry = load_registry()
     is_known = name in registry["projects"]
     if not is_known:
@@ -185,6 +197,7 @@ def add_project(
 
 
 def remove_project(name: str) -> None:
+    """Remove a project while retaining at least one valid selection."""
     registry = load_registry()
     is_known = name in registry["projects"]
     if not is_known:

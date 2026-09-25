@@ -1,3 +1,5 @@
+"""Build bounded planning context from GitHub and allowed web links."""
+
 import base64
 import html
 import re
@@ -19,6 +21,8 @@ MAX_WEB_TEXT_CHARS = 6000
 
 @dataclass(frozen=True)
 class GitHubReference:
+    """Identify a supported issue, pull request, commit, or file URL."""
+
     owner: str
     repo: str
     kind: str
@@ -31,11 +35,15 @@ class GitHubReference:
 
 @dataclass(frozen=True)
 class WebReference:
+    """Identify a web URL and its allowed domain."""
+
     url: str
     domain: str
 
 
 class TextExtractor(HTMLParser):
+    """Collect visible page text and its title while ignoring scripts and styles."""
+
     def __init__(self) -> None:
         super().__init__()
         self.title = ""
@@ -43,19 +51,22 @@ class TextExtractor(HTMLParser):
         self._skip_depth = 0
         self._in_title = False
 
-    def handle_starttag(self, tag: str, attrs) -> None:
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        """Track title and hidden-content sections as tags open."""
         if tag in {"script", "style", "noscript"}:
             self._skip_depth += 1
         elif tag == "title":
             self._in_title = True
 
     def handle_endtag(self, tag: str) -> None:
+        """Leave title and hidden-content sections as tags close."""
         if tag in {"script", "style", "noscript"} and self._skip_depth:
             self._skip_depth -= 1
         elif tag == "title":
             self._in_title = False
 
     def handle_data(self, data: str) -> None:
+        """Collect normalized title or visible body text."""
         text = " ".join(html.unescape(data).split())
         if not text:
             return
@@ -65,10 +76,12 @@ class TextExtractor(HTMLParser):
             self.parts.append(text)
 
     def text(self) -> str:
+        """Return the collected visible text in document order."""
         return "\n".join(self.parts)
 
 
 def extract_urls(text: str) -> list[str]:
+    """Return unique HTTP URLs in their first-seen order."""
     urls = []
     seen = set()
     for match in re.finditer(r"https?://[^\s<>()]+", text):
@@ -81,6 +94,7 @@ def extract_urls(text: str) -> list[str]:
 
 
 def find_github_references(text: str) -> list[GitHubReference]:
+    """Parse and deduplicate supported GitHub links in text."""
     references = []
     seen = set()
     for url in extract_urls(text):
@@ -104,6 +118,7 @@ def find_github_references(text: str) -> list[GitHubReference]:
 
 
 def find_web_references(text: str) -> list[WebReference]:
+    """Collect non-GitHub URLs whose domains are allowed."""
     references = []
     for url in extract_urls(text):
         if parse_github_reference(url):
@@ -116,6 +131,7 @@ def find_web_references(text: str) -> list[WebReference]:
 
 
 def is_allowed_web_domain(domain: str) -> bool:
+    """Check whether a host matches an allowed domain or subdomain."""
     return any(
         domain == allowed or domain.endswith(f".{allowed}")
         for allowed in LINK_ALLOWED_DOMAINS
@@ -123,6 +139,7 @@ def is_allowed_web_domain(domain: str) -> bool:
 
 
 def parse_github_reference(url: str) -> GitHubReference | None:
+    """Parse a supported GitHub URL, returning None for other URLs."""
     parsed = urlparse(url)
     if parsed.netloc.lower() not in {"github.com", "www.github.com"}:
         return None
@@ -157,96 +174,112 @@ def parse_github_reference(url: str) -> GitHubReference | None:
 
 
 def fetch_github_reference_context(reference: GitHubReference) -> str:
+    """Fetch bounded context for a supported GitHub reference."""
     repo_full_name = f"{reference.owner}/{reference.repo}"
-    if reference.kind == "pull":
-        if reference.number is None:
-            raise ValueError("Pull request reference is missing number")
-        item = github_request(
-            "GET", f"/repos/{repo_full_name}/pulls/{reference.number}"
-        )
-        title = item.get("title", "")
-        body = item.get("body") or ""
-        state = item.get("state", "unknown")
-        author = item.get("user", {}).get("login", "unknown")
-        header = f"Pull request {repo_full_name}#{reference.number}: {title}"
-        extra = [
-            f"State: {state}",
-            f"Author: {author}",
-            f"Base: {item.get('base', {}).get('ref', 'unknown')}",
-            f"Head: {item.get('head', {}).get('ref', 'unknown')}",
-        ]
-        comments = fetch_issue_comments(repo_full_name, reference.number)
-        return format_issue_like_context(header, reference.url, extra, body, comments)
+    handlers = {
+        "pull": _fetch_pull_context,
+        "issues": _fetch_issue_context,
+        "commit": _fetch_commit_context,
+        "blob": _fetch_file_context,
+    }
+    handler = handlers.get(reference.kind)
+    if handler is None:
+        raise ValueError(f"Unsupported GitHub reference kind: {reference.kind}")
+    return handler(reference, repo_full_name)
 
-    if reference.kind == "issues":
-        if reference.number is None:
-            raise ValueError("Issue reference is missing number")
-        item = github_request(
-            "GET", f"/repos/{repo_full_name}/issues/{reference.number}"
-        )
-        title = item.get("title", "")
-        body = item.get("body") or ""
-        state = item.get("state", "unknown")
-        author = item.get("user", {}).get("login", "unknown")
-        header = f"Issue {repo_full_name}#{reference.number}: {title}"
-        extra = [f"State: {state}", f"Author: {author}"]
-        comments = fetch_issue_comments(repo_full_name, reference.number)
-        return format_issue_like_context(header, reference.url, extra, body, comments)
 
-    if reference.kind == "commit":
-        if not reference.sha:
-            raise ValueError("Commit reference is missing SHA")
-        commit = github_request(
-            "GET", f"/repos/{repo_full_name}/commits/{reference.sha}"
-        )
-        message = commit.get("commit", {}).get("message", "")
-        author = commit.get("commit", {}).get("author", {}).get("name", "unknown")
-        files = commit.get("files", [])
-        file_lines = [
-            f"- {file.get('filename', 'unknown')} ({file.get('status', 'modified')}, +{file.get('additions', 0)}/-{file.get('deletions', 0)})"
-            for file in files[:20]
-        ]
-        sections = [
-            f"Commit {repo_full_name}@{reference.sha}",
-            reference.url,
-            f"Author: {author}",
-            "",
-            "Message:",
-            message or "(empty)",
-        ]
-        if file_lines:
-            sections.extend(["", f"Changed files ({len(files)} total):", *file_lines])
-        return truncate("\n".join(sections), MAX_LINK_CONTEXT_CHARS)
+def _fetch_pull_context(reference: GitHubReference, repo_full_name: str) -> str:
+    """Fetch and render one pull reference."""
+    if reference.number is None:
+        raise ValueError("Pull request reference is missing number")
+    item = github_request("GET", f"/repos/{repo_full_name}/pulls/{reference.number}")
+    title = item.get("title", "")
+    body = item.get("body") or ""
+    state = item.get("state", "unknown")
+    author = item.get("user", {}).get("login", "unknown")
+    header = f"Pull request {repo_full_name}#{reference.number}: {title}"
+    extra = [
+        f"State: {state}",
+        f"Author: {author}",
+        f"Base: {item.get('base', {}).get('ref', 'unknown')}",
+        f"Head: {item.get('head', {}).get('ref', 'unknown')}",
+    ]
+    comments = fetch_issue_comments(repo_full_name, reference.number)
+    return format_issue_like_context(header, reference.url, extra, body, comments)
 
-    if reference.kind == "blob":
-        if not reference.path or not reference.ref:
-            raise ValueError("File reference is missing path or ref")
-        content = github_request(
-            "GET",
-            f"/repos/{repo_full_name}/contents/{reference.path}",
-            query={"ref": reference.ref},
-        )
-        encoded = content.get("content", "")
-        encoding = content.get("encoding", "")
-        if encoding == "base64":
-            file_text = base64.b64decode(encoded).decode("utf-8", errors="replace")
-        else:
-            file_text = str(encoded)
-        sections = [
-            f"File {repo_full_name}/{reference.path}",
-            reference.url,
-            f"Ref: {reference.ref}",
-            f"Size: {content.get('size', 'unknown')} bytes",
-            "",
-            "Content:",
-            truncate(file_text, MAX_FILE_CHARS),
-        ]
-        return truncate("\n".join(sections), MAX_LINK_CONTEXT_CHARS)
 
-    raise ValueError(f"Unsupported GitHub reference kind: {reference.kind}")
+def _fetch_issue_context(reference: GitHubReference, repo_full_name: str) -> str:
+    """Fetch and render one issue reference."""
+    if reference.number is None:
+        raise ValueError("Issue reference is missing number")
+    item = github_request("GET", f"/repos/{repo_full_name}/issues/{reference.number}")
+    title = item.get("title", "")
+    body = item.get("body") or ""
+    state = item.get("state", "unknown")
+    author = item.get("user", {}).get("login", "unknown")
+    header = f"Issue {repo_full_name}#{reference.number}: {title}"
+    extra = [f"State: {state}", f"Author: {author}"]
+    comments = fetch_issue_comments(repo_full_name, reference.number)
+    return format_issue_like_context(header, reference.url, extra, body, comments)
+
+
+def _fetch_commit_context(reference: GitHubReference, repo_full_name: str) -> str:
+    """Fetch and render one commit reference."""
+    if not reference.sha:
+        raise ValueError("Commit reference is missing SHA")
+    commit = github_request("GET", f"/repos/{repo_full_name}/commits/{reference.sha}")
+    message = commit.get("commit", {}).get("message", "")
+    author = commit.get("commit", {}).get("author", {}).get("name", "unknown")
+    files = commit.get("files", [])
+    file_lines = [
+        (
+            f"- {file.get('filename', 'unknown')} ({file.get('status', 'modified')}, "
+            f"+{file.get('additions', 0)}/-{file.get('deletions', 0)})"
+        )
+        for file in files[:20]
+    ]
+    sections = [
+        f"Commit {repo_full_name}@{reference.sha}",
+        reference.url,
+        f"Author: {author}",
+        "",
+        "Message:",
+        message or "(empty)",
+    ]
+    if file_lines:
+        sections.extend(["", f"Changed files ({len(files)} total):", *file_lines])
+    return truncate("\n".join(sections), MAX_LINK_CONTEXT_CHARS)
+
+
+def _fetch_file_context(reference: GitHubReference, repo_full_name: str) -> str:
+    """Fetch and render one file reference."""
+    if not reference.path or not reference.ref:
+        raise ValueError("File reference is missing path or ref")
+    content = github_request(
+        "GET",
+        f"/repos/{repo_full_name}/contents/{reference.path}",
+        query={"ref": reference.ref},
+    )
+    encoded = content.get("content", "")
+    encoding = content.get("encoding", "")
+    if encoding == "base64":
+        file_text = base64.b64decode(encoded).decode("utf-8", errors="replace")
+    else:
+        file_text = str(encoded)
+    sections = [
+        f"File {repo_full_name}/{reference.path}",
+        reference.url,
+        f"Ref: {reference.ref}",
+        f"Size: {content.get('size', 'unknown')} bytes",
+        "",
+        "Content:",
+        truncate(file_text, MAX_FILE_CHARS),
+    ]
+    return truncate("\n".join(sections), MAX_LINK_CONTEXT_CHARS)
 
 
 def fetch_issue_comments(repo_full_name: str, number: int) -> list[dict]:
+    """Fetch the limited comment context for an issue or pull request."""
     comments = github_request(
         "GET",
         f"/repos/{repo_full_name}/issues/{number}/comments",
@@ -258,6 +291,7 @@ def fetch_issue_comments(repo_full_name: str, number: int) -> list[dict]:
 def format_issue_like_context(
     header: str, url: str, extra: list[str], body: str, comments: list[dict]
 ) -> str:
+    """Render issue metadata, body, and recent comments within the limit."""
     comment_lines = []
     for comment in comments[:MAX_COMMENTS]:
         commenter = comment.get("user", {}).get("login", "unknown")
@@ -273,6 +307,7 @@ def format_issue_like_context(
 
 
 def fetch_web_reference_context(reference: WebReference) -> str:
+    """Fetch and summarize visible text from an allowed web reference."""
     request = urllib.request.Request(
         reference.url,
         headers={"User-Agent": "channel-cast-ai-agent"},
@@ -309,25 +344,28 @@ def fetch_web_reference_context(reference: WebReference) -> str:
 
 
 def build_link_context(text: str) -> str:
+    """Collect link context while reporting individual fetch failures inline."""
     sections = []
     for reference in find_github_references(text):
         try:
             sections.append(fetch_github_reference_context(reference))
-        except Exception as exc:
+        except (OSError, ValueError, RuntimeError) as exc:
             sections.append(f"Could not fetch {reference.url}: {exc}")
     for reference in find_web_references(text):
         try:
             sections.append(fetch_web_reference_context(reference))
-        except Exception as exc:
+        except (OSError, ValueError, RuntimeError) as exc:
             sections.append(f"Could not fetch {reference.url}: {exc}")
     return "\n\n---\n\n".join(sections)
 
 
 def build_github_links_context(text: str) -> str:
+    """Preserve the legacy entry point for building link context."""
     return build_link_context(text)
 
 
 def enrich_feature_description(feature_description: str) -> str:
+    """Append available link context to a feature description."""
     link_context = build_link_context(feature_description)
     if not link_context:
         return feature_description
@@ -335,6 +373,7 @@ def enrich_feature_description(feature_description: str) -> str:
 
 
 def truncate(text: str, max_chars: int) -> str:
+    """Shorten text to the supplied limit with a truncation marker."""
     if len(text) <= max_chars:
         return text
     return text[: max_chars - 15].rstrip() + "\n...[truncated]"
