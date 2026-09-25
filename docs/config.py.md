@@ -16,6 +16,13 @@ Defines all configuration constants for the AI agent, reading from environment v
   - Expanded with `expanduser()` to handle ~ paths
   - Expected to be an Android project repository
 
+### State and Snapshot Configuration
+- **`STATE_FILE`** (default: /var/lib/ai-coding-agent/state.json): Restart-safe bot state
+  - Task queue, pending plan, and provider choices; holds prompts and diffs
+- **`SNAPSHOT_FILE`** (default: /var/lib/ai-coding-agent/snapshot.json): Secret-free read model
+  - Published for the separate `ai-dashboard` service; see `snapshot_publisher.py.md`
+  - Both are expanded with `expanduser()` and created by `StateDirectory=` in the unit file
+
 ### Anthropic/Claude Configuration
 - **`ANTHROPIC_KEY`** (required): API key for Claude AI
 - **`ANTHROPIC_MODEL`** (default: claude-sonnet-4-6): Claude model version
@@ -77,6 +84,8 @@ export CLAUDE_CODE_ARGS="--permission-mode acceptEdits"
 export GITHUB_TOKEN="ghp_..."
 export GITHUB_REPOSITORY="owner/repo"
 export GITHUB_BASE_BRANCH="main"
+export AGENT_STATE_FILE="/var/lib/ai-coding-agent/state.json"
+export AGENT_SNAPSHOT_FILE="/var/lib/ai-coding-agent/snapshot.json"
 export COMMAND_TIMEOUT_SECONDS="120"
 export CODEX_TIMEOUT_SECONDS="1800"
 export CI_POLL_INTERVAL_SECONDS="30"
