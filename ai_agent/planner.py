@@ -1,7 +1,13 @@
+"""Build planning and bug-triage prompts with repository context."""
+
+from __future__ import annotations
+
 import json
+import logging
 import os
 import re
 import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 
 import anthropic
@@ -21,12 +27,15 @@ from ai_agent.projects import active_project
 from ai_agent.rules import rules_prompt_block
 from ai_agent.shell import run
 
+logger = logging.getLogger(__name__)
+
 client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
 SCHEMAS_DIR = Path(__file__).with_name("schemas")
 SUPPORTED_PLANNING_AGENTS = ("codex", "claude")
 
 
 def normalize_planning_agent(agent: str | None = None) -> str:
+    """Resolve the requested planner or reject an unsupported provider."""
     value = (agent or PLANNING_AGENT).strip().lower()
     if value not in SUPPORTED_PLANNING_AGENTS:
         raise ValueError(f"Unsupported planning agent: {value}. Use codex or claude.")
@@ -34,6 +43,7 @@ def normalize_planning_agent(agent: str | None = None) -> str:
 
 
 def planning_agent_label(agent: str | None = None) -> str:
+    """Return the display name for the selected planner."""
     return {"codex": "Codex", "claude": "Claude"}[normalize_planning_agent(agent)]
 
 
@@ -61,10 +71,14 @@ def _codex_message(prompt: str, schema_name: str) -> str:
         return Path(output.name).read_text(encoding="utf-8").strip()
 
 
-def _create_message(**kwargs):
+def _create_message(
+    *, model: str, max_tokens: int, messages: list[anthropic.types.MessageParam]
+) -> anthropic.types.Message:
     """Call the API, translating a retired/invalid model into a clear error."""
     try:
-        return client.messages.create(**kwargs)
+        return client.messages.create(
+            model=model, max_tokens=max_tokens, messages=messages
+        )
     except anthropic.NotFoundError as error:
         # 404 here means the model string was rejected, not a network fault.
         raise RuntimeError(model_error_message()) from error
@@ -78,7 +92,8 @@ def _planner_message(
         return _codex_message(prompt, schema_name)
     if not os.environ.get("ANTHROPIC_API_KEY"):
         raise RuntimeError(
-            "Claude planning is unavailable because ANTHROPIC_API_KEY is not configured. "
+            "Claude planning is unavailable because "
+            "ANTHROPIC_API_KEY is not configured. "
             "Use /planner codex or configure the key."
         )
     response = _create_message(
@@ -157,85 +172,85 @@ EXCLUDED_DIR_NAMES = {
 }
 
 
-def repo_file_sample() -> str:
-    repo_path = active_project().repo_path
-    files = []
+_NOISY_SEARCH_TERMS = {
+    "the",
+    "and",
+    "for",
+    "with",
+    "should",
+    "current",
+    "when",
+    "user",
+    "new",
+    "bug",
+    "fix",
+    "active",
+}
+
+
+def _source_paths(repo_path: Path) -> Iterator[Path]:
+    """Yield source files outside generated and dependency directories."""
     for path in repo_path.rglob("*"):
         if not path.is_file() or path.suffix not in SOURCE_EXTENSIONS:
             continue
-        relative = path.relative_to(repo_path)
-        if EXCLUDED_DIR_NAMES.intersection(relative.parts):
-            continue
-        files.append(str(relative))
+        if not EXCLUDED_DIR_NAMES.intersection(path.relative_to(repo_path).parts):
+            yield path
+
+
+def repo_file_sample() -> str:
+    """Sample source paths from the active repository, excluding build artifacts."""
+    repo_path = active_project().repo_path
+    files = []
+    for path in _source_paths(repo_path):
+        files.append(str(path.relative_to(repo_path)))
         if len(files) >= 50:
             break
     return "\n".join(files)
 
 
+def _matching_source_lines(
+    path: Path, relative: str, terms: set[str], limit: int
+) -> list[str]:
+    """Collect bounded line excerpts whose path or content matches search terms."""
+    if limit <= 0:
+        return []
+    try:
+        lines = path.read_text(errors="ignore").splitlines()
+    except OSError as error:
+        logger.warning("Skipping unreadable source file %s: %s", path, error)
+        return []
+    name_matches = any(term in relative.lower() for term in terms)
+    matches = []
+    for line_number, line in enumerate(lines, start=1):
+        if not (name_matches or any(term in line.lower() for term in terms)):
+            continue
+        stripped = line.strip()
+        if stripped:
+            matches.append(f"{relative}:{line_number}: {stripped[:220]}")
+        if len(matches) >= limit:
+            break
+    return matches
+
+
 def codebase_search_context(
     query: str, max_files: int = 80, max_matches: int = 80
 ) -> str:
-    """Return lightweight local repo context so bug triage can be codebase-first.
-
-    This intentionally avoids sending full files to Claude. It provides enough
-    filenames and matching lines for the triage/planning step to decide whether
-    Codex can inspect and implement the fix without asking the user where code is.
-    """
+    """Return bounded source paths and excerpts for codebase-first bug triage."""
     repo_path = active_project().repo_path
     if not repo_path.exists():
         return f"Repository path does not exist: {repo_path}"
-
     terms = set(re.findall(r"[A-Za-z][A-Za-z0-9_]{2,}", query.lower()))
-    noisy_terms = {
-        "the",
-        "and",
-        "for",
-        "with",
-        "should",
-        "current",
-        "when",
-        "user",
-        "new",
-        "bug",
-        "fix",
-        "active",
-    }
-    terms = {term for term in terms if term not in noisy_terms}
-
+    terms -= _NOISY_SEARCH_TERMS
     files: list[str] = []
     matches: list[str] = []
-
-    for path in repo_path.rglob("*"):
-        if not path.is_file() or path.suffix not in SOURCE_EXTENSIONS:
-            continue
-        relative = path.relative_to(repo_path)
-        if EXCLUDED_DIR_NAMES.intersection(relative.parts):
-            continue
-        relative_text = str(relative)
-        files.append(relative_text)
-
-        if len(matches) >= max_matches:
-            continue
-
-        lower_name = relative_text.lower()
-        name_matches = any(term in lower_name for term in terms)
-        try:
-            lines = path.read_text(errors="ignore").splitlines()
-        except OSError:
-            continue
-
-        for line_number, line in enumerate(lines, start=1):
-            lower_line = line.lower()
-            if name_matches or any(term in lower_line for term in terms):
-                stripped = line.strip()
-                if stripped:
-                    matches.append(f"{relative_text}:{line_number}: {stripped[:220]}")
-                if len(matches) >= max_matches:
-                    break
-
+    for path in _source_paths(repo_path):
+        relative = str(path.relative_to(repo_path))
+        files.append(relative)
+        matches.extend(
+            _matching_source_lines(path, relative, terms, max_matches - len(matches))
+        )
         if len(files) >= max_files and len(matches) >= max_matches:
             break
-
     return (
         "Files:\n"
         + "\n".join(files[:max_files])
@@ -245,6 +260,7 @@ def codebase_search_context(
 
 
 def plan_feature(feature_description: str, provider: str | None = None) -> str:
+    """Request a structured implementation plan with project rules and context."""
     context = repo_file_sample()
     enriched_feature_description = enrich_feature_description(feature_description)
     rules_block = rules_prompt_block()
@@ -269,7 +285,8 @@ Return only valid JSON with this shape:
 }}
 
 Use a branch slug that replaces /, \\, :, ?, *, [, ], (, and ) with -.
-Keep the JSON compact so it is never truncated: at most 8 files and 8 steps, each under 200 characters.
+Keep the JSON compact so it is never truncated: at most 8 files and 8 steps, each \
+under 200 characters.
                 """
     return _planner_message(prompt, provider, "feature_plan.json", 4000)
 
@@ -280,6 +297,7 @@ def revise_feature_plan(
     feedback: str,
     provider: str | None = None,
 ) -> str:
+    """Request a revised plan using the existing plan and user feedback."""
     enriched_feature_description = enrich_feature_description(feature_description)
     rules_block = rules_prompt_block()
     repository = active_project().github_repository
@@ -306,14 +324,17 @@ Return only valid JSON with this shape:
   "risks": ["Risk to verify"]
 }}
 
-Preserve useful parts of the current plan, incorporate the feedback, and keep the change focused.
+Preserve useful parts of the current plan, incorporate the feedback, and keep the \
+change focused.
 Use a branch slug that replaces /, \\, :, ?, *, [, ], (, and ) with -.
-Keep the JSON compact so it is never truncated: at most 8 files and 8 steps, each under 200 characters.
+Keep the JSON compact so it is never truncated: at most 8 files and 8 steps, each \
+under 200 characters.
                 """
     return _planner_message(prompt, provider, "feature_plan.json", 4000)
 
 
 def build_bugfix_prompt(bug_description: str) -> str:
+    """Build an implementation prompt for a reported bug and its triage."""
     enriched_bug_description = enrich_feature_description(bug_description)
     search_context = codebase_search_context(enriched_bug_description)
     rules_block = rules_prompt_block()
@@ -330,7 +351,8 @@ Local codebase hints from the agent's pre-search:
 
 Requirements:
 1. Inspect the existing implementation before changing code.
-2. Infer implementation details from the repository instead of asking the user where files, methods, URLs, or state are located.
+2. Infer implementation details from the repository instead of asking the user where \
+files, methods, URLs, or state are located.
 3. Keep the fix focused on the reported bug.
 4. Add or update focused tests when practical.
 5. Run the relevant tests or compilation checks available in the repository.
@@ -339,11 +361,13 @@ Requirements:
 
 
 def assess_bugfix_report(bug_description: str, provider: str | None = None) -> str:
+    """Request bug triage with repository context and project rules."""
     enriched_bug_description = enrich_feature_description(bug_description)
     search_context = codebase_search_context(enriched_bug_description)
 
     prompt = f"""
-You are triaging a bug report for a coding agent that can search and edit the local repository.
+You are triaging a bug report for a coding agent that can search and edit the local \
+repository.
 
 Bug report:
 {enriched_bug_description}
@@ -351,14 +375,19 @@ Bug report:
 Local codebase context:
 {search_context}
 
-Decide whether the coding agent can start a focused fix without asking the user for more information.
+Decide whether the coding agent can start a focused fix without asking the user for \
+more information.
 
 Important policy:
 - Default to ready when the missing details can be discovered by searching the codebase.
-- Do NOT ask where a button, method, file, URL builder, state holder, or current implementation is located. The coding agent must inspect the repository for that.
-- Do NOT ask what method/API to call unless there are multiple externally visible product behaviors and the codebase cannot disambiguate them.
-- Ask questions only for missing product behavior that cannot be inferred from the bug report or code, such as a business rule, UX choice, or acceptance criterion.
-- If the bug is reproducible from the description and the expected behavior is clear, return ready.
+- Do NOT ask where a button, method, file, URL builder, state holder, or current \
+implementation is located. The coding agent must inspect the repository for that.
+- Do NOT ask what method/API to call unless there are multiple externally visible \
+product behaviors and the codebase cannot disambiguate them.
+- Ask questions only for missing product behavior that cannot be inferred from the \
+bug report or code, such as a business rule, UX choice, or acceptance criterion.
+- If the bug is reproducible from the description and the expected behavior is \
+clear, return ready.
 
 Return valid JSON only. No explanation, no markdown, no prose.
 
@@ -396,6 +425,7 @@ def _looks_ready(text: str) -> bool:
 
 
 def bugfix_questions(assessment: str) -> str | None:
+    """Extract useful clarification questions from bug triage."""
     text = assessment.strip()
     assessment_json = _extract_json_object(text)
     if assessment_json:

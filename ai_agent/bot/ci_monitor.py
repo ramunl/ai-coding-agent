@@ -135,7 +135,10 @@ def failed_ci_exhausted_message(ci_result: CiResult, repair_attempt: int) -> str
     if CI_FIX_ATTEMPTS <= 0:
         message = "CI is still failing. Automatic CI repair is disabled."
     else:
-        message = f"CI is still failing after {repair_attempt}/{CI_FIX_ATTEMPTS} repair attempts."
+        message = (
+            f"CI is still failing after {repair_attempt}/{CI_FIX_ATTEMPTS} repair "
+            f"attempts."
+        )
     if ci_result.url:
         message = f"{message}\n{ci_result.url}"
     return message

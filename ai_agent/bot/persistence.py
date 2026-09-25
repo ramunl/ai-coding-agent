@@ -152,6 +152,7 @@ class JsonStatePersistence(BasePersistence):
         return self._users
 
     async def get_user_data(self) -> dict[int, dict]:
+        """Decode persisted user records for the Telegram application."""
         return {
             user_id: deserialize_user_data(data)
             for user_id, data in self._encoded_users().items()
@@ -160,53 +161,68 @@ class JsonStatePersistence(BasePersistence):
     async def update_user_data(self, user_id: int, data: dict) -> None:
         # PTB calls this every update_interval for users whose data changed.
         # Write through immediately so an unclean kill loses seconds, not all.
+        """Write through the persistent fields of one user record."""
         self._encoded_users()[user_id] = serialize_user_data(data)
         write_state_file(self.path, self._encoded_users())
 
     async def drop_user_data(self, user_id: int) -> None:
+        """Delete and persist the removal of a user record."""
         self._encoded_users().pop(user_id, None)
         write_state_file(self.path, self._encoded_users())
 
     async def refresh_user_data(self, user_id: int, user_data: dict) -> None:
+        """Keep in-memory user data authoritative between persistence updates."""
         return None
 
     async def flush(self) -> None:
+        """Write cached user records during application shutdown."""
         if self._users is not None:
             write_state_file(self.path, self._users)
 
     # ---- unused stores: PTB requires these methods to exist
 
     async def get_chat_data(self) -> dict:
+        """Return an empty store because chat persistence is disabled."""
         return {}
 
     async def update_chat_data(self, chat_id: int, data: dict) -> None:
+        """Ignore updates because chat persistence is disabled."""
         return None
 
     async def drop_chat_data(self, chat_id: int) -> None:
+        """Ignore removals because chat persistence is disabled."""
         return None
 
     async def refresh_chat_data(self, chat_id: int, chat_data: dict) -> None:
+        """Leave chat data untouched because chat persistence is disabled."""
         return None
 
     async def get_bot_data(self) -> dict:
+        """Return an empty store because bot persistence is disabled."""
         return {}
 
     async def update_bot_data(self, data: dict) -> None:
+        """Ignore updates because bot persistence is disabled."""
         return None
 
     async def refresh_bot_data(self, bot_data: dict) -> None:
+        """Leave bot data untouched because bot persistence is disabled."""
         return None
 
     async def get_callback_data(self) -> None:
+        """Return no callback store because callback persistence is disabled."""
         return None
 
     async def update_callback_data(self, data: Any) -> None:
+        """Ignore updates because callback persistence is disabled."""
         return None
 
     async def get_conversations(self, name: str) -> dict:
+        """Return an empty store because conversations are not persisted."""
         return {}
 
     async def update_conversation(
         self, name: str, key: tuple, new_state: object | None
     ) -> None:
+        """Ignore updates because conversation persistence is disabled."""
         return None

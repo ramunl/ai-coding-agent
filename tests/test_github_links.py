@@ -145,6 +145,55 @@ class GitHubLinksTests(unittest.TestCase):
         self.assertIn("Link context:", enriched)
         self.assertIn("Issue context", enriched)
 
+    @patch("ai_agent.github_links.github_request")
+    def test_pull_context_includes_branches_and_comments(self, mock_request) -> None:
+        mock_request.side_effect = [
+            {
+                "title": "Repair playback",
+                "body": "Handle reconnects",
+                "state": "open",
+                "user": {"login": "author"},
+                "base": {"ref": "main"},
+                "head": {"ref": "fix/playback"},
+            },
+            [{"body": "Verified", "user": {"login": "reviewer"}}],
+        ]
+
+        context = build_github_links_context("https://github.com/owner/repo/pull/12")
+
+        for text in (
+            "Pull request owner/repo#12: Repair playback",
+            "Base: main",
+            "Head: fix/playback",
+            "reviewer: Verified",
+        ):
+            self.assertIn(text, context)
+
+    @patch("ai_agent.github_links.github_request")
+    def test_failed_link_does_not_hide_context_from_later_links(
+        self, mock_request
+    ) -> None:
+        mock_request.side_effect = [
+            OSError("connection lost"),
+            {"title": "Available issue"},
+            [],
+        ]
+
+        context = build_github_links_context(
+            "https://github.com/owner/repo/issues/1 "
+            "https://github.com/owner/repo/issues/2"
+        )
+
+        self.assertIn("Could not fetch https://github.com/owner/repo/issues/1", context)
+        self.assertIn("Issue owner/repo#2: Available issue", context)
+
+    @patch("ai_agent.github_links.github_request", side_effect=TypeError("bug"))
+    def test_programming_errors_are_not_reported_as_fetch_failures(
+        self, _request
+    ) -> None:
+        with self.assertRaises(TypeError):
+            build_github_links_context("https://github.com/owner/repo/issues/1")
+
 
 if __name__ == "__main__":
     unittest.main()

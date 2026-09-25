@@ -1,3 +1,5 @@
+"""Read and present rate limits returned by the Anthropic API."""
+
 import json
 import urllib.error
 import urllib.request
@@ -13,6 +15,7 @@ from ai_agent.model_errors import is_model_not_found, model_error_message
 
 
 def anthropic_limit_headers() -> tuple[int, dict[str, str], str]:
+    """Make a minimal API request and return its status, headers, and body."""
     payload = {
         "model": ANTHROPIC_MODEL,
         "max_tokens": 1,
@@ -46,6 +49,7 @@ def anthropic_limit_headers() -> tuple[int, dict[str, str], str]:
 
 
 def format_limit_row(headers: dict[str, str], key: str, label: str) -> str | None:
+    """Format one rate-limit category, or omit it when headers are absent."""
     prefix = f"anthropic-ratelimit-{key}"
     limit = headers.get(f"{prefix}-limit")
     remaining = headers.get(f"{prefix}-remaining")
@@ -66,6 +70,7 @@ def format_limit_row(headers: dict[str, str], key: str, label: str) -> str | Non
 
 
 def format_anthropic_limits(status: int, headers: dict[str, str], body: str) -> str:
+    """Render rate-limit headers and any API error for the user."""
     rows = [
         format_limit_row(headers, "requests", "Requests"),
         format_limit_row(headers, "input-tokens", "Input tokens"),
@@ -89,5 +94,6 @@ def format_anthropic_limits(status: int, headers: dict[str, str], body: str) -> 
 
 
 def get_anthropic_limits() -> str:
+    """Fetch and format the current Anthropic rate-limit response."""
     status, headers, body = anthropic_limit_headers()
     return format_anthropic_limits(status, headers, body)

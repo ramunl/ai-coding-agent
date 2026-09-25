@@ -81,8 +81,8 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
         error_text = str(context.error or "unknown error")
         lines = error_text.splitlines()
         if len(lines) > 20:
-            error_text = (
-                "\n".join(lines[:20])
-                + "\n... truncated. Use /verbosity debug and /logs when run logs are available."
+            error_text = "\n".join(lines[:20]) + (
+                "\n... truncated. Use /verbosity debug and /logs when run "
+                "logs are available."
             )
         await reply_chunks(update, f"Error:\n{error_text}")

@@ -68,7 +68,10 @@ async def deploy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if target_key is None:
         await reply_chunks(
             update,
-            f"The active project '{project.name}' is not deployable. Choose the coding, pm, or ops project with /repo_use.",
+            (
+                f"The active project '{project.name}' is not deployable. Choose "
+                f"the coding, pm, or ops project with /repo_use."
+            ),
         )
         return
     target = DEPLOY_TARGETS[target_key]
@@ -197,7 +200,10 @@ async def core(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 update,
                 context,
                 "core release",
-                "Enter a version and release note, e.g. v2.0 added inline button helpers.",
+                (
+                    "Enter a version and release note, e.g. v2.0 added inline "
+                    "button helpers."
+                ),
             )
             return
         await reply_chunks(update, f"Releasing core {version}...")

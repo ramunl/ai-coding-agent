@@ -1,8 +1,10 @@
 import importlib
 import os
 import sys
+import tempfile
 import types
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 
@@ -131,6 +133,48 @@ class PlannerTests(unittest.TestCase):
 
         self.assertIsNone(planner.bugfix_questions("READY"))
         self.assertEqual(planner.bugfix_questions("QUESTIONS:\n1. Steps?"), "1. Steps?")
+
+    def test_search_context_bounds_results_and_excludes_generated_files(self) -> None:
+        planner = importlib.import_module("ai_agent.planner")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "player.py").write_text(
+                "playback = 1\nplayback = 2\nplayback = 3\n"
+            )
+            (root / "node_modules").mkdir()
+            (root / "node_modules" / "hidden.py").write_text("playback = 99\n")
+            with patch.object(
+                planner,
+                "active_project",
+                return_value=types.SimpleNamespace(repo_path=root),
+            ):
+                context = planner.codebase_search_context(
+                    "playback", max_files=1, max_matches=2
+                )
+
+        self.assertIn("player.py:1: playback = 1", context)
+        self.assertIn("player.py:2: playback = 2", context)
+        self.assertNotIn("playback = 3", context)
+        self.assertNotIn("hidden.py", context)
+
+    def test_search_context_logs_unreadable_source_and_keeps_file_list(self) -> None:
+        planner = importlib.import_module("ai_agent.planner")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "player.py").write_text("playback = 1\n")
+            with (
+                patch.object(
+                    planner,
+                    "active_project",
+                    return_value=types.SimpleNamespace(repo_path=root),
+                ),
+                patch.object(Path, "read_text", side_effect=OSError("unreadable")),
+                self.assertLogs("ai_agent.planner", level="WARNING") as logs,
+            ):
+                context = planner.codebase_search_context("playback")
+
+        self.assertIn("Files:\nplayer.py", context)
+        self.assertIn("unreadable", logs.output[0])
 
 
 if __name__ == "__main__":

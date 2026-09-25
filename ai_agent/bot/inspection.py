@@ -186,7 +186,10 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 removed = queue.pop(index)
                 await reply_chunks(
                     update,
-                    f"Queued task #{task_id} removed.\n\nBranch:\n{removed['branch_name']}",
+                    (
+                        f"Queued task #{task_id} "
+                        f"removed.\n\nBranch:\n{removed['branch_name']}"
+                    ),
                 )
                 return
         await reply_chunks(

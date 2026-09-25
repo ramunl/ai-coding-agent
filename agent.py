@@ -25,7 +25,8 @@ def main() -> None:
     logging.getLogger("httpx").setLevel(logging.WARNING)
     app = build_application()
     logger.info(
-        "Agent running with repo_path=%s model=%s planning_agent=%s implementation_agent=%s",
+        "Agent running with repo_path=%s model=%s "
+        "planning_agent=%s implementation_agent=%s",
         REPO_PATH,
         ANTHROPIC_MODEL,
         PLANNING_AGENT,

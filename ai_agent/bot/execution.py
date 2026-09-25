@@ -75,7 +75,10 @@ async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             return
         await reply_chunks(
             update,
-            "No pending implementation. Use /implement <feature> or /bugfix <bug> first.",
+            (
+                "No pending implementation. Use /implement <feature> or /bugfix "
+                "<bug> first."
+            ),
         )
         return
 
@@ -87,7 +90,10 @@ async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     position = len(task_queue(context))
     await reply_chunks(
         update,
-        f"Queued task #{task['id']} at position {position}.\n\nBranch:\n{task['branch_name']}",
+        (
+            f"Queued task #{task['id']} at position "
+            f"{position}.\n\nBranch:\n{task['branch_name']}"
+        ),
     )
 
     if context.user_data.get("queue_runner_active"):
@@ -111,59 +117,15 @@ async def run_queued_implementation(
     update: Update, context: ContextTypes.DEFAULT_TYPE, task: dict
 ) -> None:
     """Implement one queued task and restore the base branch afterward."""
-    change = task["change"]
-    codex_prompt = task["codex_prompt"]
     branch_name = task["branch_name"]
-    commit_type = task.get("commit_type", "feat")
-    pr_body_label = task.get("pr_body_label", "Plan")
-    confirmation_label = task.get("confirmation_label", "implementation")
     implementation_agent = normalize_implementation_agent(
         task.get("implementation_agent")
     )
-    implementation_agent_name = implementation_agent_label(implementation_agent)
-
+    confirmation_label = task.get("confirmation_label", "implementation")
     try:
-        set_active_execution(context, branch_name, "Checking GitHub configuration")
-        await asyncio.to_thread(ensure_github_configured)
-
-        set_active_execution(
-            context, branch_name, f"Running {implementation_agent_name}"
+        pull_request, commit_sha = await _publish_queued_implementation(
+            update, context, task
         )
-        await reply_chunks(
-            update,
-            f"Task #{task['id']} started.\n\nBranch:\n{branch_name}\n\nStatus:\nRUNNING",
-        )
-        implementation_result = await asyncio.to_thread(
-            implement, codex_prompt, branch_name, implementation_agent
-        )
-
-        set_active_execution(context, branch_name, "Committing and pushing branch")
-        await reply_chunks(update, "Committing and pushing branch...")
-        commit_sha = await asyncio.to_thread(push, branch_name, change, commit_type)
-
-        set_active_execution(context, branch_name, "Opening GitHub PR")
-        await reply_chunks(update, "Opening GitHub PR...")
-        pull_request = await asyncio.to_thread(
-            create_pull_request,
-            branch_name,
-            change,
-            codex_prompt,
-            commit_type,
-            pr_body_label,
-        )
-        update_last_execution(
-            context,
-            branch_name,
-            implementation_result,
-            pull_request.url,
-        )
-
-        if get_verbosity(context) != Verbosity.CONCISE:
-            await reply_chunks(
-                update,
-                f"PR opened: {pull_request.url}\nHead: {pull_request.head_sha or commit_sha}",
-            )
-
         set_active_execution(context, branch_name, "Polling CI")
         ci_result = await watch_ci(update, commit_sha)
 
@@ -171,23 +133,80 @@ async def run_queued_implementation(
             branch_name=branch_name,
             pull_request=pull_request,
             implementation_agent=implementation_agent,
-            prompt=partial(build_ci_repair_prompt, codex_prompt),
+            prompt=partial(build_ci_repair_prompt, task["codex_prompt"]),
             run=repair_implementation,
-            commit_message=f"{change} CI repair",
+            commit_message=f"{task['change']} CI repair",
         )
         ci_result, repair_attempt = await _repair_failed_ci(
             update, context, request, ci_result
         )
         if await _report_execution(update, context, ci_result, repair_attempt):
             return
-        else:
-            await reply_chunks(
-                update,
-                f"Done with {confirmation_label}.\nBranch: {branch_name}\nPR: {pull_request.url}",
-            )
+        await reply_chunks(
+            update,
+            f"Done with {confirmation_label}.\nBranch: {branch_name}\nPR: "
+            f"{pull_request.url}",
+        )
     finally:
         context.user_data.pop("active_execution", None)
         await reset_to_base_branch()
+
+
+async def _publish_queued_implementation(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, task: dict
+) -> tuple[PullRequest, str]:
+    """Implement a queued change and publish its pull request."""
+    change = task["change"]
+    codex_prompt = task["codex_prompt"]
+    branch_name = task["branch_name"]
+    commit_type = task.get("commit_type", "feat")
+    pr_body_label = task.get("pr_body_label", "Plan")
+    implementation_agent = normalize_implementation_agent(
+        task.get("implementation_agent")
+    )
+    implementation_agent_name = implementation_agent_label(implementation_agent)
+    set_active_execution(context, branch_name, "Checking GitHub configuration")
+    await asyncio.to_thread(ensure_github_configured)
+
+    set_active_execution(context, branch_name, f"Running {implementation_agent_name}")
+    await reply_chunks(
+        update,
+        (f"Task #{task['id']} started.\n\nBranch:\n{branch_name}\n\nStatus:\nRUNNING"),
+    )
+    implementation_result = await asyncio.to_thread(
+        implement, codex_prompt, branch_name, implementation_agent
+    )
+
+    set_active_execution(context, branch_name, "Committing and pushing branch")
+    await reply_chunks(update, "Committing and pushing branch...")
+    commit_sha = await asyncio.to_thread(push, branch_name, change, commit_type)
+
+    set_active_execution(context, branch_name, "Opening GitHub PR")
+    await reply_chunks(update, "Opening GitHub PR...")
+    pull_request = await asyncio.to_thread(
+        create_pull_request,
+        branch_name,
+        change,
+        codex_prompt,
+        commit_type,
+        pr_body_label,
+    )
+    update_last_execution(
+        context,
+        branch_name,
+        implementation_result,
+        pull_request.url,
+    )
+
+    if get_verbosity(context) != Verbosity.CONCISE:
+        await reply_chunks(
+            update,
+            (
+                f"PR opened: {pull_request.url}\nHead: "
+                f"{pull_request.head_sha or commit_sha}"
+            ),
+        )
+    return pull_request, commit_sha
 
 
 async def reset_to_base_branch() -> None:
@@ -228,31 +247,12 @@ async def fixpr(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         await asyncio.to_thread(ensure_github_configured)
 
-        repository = active_project().github_repository
-        pull_data = await asyncio.to_thread(
-            github_request, "GET", f"/repos/{repository}/pulls/{pr_number}"
-        )
-        if pull_data.get("state") != "open":
-            await reply_chunks(update, f"PR #{pr_number} is not open.")
+        request = await _load_pr_repair(update, context, pr_number)
+        if request is None:
             return
-
-        head = pull_data.get("head") or {}
-        head_repo = (head.get("repo") or {}).get("full_name")
-        branch_name = str(head.get("ref") or "")
-        validate_branch_name(branch_name)
-        if head_repo != repository:
-            await reply_chunks(
-                update,
-                f"PR #{pr_number} is from {head_repo or 'an unknown repository'}.\n"
-                f"/fixpr can only push to branches in {repository}.",
-            )
-            return
-
-        pr_url = str(pull_data.get("html_url") or "")
-        head_sha = str(head.get("sha") or "")
-        title = str(pull_data.get("title") or f"PR #{pr_number}")
-        body = str(pull_data.get("body") or "")
-        implementation_agent = current_implementation_agent(context)
+        branch_name = request.branch_name
+        pr_url = request.pull_request.url
+        head_sha = request.pull_request.head_sha
 
         set_active_execution(context, branch_name, "Polling PR CI")
         await reply_chunks(
@@ -260,15 +260,6 @@ async def fixpr(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         ci_result = await watch_ci(update, head_sha)
 
-        request = _RepairRequest(
-            branch_name=branch_name,
-            pull_request=PullRequest(pr_number, pr_url, head_sha),
-            implementation_agent=implementation_agent,
-            prompt=partial(build_fix_pr_repair_prompt, pr_number, title, body),
-            run=repair_pull_request_branch,
-            commit_message=f"PR #{pr_number} CI repair",
-            is_existing_pr=True,
-        )
         ci_result, repair_attempt = await _repair_failed_ci(
             update, context, request, ci_result
         )
@@ -289,6 +280,46 @@ async def fixpr(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     finally:
         context.user_data.pop("active_execution", None)
         await reset_to_base_branch()
+
+
+async def _load_pr_repair(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, pr_number: int
+) -> _RepairRequest | None:
+    """Validate an open same-repository PR and build its repair request."""
+    repository = active_project().github_repository
+    pull_data = await asyncio.to_thread(
+        github_request, "GET", f"/repos/{repository}/pulls/{pr_number}"
+    )
+    if pull_data.get("state") != "open":
+        await reply_chunks(update, f"PR #{pr_number} is not open.")
+        return None
+
+    head = pull_data.get("head") or {}
+    head_repo = (head.get("repo") or {}).get("full_name")
+    branch_name = str(head.get("ref") or "")
+    validate_branch_name(branch_name)
+    if head_repo != repository:
+        await reply_chunks(
+            update,
+            f"PR #{pr_number} is from {head_repo or 'an unknown repository'}.\n"
+            f"/fixpr can only push to branches in {repository}.",
+        )
+        return None
+
+    pr_url = str(pull_data.get("html_url") or "")
+    head_sha = str(head.get("sha") or "")
+    title = str(pull_data.get("title") or f"PR #{pr_number}")
+    body = str(pull_data.get("body") or "")
+    implementation_agent = current_implementation_agent(context)
+    return _RepairRequest(
+        branch_name=branch_name,
+        pull_request=PullRequest(pr_number, pr_url, head_sha),
+        implementation_agent=implementation_agent,
+        prompt=partial(build_fix_pr_repair_prompt, pr_number, title, body),
+        run=repair_pull_request_branch,
+        commit_message=f"PR #{pr_number} CI repair",
+        is_existing_pr=True,
+    )
 
 
 @dataclass(frozen=True)

@@ -1,3 +1,5 @@
+"""Load coding rules for the active project into planning prompts."""
+
 import logging
 from pathlib import Path
 

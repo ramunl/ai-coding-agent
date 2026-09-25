@@ -23,6 +23,8 @@ from ai_agent import model_manager
 
 @dataclass(frozen=True)
 class ModelInfo:
+    """Describe a tool model and whether the agent can change it."""
+
     tool: str
     model: str
     manageable: bool  # can this agent change the model?
@@ -36,18 +38,23 @@ class AITool:
     manageable: bool = False
 
     def current_model(self) -> str:
+        """Return the model currently selected for this tool."""
         raise NotImplementedError
 
     def set_model(self, model: str) -> None:
+        """Persist a verified model selection for this tool."""
         raise NotImplementedError
 
     def verify(self, model: str) -> tuple[bool, str]:
+        """Check model availability and return a status with explanatory text."""
         raise NotImplementedError
 
     def list_models(self) -> tuple[bool, list[dict[str, str]] | str]:
+        """Return available model metadata or a failure explanation."""
         raise NotImplementedError
 
     def info(self) -> ModelInfo:
+        """Describe the current model and its configuration capabilities."""
         return ModelInfo(self.name, self.current_model(), self.manageable, self._note())
 
     def _note(self) -> str:
@@ -61,15 +68,19 @@ class ClaudeApiTool(AITool):
     manageable = True
 
     def current_model(self) -> str:
+        """Return the model currently selected for this tool."""
         return model_manager.active_model()
 
     def set_model(self, model: str) -> None:
+        """Persist a verified model selection for this tool."""
         model_manager.set_model_in_env(model)
 
     def verify(self, model: str) -> tuple[bool, str]:
+        """Check model availability and return a status with explanatory text."""
         return model_manager.verify_model(model)
 
     def list_models(self) -> tuple[bool, list[dict[str, str]] | str]:
+        """Return available model metadata or a failure explanation."""
         return model_manager.list_models()
 
 
@@ -85,6 +96,7 @@ class CliTool(AITool):
         self._note_text = note
 
     def current_model(self) -> str:
+        """Return the model currently selected for this tool."""
         import os
 
         # Best-effort display only: some setups pin the CLI model via env.
@@ -112,12 +124,15 @@ _TOOLS: dict[str, AITool] = {
 
 
 def known_tools() -> list[str]:
+    """Return the registered tool names in display order."""
     return list(_TOOLS)
 
 
 def get_tool(name: str) -> AITool | None:
+    """Resolve a case-insensitive tool name, or return None if unknown."""
     return _TOOLS.get(name.strip().lower())
 
 
 def all_info() -> list[ModelInfo]:
+    """Describe the current model for every registered tool."""
     return [tool.info() for tool in _TOOLS.values()]
