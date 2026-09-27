@@ -1,5 +1,33 @@
 # Python rules review
 
+## Follow-up review — 2026-09-27
+
+Rechecked `agent.py`, `ai_agent/`, and the test suite against the same Python
+rules. The previous refactor is present in both the development checkout and
+the deployed coding-agent checkout. Follow-up edits are in the development
+checkout at `/opt/projects/ai-coding-agent`.
+
+- Consolidated maintenance-module imports into standard-library, third-party,
+  and application groups, with the optional shared-core import afterward.
+  Moved the CLI model reader's standard-library import to module scope.
+- Added constructor docstrings for the CLI tool, JSON persistence, snapshot
+  publisher, and HTML text extractor.
+- Extended the existing CI lint configuration to enforce constructor
+  docstrings, naming conventions, and checks for mutable defaults and calls
+  in parameter defaults.
+- Reviewed module sizes, long functions, parameter counts, and exception
+  handlers. The largest production module is 473 lines; no function has more
+  than five parameters. Menu text and PR repair orchestration do not warrant
+  another split solely to meet the approximate function-length target.
+
+Validation: Ruff lint and formatter checks pass; pytest reports 215 passed
+and 9 subtests passed. These checks do not establish complete behavioral
+coverage or full static type correctness. Framework callbacks retain required
+unused parameters, and dynamic persistence data retains `Any` annotations.
+The shared-core submodule is included in tests but is not refactored here.
+
+## Previous review — 2026-09-25
+
 Reviewed `agent.py` and `ai_agent/` against
 `/opt/ai-rules/global/python.md` on 2026-09-25. This review covers the coding
 agent; other agents and the independently versioned shared core are outside

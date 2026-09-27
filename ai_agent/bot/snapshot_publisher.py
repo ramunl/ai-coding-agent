@@ -63,6 +63,7 @@ class SnapshotPublisher:
     """Writes the snapshot on change and on heartbeat; never raises."""
 
     def __init__(self, path: Path, heartbeat: float = HEARTBEAT_SECONDS) -> None:
+        """Configure the snapshot destination and heartbeat interval in seconds."""
         self.path = Path(path)
         self.heartbeat = heartbeat
         self._last_content: dict | None = None
