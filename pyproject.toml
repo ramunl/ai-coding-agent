@@ -6,8 +6,9 @@ extend-exclude = ["ai_agent_common"]
 [tool.ruff.lint]
 select = [
     "E4", "E7", "E9", "E501", "F", "I",
+    "B006", "B008", "N",
     "ANN001", "ANN002", "ANN003", "ANN201", "ANN202",
-    "D100", "D101", "D102", "D103",
+    "D100", "D101", "D102", "D103", "D107",
 ]
 
 [tool.ruff.lint.per-file-ignores]

@@ -16,6 +16,7 @@ command, registry, and tests do not change.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 from ai_agent import model_manager
@@ -90,6 +91,7 @@ class CliTool(AITool):
     manageable = False
 
     def __init__(self, name: str, env_var: str, default: str, note: str) -> None:
+        """Configure the CLI's model display and configuration guidance."""
         self.name = name
         self._env_var = env_var
         self._default = default
@@ -97,8 +99,6 @@ class CliTool(AITool):
 
     def current_model(self) -> str:
         """Return the model currently selected for this tool."""
-        import os
-
         # Best-effort display only: some setups pin the CLI model via env.
         return os.environ.get(self._env_var, self._default)
 

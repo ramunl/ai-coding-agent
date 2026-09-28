@@ -137,6 +137,7 @@ class JsonStatePersistence(BasePersistence):
     """Persist user_data only; chat, bot, and callback data are not used."""
 
     def __init__(self, path: Path, update_interval: float = 5) -> None:
+        """Configure the state file and user-data persistence interval."""
         super().__init__(
             store_data=PersistenceInput(
                 bot_data=False, chat_data=False, user_data=True, callback_data=False

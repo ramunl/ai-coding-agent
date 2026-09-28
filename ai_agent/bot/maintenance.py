@@ -3,33 +3,31 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from pathlib import Path
 
 from telegram import Update
 from telegram.ext import Application, ContextTypes
 
 from ai_agent.bot.constants import DEPLOY_TARGET_ALIASES, DEPLOY_TARGETS
+from ai_agent.bot.transport import (
+    prompt_for_arguments,
+    reply_chunks,
+    require_authorized,
+)
 from ai_agent.config import CHAT_ID
 from ai_agent.projects import active_project
+from ai_agent.self_update import schedule_restart
+from ai_agent.shell import run
+from ai_agent.test_runner import run_unit_tests
+from ai_agent.version import get_runtime_version
+from ai_agent.workflow import validate_branch_name
 from ai_agent_common import CoreCommand, bump_to_latest, choice_keyboard
 
 try:
     from ai_agent_common import create_release
 except ImportError:
     create_release = None
-
-import logging
-
-from ai_agent.bot.transport import (
-    prompt_for_arguments,
-    reply_chunks,
-    require_authorized,
-)
-from ai_agent.self_update import schedule_restart
-from ai_agent.shell import run
-from ai_agent.test_runner import run_unit_tests
-from ai_agent.version import get_runtime_version
-from ai_agent.workflow import validate_branch_name
 
 logger = logging.getLogger(__name__)
 

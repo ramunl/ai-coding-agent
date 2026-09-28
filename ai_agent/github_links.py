@@ -45,6 +45,7 @@ class TextExtractor(HTMLParser):
     """Collect visible page text and its title while ignoring scripts and styles."""
 
     def __init__(self) -> None:
+        """Initialize the parser with empty title and visible-text buffers."""
         super().__init__()
         self.title = ""
         self.parts: list[str] = []
