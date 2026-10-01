@@ -19,7 +19,7 @@ class CodexStatusTests(unittest.TestCase):
 
         self.assertIn("codex-cli 0.130.0", status)
         self.assertIn("Logged in using ChatGPT", status)
-        self.assertIn("not exposed by the Codex CLI/API", status)
+        self.assertIn("dashboard Limits card", status)
 
 
 if __name__ == "__main__":

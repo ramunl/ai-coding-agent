@@ -19,7 +19,7 @@ def get_codex_status() -> str:
         "Codex status:\n"
         f"- CLI: {version or 'installed'}\n"
         f"- Login: {login_status or 'unknown'}\n"
-        "- Plan limits remaining: not exposed by the Codex CLI/API\n\n"
-        "Check remaining Codex plan usage in the Codex/OpenAI UI "
-        "when a usage banner appears."
+        "- Plan limits remaining: see the dashboard Limits card\n\n"
+        "The dashboard reads account quota through the authenticated "
+        "Codex app-server every five minutes."
     )

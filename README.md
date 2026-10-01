@@ -31,14 +31,13 @@ Optional values:
 
 `/limits` shows both providers by default. Claude reports rate-limit headers for the configured
 `ANTHROPIC_API_KEY` and consumes one tiny API request when checked. Codex reports CLI/login readiness,
-but its remaining ChatGPT-plan quota is not exposed by the CLI or a public API.
+and the dashboard Limits card shows cached ChatGPT account quota from the app-server.
 `/agent codex|claude` chooses whether queued implementations and CI repairs run through Codex or
 Claude Code. `/planner codex|claude` independently chooses the provider used by `/plan`, `/discuss`,
 `/implement`, and bug triage. Codex planning uses the local ChatGPT-authenticated CLI in read-only mode;
 Claude remains available when `ANTHROPIC_API_KEY` is configured. The Telegram selection lasts until the
 bot restarts; `PLANNING_AGENT` controls the startup default.
-`/codex` reports local Codex CLI/login status only; Codex ChatGPT plan limits remaining
-are not exposed by the Codex CLI or a public API.
+`/codex` reports local Codex CLI/login status only; Codex ChatGPT quota windows are shown in the dashboard Limits card.
 `/plan`, `/implement`, and `/bugfix` can include GitHub issue, pull request, file, or commit links. The
 agent also fetches generic web links from `LINK_ALLOWED_DOMAINS`; `/plan` and `/implement` pass that
 context through the selected planner, while `/bugfix` first asks clarification questions when needed and then
@@ -221,3 +220,16 @@ Select `/repo_use ai-dashboard`, then run `/deploy main`. The dashboard uses
 `/var/log/ai-dashboard/update.log`. Install that script from the dashboard
 repository on the server before the first deployment. The dashboard has no
 shared-core submodule, so it is excluded from `/core update`.
+
+### Dashboard provider limits
+
+The coding snapshot includes a secret-free `limits` field. A background task
+reads Codex account quota through `codex app-server` and
+`account/rateLimits/read` every five minutes, using this server's existing
+ChatGPT login. No model inference is performed. Named quota buckets take
+precedence over the legacy single bucket; absent windows are unavailable.
+Checks time out after 20 seconds and do not delay the snapshot heartbeat.
+
+Claude API headers are cached only when `/limits claude` is explicitly requested.
+This uses the configured API key, not Claude Code subscription usage. The cache
+is cleared on restart; failed refreshes mark previous readings unavailable.

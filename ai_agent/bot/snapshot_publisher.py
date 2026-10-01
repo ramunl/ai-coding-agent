@@ -13,6 +13,7 @@ at least every HEARTBEAT_SECONDS, so the dashboard can tell "idle" apart from
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import time
@@ -21,6 +22,7 @@ from typing import Any
 
 from ai_agent.bot.atomic_file import write_json_atomic
 from ai_agent.bot.state import snapshot
+from ai_agent.provider_limits import limits_snapshot, poll_limits
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +57,7 @@ def build_content(user_data: dict, project: dict, versions: dict) -> dict:
         "format": SNAPSHOT_FORMAT,
         **snapshot(user_data),
         "project": project,
+        "limits": limits_snapshot(),
         **versions,
     }
 
@@ -97,15 +100,21 @@ async def publish_forever(
     except Exception as error:  # versions are nice-to-have
         logger.warning("Snapshot: could not read versions: %s", error)
         versions = {"version": "unknown", "core": "unknown"}
-    while True:
-        try:
-            project = await asyncio.to_thread(_project)
-            # Read queue state on the event-loop thread, where handlers mutate
-            # it, so the published view is consistent.
-            content = build_content(
-                ptb_app.user_data.get(owner_id, {}), project, versions
-            )
-            publisher.publish(content)
-        except Exception as error:
-            logger.warning("Snapshot publish failed (will retry): %s", error)
-        await asyncio.sleep(interval)
+    limits_task = asyncio.create_task(poll_limits())
+    try:
+        while True:
+            try:
+                project = await asyncio.to_thread(_project)
+                # Read queue state on the event-loop thread, where handlers mutate
+                # it, so the published view is consistent.
+                content = build_content(
+                    ptb_app.user_data.get(owner_id, {}), project, versions
+                )
+                publisher.publish(content)
+            except Exception as error:
+                logger.warning("Snapshot publish failed (will retry): %s", error)
+            await asyncio.sleep(interval)
+    finally:
+        limits_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await limits_task
