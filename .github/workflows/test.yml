@@ -24,8 +24,8 @@ jobs:
 
       - name: Check Python style
         run: |
-          ruff check agent.py ai_agent tests
-          ruff format --check agent.py ai_agent tests
+          ruff check agent.py ai_agent tests deploy/claude-code-statusline.py
+          ruff format --check agent.py ai_agent tests deploy/claude-code-statusline.py
 
       - name: Run tests
         run: pytest

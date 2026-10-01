@@ -29,6 +29,12 @@ STATE_FILE = Path(
 SNAPSHOT_FILE = Path(
     os.environ.get("AGENT_SNAPSHOT_FILE", "/var/lib/ai-coding-agent/snapshot.json")
 ).expanduser()
+CLAUDE_CODE_LIMITS_FILE = Path(
+    os.environ.get(
+        "CLAUDE_CODE_LIMITS_FILE",
+        str(SNAPSHOT_FILE.with_name("claude-code-limits.json")),
+    )
+).expanduser()
 RULES_ENABLED = os.environ.get("RULES_ENABLED", "true").strip().lower() not in {
     "false",
     "0",
