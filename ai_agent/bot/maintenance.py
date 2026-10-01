@@ -9,7 +9,7 @@ from pathlib import Path
 from telegram import Update
 from telegram.ext import Application, ContextTypes
 
-from ai_agent.bot.constants import DEPLOY_TARGET_ALIASES, DEPLOY_TARGETS
+from ai_agent.bot.constants import CORE_TARGETS, DEPLOY_TARGET_ALIASES, DEPLOY_TARGETS
 from ai_agent.bot.transport import (
     prompt_for_arguments,
     reply_chunks,
@@ -46,6 +46,12 @@ async def _notify_core_drift_on_startup(app: Application) -> None:
             logger.warning("Could not send core-drift notice (ignored): %s", error)
 
 
+def _deployable_names() -> str:
+    """Deployable projects by repo name, so messages follow the target table."""
+    names = (str(target["repo"].name) for target in DEPLOY_TARGETS.values())
+    return ", ".join(sorted(names))
+
+
 async def deploy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Deploy the requested branch of the active fleet project."""
     if not require_authorized(update):
@@ -54,7 +60,8 @@ async def deploy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if len(context.args) != 1:
         await reply_chunks(
             update,
-            "Usage: /deploy <branch>\nDeploys the active coding, pm, or ops project.",
+            "Usage: /deploy <branch>\n"
+            f"Deploys the active project: {_deployable_names()}.",
         )
         return
 
@@ -68,7 +75,7 @@ async def deploy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             update,
             (
                 f"The active project '{project.name}' is not deployable. Choose "
-                f"the coding, pm, or ops project with /repo_use."
+                f"one of: {_deployable_names()} with /repo_use."
             ),
         )
         return
@@ -164,9 +171,9 @@ def _core_update_target(target_name: str) -> str:
     Runs only from the coding agent. Operates on the target's own repo dir
     (same server), so pushing the pin uses that repo's configured remote/auth.
     """
-    target = DEPLOY_TARGETS.get(DEPLOY_TARGET_ALIASES.get(target_name, target_name))
+    target = CORE_TARGETS.get(DEPLOY_TARGET_ALIASES.get(target_name, target_name))
     if target is None:
-        known = ", ".join(sorted(DEPLOY_TARGETS))
+        known = ", ".join(sorted(CORE_TARGETS))
         return f"Unknown bot '{target_name}'. Known: {known}"
 
     repo = target["repo"]
@@ -217,7 +224,7 @@ async def core(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if target_name is None:
             await update.message.reply_text(
                 "Tap the bot whose shared core should be updated:",
-                reply_markup=choice_keyboard("core_update", sorted(DEPLOY_TARGETS)),
+                reply_markup=choice_keyboard("core_update", sorted(CORE_TARGETS)),
             )
             return
         await reply_chunks(update, f"Updating core for {target_name}...")

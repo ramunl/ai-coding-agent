@@ -54,6 +54,7 @@ DEPLOY_TARGETS = {
         "script": "/usr/local/sbin/update-ai-coding-agent",
         "log": Path("/var/log/ai-coding-agent/update.log"),
         "repo": Path("/opt/ai-coding-agent"),
+        "uses_core": True,
         "self": True,
     },
     "pm": {
@@ -61,6 +62,7 @@ DEPLOY_TARGETS = {
         "script": "/usr/local/sbin/update-ai-pm-agent",
         "log": Path("/var/log/ai-pm-agent/update.log"),
         "repo": Path("/opt/ai-pm-agent"),
+        "uses_core": True,
         "self": False,
     },
     "ops": {
@@ -68,8 +70,24 @@ DEPLOY_TARGETS = {
         "script": "/usr/local/sbin/update-ai-ops-agent",
         "log": Path("/var/log/ai-ops-agent/update.log"),
         "repo": Path("/opt/ai-ops-agent"),
+        "uses_core": True,
         "self": False,
     },
+    # The Mini App dashboard: deployable, but it has no shared-core submodule,
+    # so it is not offered by /core update.
+    "dashboard": {
+        "label": "ai-dashboard",
+        "script": "/usr/local/sbin/update-ai-dashboard",
+        "log": Path("/var/log/ai-dashboard/update.log"),
+        "repo": Path("/opt/ai-dashboard"),
+        "uses_core": False,
+        "self": False,
+    },
+}
+
+# Targets whose repo pins ai-agent-common and can take /core update.
+CORE_TARGETS = {
+    name: target for name, target in DEPLOY_TARGETS.items() if target["uses_core"]
 }
 
 
@@ -82,4 +100,6 @@ DEPLOY_TARGET_ALIASES = {
     "ai-pm-agent": "pm",
     "ops": "ops",
     "ai-ops-agent": "ops",
+    "dashboard": "dashboard",
+    "ai-dashboard": "dashboard",
 }

@@ -257,3 +257,75 @@ class DeployTargetPathTests(unittest.TestCase):
         shipped = repo / "deploy" / script_name
         self.assertTrue(shipped.is_file(), f"deploy/{script_name} not in repo")
         self.assertIn(str(target["log"]), shipped.read_text())
+
+
+class DashboardDeployTests(TelegramTestCase):
+    """The dashboard is deployable like the agents, but takes no core updates."""
+
+    def _deploy(self, project_name: str, repository: str) -> tuple[list, list]:
+        maintenance = importlib.import_module("ai_agent.bot.maintenance")
+
+        class FakeMessage:
+            def __init__(self) -> None:
+                self.replies = []
+
+            async def reply_text(self, text: str) -> None:
+                self.replies.append(text)
+
+        message = FakeMessage()
+        update = types.SimpleNamespace(
+            effective_chat=types.SimpleNamespace(id=123), message=message
+        )
+        context = types.SimpleNamespace(args=["main"], user_data={})
+        calls = []
+
+        def fake_run(args, cwd=None, timeout=None, interactive=False):
+            calls.append(args)
+            return types.SimpleNamespace(output="update finished")
+
+        async def fake_to_thread(func, *args, **kwargs):
+            return func(*args, **kwargs)
+
+        with (
+            patch.object(maintenance, "run", fake_run),
+            patch.object(maintenance.asyncio, "to_thread", side_effect=fake_to_thread),
+            patch.object(
+                maintenance,
+                "active_project",
+                return_value=types.SimpleNamespace(
+                    name=project_name, github_repository=repository
+                ),
+            ),
+            patch.object(maintenance, "schedule_restart") as mock_restart,
+        ):
+            asyncio.run(maintenance.deploy(update, context))
+        mock_restart.assert_not_called()
+        return calls, message.replies
+
+    def test_deploy_dashboard_runs_its_script(self) -> None:
+        calls, replies = self._deploy("ai-dashboard", "ramunl/ai-dashboard")
+        self.assertEqual(calls[0], ["/usr/local/sbin/update-ai-dashboard", "main"])
+        self.assertEqual(calls[1][-1], "/var/log/ai-dashboard/update.log")
+        self.assertIn("Deploying 'main' to ai-dashboard", replies[0])
+        self.assertIn("Deploy finished", replies[-1])
+
+    def test_dashboard_found_by_repository_name(self) -> None:
+        calls, _ = self._deploy("my-dash", "ramunl/ai-dashboard")
+        self.assertEqual(calls[0][0], "/usr/local/sbin/update-ai-dashboard")
+
+    def test_not_deployable_message_lists_every_target(self) -> None:
+        calls, replies = self._deploy(
+            "channel-cast", "ramunl/com.randrgames.channelcast"
+        )
+        self.assertEqual(calls, [])
+        for name in ("ai-coding-agent", "ai-dashboard", "ai-ops-agent", "ai-pm-agent"):
+            self.assertIn(name, replies[0])
+
+    def test_core_update_does_not_offer_or_accept_the_dashboard(self) -> None:
+        maintenance = importlib.import_module("ai_agent.bot.maintenance")
+        from ai_agent.bot.constants import CORE_TARGETS
+
+        self.assertEqual(sorted(CORE_TARGETS), ["coding", "ops", "pm"])
+        self.assertIn(
+            "Unknown bot 'dashboard'", maintenance._core_update_target("dashboard")
+        )

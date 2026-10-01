@@ -197,3 +197,11 @@ If `curl` times out connecting to the webhook host on port `9000`, check:
 - `ss -tlnp` shows the webhook listening on `*:9000`.
 - UFW allows `9000/tcp`.
 - Any provider-level cloud firewall also allows inbound TCP `9000`.
+
+### Deploy the dashboard from Telegram
+
+Select `/repo_use ai-dashboard`, then run `/deploy main`. The dashboard uses
+`/usr/local/sbin/update-ai-dashboard` and logs to
+`/var/log/ai-dashboard/update.log`. Install that script from the dashboard
+repository on the server before the first deployment. The dashboard has no
+shared-core submodule, so it is excluded from `/core update`.

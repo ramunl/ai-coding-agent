@@ -213,3 +213,11 @@ Details are in [docs/deployment.md](docs/deployment.md).
 - When adding or changing a feature, update the relevant markdown docs in the same change.
 - Keep `README.md` current for user-facing behavior, commands, configuration, and deployment notes.
 - Keep `docs/*.md` current for module-level behavior and operational details.
+
+### Deploy the dashboard from Telegram
+
+Select `/repo_use ai-dashboard`, then run `/deploy main`. The dashboard uses
+`/usr/local/sbin/update-ai-dashboard` and logs to
+`/var/log/ai-dashboard/update.log`. Install that script from the dashboard
+repository on the server before the first deployment. The dashboard has no
+shared-core submodule, so it is excluded from `/core update`.
