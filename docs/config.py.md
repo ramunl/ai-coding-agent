@@ -108,3 +108,11 @@ print(f"Working in: {REPO_PATH}")
 error_message = f"Error with token {TELEGRAM_TOKEN}"
 print(redact_sensitive(error_message))  # Shows [redacted]
 ```
+
+## Claude Code quota capture
+
+`CLAUDE_CODE_LIMITS_FILE` is an optional owner-only cache of subscription quota
+readings from interactive Claude Code status-line callbacks. Its default is
+`claude-code-limits.json` beside `AGENT_SNAPSHOT_FILE`. The interactive session
+and service must use the same path. Headless implementations do not populate
+status-line percentages; expired windows are omitted from the snapshot.

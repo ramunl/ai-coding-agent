@@ -233,3 +233,28 @@ Checks time out after 20 seconds and do not delay the snapshot heartbeat.
 Claude API headers are cached only when `/limits claude` is explicitly requested.
 This uses the configured API key, not Claude Code subscription usage. The cache
 is cleared on restart; failed refreshes mark previous readings unavailable.
+
+### Claude Code subscription limits
+
+A separate `limits.claude_code` snapshot entry reads passive status-line data.
+It contains only 5-hour/weekly quota remaining and resets, never session IDs,
+credentials, prompts or costs. Expired windows are removed without assuming
+the quota reset to full. Missing readings explain that an interactive session
+is required. This feature does not poll private OAuth endpoints or run inference.
+
+After deploying, enable capture once under the account that runs Claude Code:
+
+```bash
+cd /opt/ai-coding-agent
+/opt/ai_coding_venv/bin/python -m ai_agent.claude_statusline_setup
+```
+
+The installer preserves the existing status-line command and all other settings.
+Interactive Claude Code sessions then publish readings after their first API
+response (when the subscription supplies quota data). The Telegram bot uses
+headless `claude -p`; those runs do not refresh status-line percentages.
+The dashboard labels reading age and never presents missing data as zero usage.
+
+`CLAUDE_CODE_LIMITS_FILE` defaults to `claude-code-limits.json` alongside the
+coding snapshot. Use the same path for the interactive session and service
+if overriding it; the capture file is owner-only.

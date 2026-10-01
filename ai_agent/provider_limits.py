@@ -8,7 +8,7 @@ import logging
 import time
 
 from ai_agent.codex_limits import read_codex_limits
-from ai_agent.config import ANTHROPIC_KEY
+from ai_agent.config import ANTHROPIC_KEY, CLAUDE_CODE_LIMITS_FILE
 
 logger = logging.getLogger(__name__)
 REFRESH_SECONDS = 300
@@ -27,6 +27,8 @@ def limits_snapshot() -> dict:
             "windows": [],
         },
     )
+    from ai_agent.claude_code_limits import read_limits
+
     return copy.deepcopy(
         {
             "codex": _LIMITS.get(
@@ -38,6 +40,7 @@ def limits_snapshot() -> dict:
                 },
             ),
             "claude": claude,
+            "claude_code": read_limits(CLAUDE_CODE_LIMITS_FILE),
         }
     )
 
