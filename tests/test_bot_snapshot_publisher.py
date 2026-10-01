@@ -8,7 +8,7 @@ import tempfile
 import types
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from ai_agent.bot import snapshot_publisher
 from ai_agent.bot.snapshot_publisher import SnapshotPublisher, build_content
@@ -92,6 +92,7 @@ class LoopTests(unittest.IsolatedAsyncioTestCase):
             return PROJECT
 
         with (
+            patch.object(snapshot_publisher, "poll_limits", AsyncMock()),
             patch.object(snapshot_publisher, "_versions", return_value=VERSIONS),
             patch.object(snapshot_publisher, "_project", side_effect=flaky_project),
         ):
