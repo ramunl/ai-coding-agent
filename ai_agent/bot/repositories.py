@@ -8,6 +8,7 @@ import logging
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from ai_agent.actions import ActionError, add_repository, use_project
 from ai_agent.bot.state import active_execution_text
 from ai_agent.bot.transport import (
     prompt_for_arguments,
@@ -19,11 +20,8 @@ from ai_agent.config import redact_sensitive
 from ai_agent.projects import (
     ProjectError,
     active_project,
-    add_project,
-    clone_url,
     list_projects,
     remove_project,
-    set_active,
 )
 from ai_agent.shell import run
 from ai_agent.workflow import validate_branch_name
@@ -132,44 +130,15 @@ async def repo_add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     repository = context.args[0]
     repo_path = context.args[1] if len(context.args) > 1 else None
+    await reply_chunks(update, f"Adding {repository} (clones it if needed) ...")
     try:
-        project, needs_clone = await asyncio.to_thread(
-            add_project, repository, repo_path
-        )
-    except ProjectError as error:
-        await reply_chunks(update, f"Could not add project: {error}")
+        project, summary = await add_repository(repository, repo_path)
+    except ActionError as error:
+        await reply_chunks(update, str(error))
         return
-
-    if needs_clone:
-        await reply_chunks(
-            update, f"Cloning {project.github_repository} into {project.repo_path} ..."
-        )
-        try:
-            project.repo_path.parent.mkdir(parents=True, exist_ok=True)
-            await asyncio.to_thread(
-                run,
-                [
-                    "git",
-                    "clone",
-                    clone_url(project.github_repository),
-                    str(project.repo_path),
-                ],
-                project.repo_path.parent,
-            )
-        except RuntimeError as error:
-            await reply_chunks(
-                update,
-                f"Project '{project.name}' was registered, but cloning failed:\n"
-                f"{redact_sensitive(str(error))}\n\n"
-                f"Clone it manually to {project.repo_path}, or remove it with: "
-                f"/repo_remove {project.name}",
-            )
-            return
-
     await reply_chunks(
         update,
-        f"Project added: {project.name}\n"
-        f"Repository: {project.github_repository}\n"
+        f"{summary}\n"
         f"Path: {project.repo_path}\n"
         f"Base branch: {project.base_branch}\n\n"
         f"Activate it with: /repo_use {project.name}",
@@ -193,8 +162,8 @@ async def repo_use(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     name = context.args[0]
     try:
-        project = await asyncio.to_thread(set_active, name)
-    except ProjectError as error:
+        project = await use_project(name, context.user_data)
+    except ActionError as error:
         await reply_chunks(update, str(error))
         return
 
@@ -280,8 +249,8 @@ async def _on_repo_use_tap(
     if not require_authorized(update):
         return
     try:
-        project = await asyncio.to_thread(set_active, project_name)
-    except ProjectError as error:
+        project = await use_project(project_name, context.user_data)
+    except ActionError as error:
         await update.callback_query.edit_message_text(str(error))
         return
     await refresh_bot_name(context, project.name)
