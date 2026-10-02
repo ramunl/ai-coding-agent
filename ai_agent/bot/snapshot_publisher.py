@@ -21,7 +21,9 @@ from pathlib import Path
 from typing import Any
 
 from ai_agent.bot.atomic_file import write_json_atomic
+from ai_agent.bot.setup_view import ModelChoices, files_part, state_part
 from ai_agent.bot.state import snapshot
+from ai_agent.config import ACTION_RESULTS_FILE
 from ai_agent.provider_limits import limits_snapshot, poll_limits
 
 logger = logging.getLogger(__name__)
@@ -51,15 +53,20 @@ def _project() -> dict:
     }
 
 
-def build_content(user_data: dict, project: dict, versions: dict) -> dict:
+def build_content(
+    user_data: dict, project: dict, versions: dict, setup: dict | None = None
+) -> dict:
     """Everything the Coding window shows, minus the timestamps."""
-    return {
+    content = {
         "format": SNAPSHOT_FORMAT,
         **snapshot(user_data),
         "project": project,
         "limits": limits_snapshot(),
         **versions,
     }
+    if setup is not None:
+        content["setup"] = setup
+    return content
 
 
 class SnapshotPublisher:
@@ -101,20 +108,27 @@ async def publish_forever(
         logger.warning("Snapshot: could not read versions: %s", error)
         versions = {"version": "unknown", "core": "unknown"}
     limits_task = asyncio.create_task(poll_limits())
+    choices = ModelChoices()
+    choices_task = asyncio.create_task(choices.refresh_forever())
     try:
         while True:
             try:
                 project = await asyncio.to_thread(_project)
+                files = await asyncio.to_thread(
+                    files_part, choices, ACTION_RESULTS_FILE
+                )
                 # Read queue state on the event-loop thread, where handlers mutate
                 # it, so the published view is consistent.
+                user_data = ptb_app.user_data.get(owner_id, {})
                 content = build_content(
-                    ptb_app.user_data.get(owner_id, {}), project, versions
+                    user_data, project, versions, {**files, **state_part(user_data)}
                 )
                 publisher.publish(content)
             except Exception as error:
                 logger.warning("Snapshot publish failed (will retry): %s", error)
             await asyncio.sleep(interval)
     finally:
-        limits_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await limits_task
+        for task in (limits_task, choices_task):
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task

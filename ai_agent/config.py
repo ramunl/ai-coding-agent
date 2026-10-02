@@ -29,6 +29,15 @@ STATE_FILE = Path(
 SNAPSHOT_FILE = Path(
     os.environ.get("AGENT_SNAPSHOT_FILE", "/var/lib/ai-coding-agent/snapshot.json")
 ).expanduser()
+# Setup requests from the dashboard, and their results (see ai_agent/inbox.py).
+INBOX_DIR = Path(
+    os.environ.get("AGENT_INBOX_DIR", "/var/lib/ai-coding-agent/inbox")
+).expanduser()
+ACTION_RESULTS_FILE = Path(
+    os.environ.get(
+        "AGENT_ACTION_RESULTS_FILE", "/var/lib/ai-coding-agent/action-results.json"
+    )
+).expanduser()
 CLAUDE_CODE_LIMITS_FILE = Path(
     os.environ.get(
         "CLAUDE_CODE_LIMITS_FILE",

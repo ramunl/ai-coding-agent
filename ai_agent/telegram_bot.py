@@ -74,7 +74,14 @@ from ai_agent.bot.repositories import (
 )
 from ai_agent.bot.state import task_queue
 from ai_agent.bot.transport import error_handler, require_authorized
-from ai_agent.config import CHAT_ID, SNAPSHOT_FILE, STATE_FILE, TELEGRAM_TOKEN
+from ai_agent.config import (
+    ACTION_RESULTS_FILE,
+    CHAT_ID,
+    INBOX_DIR,
+    SNAPSHOT_FILE,
+    STATE_FILE,
+    TELEGRAM_TOKEN,
+)
 from ai_agent_common import CallbackRouter
 
 logger = logging.getLogger(__name__)
@@ -105,16 +112,34 @@ def _start_snapshot_publisher(app: Application) -> None:
     _publisher_task = asyncio.get_running_loop().create_task(
         publish_forever(app, CHAT_ID, SNAPSHOT_FILE)
     )
+    _start_inbox(app)
+
+
+_inbox_task: asyncio.Task | None = None
+
+
+def _start_inbox(app: Application) -> None:
+    """Run setup requests from the dashboard (see ai_agent/inbox.py)."""
+    global _inbox_task
+    if _inbox_task is not None and not _inbox_task.done():
+        return
+    from ai_agent.inbox import inbox_forever
+
+    _inbox_task = asyncio.get_running_loop().create_task(
+        inbox_forever(app, CHAT_ID, INBOX_DIR, ACTION_RESULTS_FILE)
+    )
 
 
 async def shutdown_hooks(app: Application) -> None:
-    """Stop publishing on a clean shutdown."""
-    global _publisher_task
-    if _publisher_task is not None:
-        _publisher_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await _publisher_task
-        _publisher_task = None
+    """Stop publishing and the inbox on a clean shutdown."""
+    global _publisher_task, _inbox_task
+    for task in (_publisher_task, _inbox_task):
+        if task is not None:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+    _publisher_task = None
+    _inbox_task = None
 
 
 async def _notify_restored_queue(app: Application) -> None:
