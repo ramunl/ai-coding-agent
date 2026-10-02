@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from pathlib import Path
 
@@ -16,13 +17,13 @@ from ai_agent.bot.transport import (
     require_authorized,
 )
 from ai_agent.config import CHAT_ID
+from ai_agent.core_maintenance import bump_core_isolated
 from ai_agent.projects import active_project
-from ai_agent.self_update import schedule_restart
 from ai_agent.shell import run
 from ai_agent.test_runner import run_unit_tests
 from ai_agent.version import get_runtime_version
 from ai_agent.workflow import validate_branch_name
-from ai_agent_common import CoreCommand, bump_to_latest, choice_keyboard
+from ai_agent_common import CoreCommand, choice_keyboard
 
 try:
     from ai_agent_common import create_release
@@ -88,27 +89,12 @@ async def deploy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await reply_chunks(update, str(error))
         return
 
-    await reply_chunks(update, f"Deploying '{branch}' to {target['label']}...")
-
-    script_args = [target["script"], branch]
-    if target["self"]:
-        script_args.append("--no-restart")
-
-    deploy_error: RuntimeError | None = None
     try:
-        await asyncio.to_thread(run, script_args, cwd=Path("/opt"), timeout=180)
-    except RuntimeError as error:
-        deploy_error = error
-
-    log_tail = await asyncio.to_thread(
-        run, ["tail", "-n", "30", str(target["log"])], cwd=Path("/opt")
-    )
-    status_text = "Deploy failed" if deploy_error else "Deploy finished"
-    await reply_chunks(update, f"{status_text}:\n\n{log_tail.output}")
-
-    if not deploy_error and target["self"]:
-        restart_note = await asyncio.to_thread(schedule_restart)
-        await reply_chunks(update, restart_note)
+        note = await asyncio.to_thread(_submit_deployment, target, branch)
+    except (RuntimeError, ValueError) as error:
+        await reply_chunks(update, f"Deploy failed: {error}")
+        return
+    await reply_chunks(update, note)
 
 
 async def test(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -154,22 +140,38 @@ async def version(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await reply_chunks(update, get_runtime_version())
 
 
+def _submit_deployment(target: dict, ref: str) -> str:
+    """Queue an independent supervised job rather than restarting this bot."""
+    try:
+        result = run(
+            ["/usr/local/sbin/ai-deploy", "submit", "deploy", target["repo"].name, ref],
+            cwd=Path("/opt"),
+            timeout=30,
+        )
+    except OSError as error:
+        raise RuntimeError(
+            "Deployment manager is not installed; "
+            "follow the Ops installation instructions"
+        ) from error
+    payload = json.loads(result.output)
+    if not isinstance(payload, dict) or payload.get("status") != "queued":
+        raise ValueError("Deployment manager did not queue the operation")
+    return (
+        f"Deploy queued for {target['label']}: {payload.get('operation', 'unknown')}. "
+        "Use the Ops bot /deployments to check the result."
+    )
+
+
 def _run_target_deploy(target: dict) -> str:
-    """Deploy one target using its update script (fleet-hub helper)."""
-    script_args = [target["script"], "main"]
-    if target["self"]:
-        script_args.append("--no-restart")
-    run(script_args, cwd=Path("/opt"), timeout=180)
-    if target["self"]:
-        return schedule_restart()
-    return f"Deployed {target['label']}."
+    """Queue the updated core pin through the central deployment manager."""
+    return _submit_deployment(target, "main")
 
 
 def _core_update_target(target_name: str) -> str:
     """Hub action: bump one bot's core pin to latest, then deploy that bot.
 
-    Runs only from the coding agent. Operates on the target's own repo dir
-    (same server), so pushing the pin uses that repo's configured remote/auth.
+    Prepare the pin in an isolated checkout, push it, then queue deployment.
+    The running checkout remains unchanged until the manager verifies it.
     """
     target = CORE_TARGETS.get(DEPLOY_TARGET_ALIASES.get(target_name, target_name))
     if target is None:
@@ -177,11 +179,17 @@ def _core_update_target(target_name: str) -> str:
         return f"Unknown bot '{target_name}'. Known: {known}"
 
     repo = target["repo"]
-    changed, message = bump_to_latest(repo / "ai_agent_common", repo, "ai_agent_common")
+    try:
+        changed, message = bump_core_isolated(repo)
+    except (OSError, RuntimeError, ValueError) as error:
+        return f"{target['label']}: Core update failed: {error}"
     if not changed:
         return f"{target['label']}: {message}"
 
-    deploy_note = _run_target_deploy(target)
+    try:
+        deploy_note = _run_target_deploy(target)
+    except (RuntimeError, ValueError) as error:
+        return f"{target['label']}: {message}\nDeployment was not queued: {error}"
     return f"{target['label']}: {message}\n{deploy_note}"
 
 

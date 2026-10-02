@@ -215,11 +215,14 @@ Details are in [docs/deployment.md](docs/deployment.md).
 
 ### Deploy the dashboard from Telegram
 
-Select `/repo_use ai-dashboard`, then run `/deploy main`. The dashboard uses
-`/usr/local/sbin/update-ai-dashboard` and logs to
-`/var/log/ai-dashboard/update.log`. Install that script from the dashboard
-repository on the server before the first deployment. The dashboard has no
-shared-core submodule, so it is excluded from `/core update`.
+Select `/repo_use ai-dashboard`, then run `/deploy main`. The bot queues an
+independent job with `/usr/local/sbin/ai-deploy submit deploy`; it reports the
+operation ID immediately. Check completion, failures, and current/previous
+verified releases with `/deployments` in the Ops bot. The manager owns restarts,
+including coding-agent self deployment. Install the central manager from the
+Ops repository before using this command. The dashboard has no shared-core
+submodule, so it is excluded from `/core update`.
+
 
 ### Dashboard provider limits
 
@@ -258,3 +261,6 @@ The dashboard labels reading age and never presents missing data as zero usage.
 `CLAUDE_CODE_LIMITS_FILE` defaults to `claude-code-limits.json` alongside the
 coding snapshot. Use the same path for the interactive session and service
 if overriding it; the capture file is owner-only.
+
+Core pin updates are prepared and pushed from a temporary checkout of remote main.
+The running repository is left unchanged until the deployment manager installs and verifies the update.
