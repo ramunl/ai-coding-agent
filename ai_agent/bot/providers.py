@@ -7,15 +7,15 @@ import asyncio
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from ai_agent.actions import ActionError, set_implementer, set_planner, switch_model
 from ai_agent.ai_tools import AITool, all_info, get_tool, known_tools
 from ai_agent.anthropic_limits import get_anthropic_limits
 from ai_agent.bot.state import current_implementation_agent, current_planning_agent
 from ai_agent.bot.transport import reply_chunks, require_authorized
 from ai_agent.codex_status import get_codex_status
 from ai_agent.config import ANTHROPIC_KEY
-from ai_agent.planner import normalize_planning_agent, planning_agent_label
-from ai_agent.self_update import schedule_restart
-from ai_agent.workflow import implementation_agent_label, normalize_implementation_agent
+from ai_agent.planner import planning_agent_label
+from ai_agent.workflow import implementation_agent_label
 from ai_agent_common import choice_keyboard
 
 
@@ -81,15 +81,11 @@ async def planner_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     try:
-        selected = normalize_planning_agent(context.args[0])
-    except ValueError as exc:
-        await reply_chunks(update, str(exc))
+        message = set_planner(context.args[0], context.user_data)
+    except ActionError as error:
+        await reply_chunks(update, str(error))
         return
-
-    context.user_data["planning_agent"] = selected
-    await reply_chunks(
-        update, f"Planning agent set to {planning_agent_label(selected)}."
-    )
+    await reply_chunks(update, message)
 
 
 async def agent_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -112,16 +108,11 @@ async def agent_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     try:
-        selected_agent = normalize_implementation_agent(context.args[0])
-    except ValueError as exc:
-        await reply_chunks(update, str(exc))
+        message = set_implementer(context.args[0], context.user_data)
+    except ActionError as error:
+        await reply_chunks(update, str(error))
         return
-
-    context.user_data["implementation_agent"] = selected_agent
-    await reply_chunks(
-        update,
-        f"Implementation agent set to {implementation_agent_label(selected_agent)}.",
-    )
+    await reply_chunks(update, message)
 
 
 async def model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -197,26 +188,17 @@ async def _list_models(update: Update, tool: AITool) -> None:
 
 async def _set_model(update: Update, tool: AITool, candidate: str) -> None:
     """Verify a requested model before persisting it and scheduling a restart."""
-    if not tool.manageable:
-        await reply_chunks(update, f"{tool.name} is read-only here. {tool.info().note}")
-        return
-    await reply_chunks(update, f"Verifying {candidate} before switching {tool.name}...")
-    reachable, detail = await asyncio.to_thread(tool.verify, candidate)
-    if not reachable:
+    if tool.manageable:
         await reply_chunks(
-            update,
-            (
-                f"Refusing to switch: {candidate} is {detail}.\nThe current model "
-                f"is unchanged."
-            ),
+            update, f"Verifying {candidate} before switching {tool.name}..."
         )
+    try:
+        message = await switch_model(tool.name, candidate)
+    except ActionError as error:
+        await reply_chunks(update, str(error))
         return
-    await asyncio.to_thread(tool.set_model, candidate)
-    restart_note = await asyncio.to_thread(schedule_restart)
     await reply_chunks(
-        update,
-        f"Verified and saved {tool.name} model = {candidate}.\n\n"
-        f"{restart_note}\nConfirm with /model {tool.name} after a few seconds.",
+        update, f"{message}\nConfirm with /model {tool.name} after a few seconds."
     )
 
 
@@ -226,14 +208,10 @@ async def _on_planner_tap(
     if not require_authorized(update):
         return
     try:
-        selected = normalize_planning_agent(selected)
-    except ValueError as error:
-        await update.callback_query.edit_message_text(str(error))
-        return
-    context.user_data["planning_agent"] = selected
-    await update.callback_query.edit_message_text(
-        f"Planning agent set to {planning_agent_label(selected)}."
-    )
+        message = set_planner(selected, context.user_data)
+    except ActionError as error:
+        message = str(error)
+    await update.callback_query.edit_message_text(message)
 
 
 async def _on_agent_tap(
@@ -242,11 +220,7 @@ async def _on_agent_tap(
     if not require_authorized(update):
         return
     try:
-        selected = normalize_implementation_agent(selected)
-    except ValueError as error:
-        await update.callback_query.edit_message_text(str(error))
-        return
-    context.user_data["implementation_agent"] = selected
-    await update.callback_query.edit_message_text(
-        f"Implementation agent set to {implementation_agent_label(selected)}."
-    )
+        message = set_implementer(selected, context.user_data)
+    except ActionError as error:
+        message = str(error)
+    await update.callback_query.edit_message_text(message)

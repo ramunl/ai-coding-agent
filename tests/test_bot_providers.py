@@ -5,6 +5,7 @@ import importlib
 import types
 from unittest.mock import AsyncMock, patch
 
+from ai_agent import actions as action_core
 from tests.bot_fixtures import TelegramTestCase
 
 
@@ -134,9 +135,10 @@ class ProvidersTests(TelegramTestCase):
         )
         with (
             patch.object(providers, "get_tool", return_value=tool),
+            patch.object(action_core, "get_tool", return_value=tool),
             patch.object(providers, "reply_chunks", AsyncMock()) as replies,
             patch.object(
-                providers,
+                action_core,
                 "schedule_restart",
                 side_effect=lambda: (
                     actions.append(("restart", None)) or "Restart scheduled"
@@ -162,8 +164,9 @@ class ProvidersTests(TelegramTestCase):
         tool.verify.return_value = (False, "unreachable")
         with (
             patch.object(providers, "get_tool", return_value=tool),
+            patch.object(action_core, "get_tool", return_value=tool),
             patch.object(providers, "reply_chunks", AsyncMock()) as replies,
-            patch.object(providers, "schedule_restart") as restart,
+            patch.object(action_core, "schedule_restart") as restart,
         ):
             asyncio.run(providers.model(update, context))
 
