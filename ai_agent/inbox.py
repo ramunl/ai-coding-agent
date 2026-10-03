@@ -120,7 +120,14 @@ class ResultLog:
             "at": time.time(),
         }
         others = [result for result in self.results if result.get("id") != request_id]
-        self.results = [entry, *others][:KEEP_RESULTS]
+        ordered = [entry, *others]
+        self.results = ordered[:KEEP_RESULTS]
+        # Keep the last model switch even after unrelated actions rotate out.
+        last_switch = next(
+            (item for item in ordered if item.get("action") == "switch_model"), None
+        )
+        if last_switch and last_switch not in self.results:
+            self.results[-1] = last_switch
         write_json_atomic(self.path, self.results)
 
 

@@ -24,12 +24,18 @@ from ai_agent.model_errors import (
     model_error_message,
 )
 from ai_agent.projects import active_project
+from ai_agent.provider_limits import record_claude_response
 from ai_agent.rules import rules_prompt_block
 from ai_agent.shell import run
 
 logger = logging.getLogger(__name__)
 
-client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
+client = anthropic.Anthropic(
+    api_key=ANTHROPIC_KEY,
+    http_client=anthropic.DefaultHttpxClient(
+        event_hooks={"response": [record_claude_response]}
+    ),
+)
 SCHEMAS_DIR = Path(__file__).with_name("schemas")
 SUPPORTED_PLANNING_AGENTS = ("codex", "claude")
 

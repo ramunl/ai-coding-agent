@@ -26,7 +26,7 @@ class PlannerTests(unittest.TestCase):
         anthropic_module = types.ModuleType("anthropic")
 
         class FakeAnthropic:
-            def __init__(self, api_key: str) -> None:
+            def __init__(self, api_key: str, **kwargs) -> None:
                 self.messages = FakeMessages()
 
         class FakeMessages:
@@ -38,6 +38,7 @@ class PlannerTests(unittest.TestCase):
 
         self.fake_anthropic_class = FakeAnthropic
         anthropic_module.Anthropic = FakeAnthropic
+        anthropic_module.DefaultHttpxClient = lambda **kwargs: object()
         sys.modules["anthropic"] = anthropic_module
 
     def tearDown(self) -> None:

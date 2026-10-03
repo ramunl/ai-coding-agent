@@ -12,7 +12,7 @@ from ai_agent.config import (
     COMMAND_TIMEOUT_SECONDS,
 )
 from ai_agent.model_errors import is_model_not_found, model_error_message
-from ai_agent.provider_limits import cache_claude_limits
+from ai_agent.provider_limits import limits_snapshot
 
 
 def anthropic_limit_headers() -> tuple[int, dict[str, str], str]:
@@ -95,7 +95,16 @@ def format_anthropic_limits(status: int, headers: dict[str, str], body: str) -> 
 
 
 def get_anthropic_limits() -> str:
-    """Fetch and format the current Anthropic rate-limit response."""
-    status, headers, body = anthropic_limit_headers()
-    cache_claude_limits(status, headers)
-    return format_anthropic_limits(status, headers, body)
+    """Present the last usage reading without making an API request."""
+    import time
+
+    reading = limits_snapshot()["claude"]
+    rows = ["Claude API limits (last real usage):", reading["message"]]
+    if reading.get("checked_at"):
+        age = max(0, int((time.time() - reading["checked_at"]) / 60))
+        rows.append(f"Read {age} min ago; last known reading.")
+    for window in reading["windows"]:
+        rows.append(
+            f"- {window['bucket']}: {window['remaining']}/{window['limit']} remaining"
+        )
+    return "\n".join(rows)

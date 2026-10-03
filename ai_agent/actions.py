@@ -126,5 +126,8 @@ async def switch_model(tool_name: str, model: str) -> str:
             f"Refusing to switch: {model} is {detail}. The current model is unchanged."
         )
     await asyncio.to_thread(tool.set_model, model)
-    restart_note = await asyncio.to_thread(schedule_restart)
+    try:
+        restart_note = await asyncio.to_thread(schedule_restart)
+    except RuntimeError as error:
+        raise ActionError(str(error)) from error
     return f"Verified and saved {tool.name} model = {model}. {restart_note}"
