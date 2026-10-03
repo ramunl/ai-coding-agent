@@ -148,7 +148,8 @@ class TelegramTestCase(unittest.TestCase):
         ext_module.ContextTypes = types.SimpleNamespace(DEFAULT_TYPE=object)
 
         anthropic_module = types.ModuleType("anthropic")
-        anthropic_module.Anthropic = lambda api_key: object()
+        anthropic_module.Anthropic = lambda api_key, **kwargs: object()
+        anthropic_module.DefaultHttpxClient = lambda **kwargs: object()
 
         sys.modules["telegram"] = telegram_module
         sys.modules["telegram.ext"] = ext_module

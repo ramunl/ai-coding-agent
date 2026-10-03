@@ -62,7 +62,7 @@ def read_limits(path: Path, now: float | None = None) -> dict:
     waiting = {
         "status": "not_checked",
         "windows": [],
-        "message": "Waiting for an interactive Claude Code session on this server",
+        "message": "No reading yet; recorded from Claude Code status-line usage",
     }
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -95,5 +95,5 @@ def read_limits(path: Path, now: float | None = None) -> dict:
         "checked_at": checked,
         "message": "Subscription limits from status-line data"
         if windows
-        else "Previous quota windows expired; waiting for Claude Code",
+        else "Last status-line reading; quota windows have expired",
     }

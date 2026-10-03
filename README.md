@@ -233,9 +233,16 @@ ChatGPT login. No model inference is performed. Named quota buckets take
 precedence over the legacy single bucket; absent windows are unavailable.
 Checks time out after 20 seconds and do not delay the snapshot heartbeat.
 
-Claude API headers are cached only when `/limits claude` is explicitly requested.
-This uses the configured API key, not Claude Code subscription usage. The cache
-is cleared on restart; failed refreshes mark previous readings unavailable.
+Claude API headers are captured from real planning calls, persisted in
+`CLAUDE_API_LIMITS_FILE` (default `/var/lib/ai-coding-agent/claude-api-limits.json`),
+and displayed with their age. `/limits claude` reads that cache without making
+an API request. No limits probes consume tokens. Claude Code readings come
+from its status line and remain separate from API limits.
+
+Model switches verify the candidate, save it, then schedule an independent
+restart of `AGENT_SERVICE_NAME` (default `ai-coding-agent`). Restart scheduling
+failures are reported rather than claiming success. The dashboard shows the
+last model-switch result permanently beneath the Models list.
 
 ### Claude Code subscription limits
 
