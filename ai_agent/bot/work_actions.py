@@ -1,7 +1,7 @@
-"""Work requests from the dashboard: start, approve, confirm, cancel, remove.
+"""Work requests from the dashboard: start, revise, approve, confirm, cancel.
 
 Each one runs the same handler as its Telegram command (/plan, /implement,
-/bugfix, /approve, /confirm, /cancel), through a stand-in for the owner's
+/bugfix, /discuss, /approve, /confirm, /cancel), through a stand-in for the owner's
 chat. So the rules stay in one place, and replies and task progress still
 arrive in the bot chat; the dashboard only gets a one-line result.
 
@@ -23,7 +23,13 @@ from telegram.ext import CallbackContext
 from ai_agent.actions import ActionError
 from ai_agent.bot.execution import confirm
 from ai_agent.bot.inspection import cancel
-from ai_agent.bot.planning import approve, bugfix_cmd, implement_cmd, plan
+from ai_agent.bot.planning import (
+    approve,
+    bugfix_cmd,
+    discuss,
+    implement_cmd,
+    plan,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +41,7 @@ WORK_ACTIONS = (
     "cancel_pending",
     "remove_queued",
     "start_work",
+    "discuss_plan",
 )
 STARTERS = {"plan": plan, "implement": implement_cmd, "bugfix": bugfix_cmd}
 
@@ -86,6 +93,13 @@ def refusal(action: str, args: dict[str, str], user_data: MutableMapping) -> str
         if pending_plan or pending or user_data.get("pending_bugfix_clarification"):
             return "Finish or cancel the pending work first."
         return None
+    if action == "discuss_plan":
+        if not pending_plan:
+            return "There is no plan to revise."
+        return "The plan is already being revised." if _starting else None
+    if _starting and action in ("approve_plan", "confirm_work"):
+        # The plan on screen is about to be replaced by the one being written.
+        return "A plan is still being written; wait for it in the bot chat."
     if action == "approve_plan":
         if not pending_plan:
             return "There is no plan to approve."
@@ -164,6 +178,13 @@ async def run_work_action(
         if not run.done():
             _starting.add(run)
         return summary(update.message, "Started; the result will be in the bot chat.")
+    if action == "discuss_plan":
+        # Revising takes minutes too; the new revision arrives in the bot chat.
+        context.args = args["text"].split()
+        run = await _start(discuss, update, context)
+        if not run.done():
+            _starting.add(run)
+        return summary(update.message, "Revising; the plan will be in the bot chat.")
     if action == "approve_plan":
         context.args = []
         await approve(update, context)

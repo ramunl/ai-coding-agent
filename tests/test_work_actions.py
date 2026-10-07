@@ -133,6 +133,45 @@ class WorkActionTests(unittest.IsolatedAsyncioTestCase):
             await self.run_action("start_work", args)
             release.set()
 
+    async def test_discuss_revises_in_the_background_and_holds_approval(self) -> None:
+        seen: dict = {}
+        release = asyncio.Event()
+
+        async def slow_discuss(update, context) -> None:
+            seen["args"] = list(context.args)
+            await update.message.reply_text("Revising plan with Claude...")
+            await release.wait()
+
+        with self.assertRaises(self.actions.ActionError) as raised:
+            await self.run_action("discuss_plan", {"text": "smaller"})
+        self.assertIn("no plan to revise", str(raised.exception))
+        self.data["pending_plan"] = self.plan
+        with patch.object(self.work, "discuss", slow_discuss):
+            result = await self.run_action("discuss_plan", {"text": "keep it  small"})
+            self.assertEqual(result, "Revising plan with Claude...")
+            self.assertEqual(seen["args"], ["keep", "it", "small"])
+            for action, args in (
+                ("discuss_plan", {"text": "again"}),
+                ("approve_plan", {}),
+                ("confirm_work", {}),
+            ):
+                with self.assertRaises(self.actions.ActionError, msg=action):
+                    await self.run_action(action, args)
+            self.assertFalse(self.plan.approved)
+            release.set()
+            await asyncio.sleep(0.01)
+        await self.run_action("approve_plan")
+        self.assertTrue(self.plan.approved)
+
+    def test_discuss_text_is_validated_like_new_work(self) -> None:
+        def request(args: dict) -> dict:
+            return {"id": "a1b2c3d4", "action": "discuss_plan", "args": args}
+
+        self.inbox.validate(request({"text": "use sqlite instead"}))
+        for args in ({"text": ""}, {"text": "a\nb"}, {}, {"text": "x", "kind": "plan"}):
+            with self.assertRaises(self.actions.ActionError, msg=str(args)):
+                self.inbox.validate(request(args))
+
     async def test_start_is_refused_while_other_work_is_pending(self) -> None:
         self.data["pending_plan"] = self.plan
         with self.assertRaises(self.actions.ActionError) as raised:

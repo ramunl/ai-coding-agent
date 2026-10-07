@@ -62,6 +62,7 @@ ACTIONS: dict[str, dict[str, Any]] = {
     "cancel_pending": {},
     "remove_queued": {"task": _TASK},
     "start_work": {"kind": _KINDS, "text": _TEXT},
+    "discuss_plan": {"text": _TEXT},
 }
 WORK_ACTIONS = (
     "approve_plan",
@@ -69,6 +70,7 @@ WORK_ACTIONS = (
     "cancel_pending",
     "remove_queued",
     "start_work",
+    "discuss_plan",
 )
 
 
