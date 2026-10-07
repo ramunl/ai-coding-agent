@@ -20,6 +20,7 @@ from ai_agent.plan_state import (
     Verbosity,
     parse_plan_document,
     parse_verbosity,
+    plan_outline,
     render_diff_summary,
 )
 from ai_agent.planner import normalize_planning_agent
@@ -240,6 +241,7 @@ def snapshot(context: Any) -> dict:
                 "feature": plan.feature,
                 "revision": plan.revision,
                 "approved": plan.approved,
+                **plan_outline(plan),
             }
             if isinstance(plan, PlanState)
             else None

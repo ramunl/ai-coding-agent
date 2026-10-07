@@ -8,6 +8,7 @@ import stat
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from ai_agent.bot import state
 from ai_agent.bot.persistence import (
@@ -233,6 +234,33 @@ class ReadModelTests(unittest.TestCase):
         self.assertEqual(snap["running"]["phase"], "Polling CI")
         for hidden in ("secret prompt", "FULL DIFF", "LOGS"):
             self.assertNotIn(hidden, text)
+
+    def test_snapshot_carries_a_bounded_plan_outline_without_the_prompt(self) -> None:
+        import ai_agent.plan_state as plan_state
+
+        document = plan_state.PlanDocument(
+            branch="feature/login",
+            summary="Add a login page " + "x" * 2000,
+            files=[f"file{n}.py" for n in range(100)],
+            steps=["write the form", "token tg-secret-token leaked"],
+            risks=[],
+            codex_prompt="secret prompt",
+        )
+        with (
+            patch.object(plan_state, "parse_plan_document", return_value=document),
+            patch.object(
+                plan_state,
+                "redact_sensitive",
+                lambda text: text.replace("tg-secret-token", "[redacted]"),
+            ),
+        ):
+            plan = state.snapshot({"pending_plan": _plan()})["pending_plan"]
+        self.assertEqual(plan["branch"], "feature/login")
+        self.assertEqual(len(plan["summary"]), plan_state.OUTLINE_ITEM_LENGTH)
+        self.assertEqual(len(plan["files"]), plan_state.OUTLINE_ITEMS)
+        self.assertEqual(plan["steps"][1], "token [redacted] leaked")
+        self.assertEqual(plan["risks"], [])
+        self.assertNotIn("secret prompt", json.dumps(plan))
 
     def test_snapshot_of_empty_state(self) -> None:
         snap = state.snapshot({})

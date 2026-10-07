@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
+from ai_agent.config import redact_sensitive
 from ai_agent.projects import active_project
 from ai_agent.workflow import slugify_branch_name
 
@@ -188,6 +189,33 @@ def render_plan(plan: PlanState) -> str:
         lines.extend(["", "Risks:", *[f"- {risk}" for risk in document.risks]])
     lines.extend(["", "Commands:", "- /discuss <feedback>", "- /approve", "- /cancel"])
     return "\n".join(lines)
+
+
+OUTLINE_ITEMS = 30
+OUTLINE_ITEM_LENGTH = 500
+
+
+def plan_outline(plan: PlanState) -> dict:
+    """The parts of a plan a dashboard shows, bounded in size and redacted.
+
+    Not the full plan text: the generated prompt stays out, and a runaway plan
+    cannot bloat the snapshot that is rewritten every few seconds.
+    """
+    document = parse_plan_document(plan.plan_text, plan.feature)
+
+    def short(text: object) -> str:
+        return redact_sensitive(str(text))[:OUTLINE_ITEM_LENGTH]
+
+    def items(values: list) -> list[str]:
+        return [short(value) for value in values[:OUTLINE_ITEMS]]
+
+    return {
+        "branch": short(document.branch),
+        "summary": short(document.summary),
+        "files": items(document.files),
+        "steps": items(document.steps),
+        "risks": items(document.risks),
+    }
 
 
 def render_history(plan: PlanState) -> str:
