@@ -1,10 +1,11 @@
-"""Setup requests from the dashboard, delivered as files and run by the agent.
+"""Setup and work requests from the dashboard, delivered as files and run by the agent.
 
 The dashboard never changes this agent's state itself: it drops a request in
 INBOX_DIR, and this loop validates it and runs the same code as the Telegram
-command (ai_agent.actions). Results go to a small file the snapshot
-publishes, so the dashboard shows them, also across the restart a model
-switch causes.
+command (ai_agent.actions for setup; the command handlers themselves for
+work on plans and the queue, see ai_agent/bot/work_actions.py). Results go
+to a small file the snapshot publishes, so the dashboard shows them, also
+across the restart a model switch causes.
 
 Only known actions with well-formed arguments run. A request older than
 MAX_AGE_SECONDS is reported as expired instead of run: a model switch tapped
@@ -43,6 +44,8 @@ _NAME = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 _REPOSITORY = re.compile(r"^[A-Za-z0-9._-]{1,100}/[A-Za-z0-9._-]{1,100}$")
 _MODEL = re.compile(r"^[A-Za-z0-9._:-]{1,100}$")
 _AGENTS = ("codex", "claude")
+_TASK = re.compile(r"^[0-9]{1,9}$")
+WorkRunner = Callable[[str, dict[str, str]], Awaitable[str]]
 
 # action -> {argument: allowed pattern or values}
 ACTIONS: dict[str, dict[str, Any]] = {
@@ -51,7 +54,12 @@ ACTIONS: dict[str, dict[str, Any]] = {
     "set_planner": {"value": _AGENTS},
     "set_implementer": {"value": _AGENTS},
     "switch_model": {"tool": ("claude",), "model": _MODEL},
+    "approve_plan": {},
+    "confirm_work": {},
+    "cancel_pending": {},
+    "remove_queued": {"task": _TASK},
 }
+WORK_ACTIONS = ("approve_plan", "confirm_work", "cancel_pending", "remove_queued")
 
 
 def validate(request: dict) -> tuple[str, str, dict[str, str]]:
@@ -81,8 +89,13 @@ async def execute(
     args: dict[str, str],
     user_data: MutableMapping,
     rename_bot: Callable[[str], Awaitable[None]] | None = None,
+    work: WorkRunner | None = None,
 ) -> str:
     """Run one validated action through the shared core; return its message."""
+    if action in WORK_ACTIONS:
+        if work is None:
+            raise ActionError("Work actions are not available here.")
+        return await work(action, args)
     if action == "use_project":
         project = await use_project(args["name"], user_data)
         if rename_bot:
@@ -147,6 +160,7 @@ async def process_inbox(
     user_data: MutableMapping,
     rename_bot: Callable[[str], Awaitable[None]] | None = None,
     now: float | None = None,
+    work: WorkRunner | None = None,
 ) -> int:
     """Handle every waiting request, oldest first; return how many."""
     handled = 0
@@ -181,7 +195,7 @@ async def process_inbox(
             continue
         log.record(request_id, action, "running", "Working…")
         try:
-            message = await execute(action, args, user_data, rename_bot)
+            message = await execute(action, args, user_data, rename_bot, work)
             log.record(request_id, action, "done", message)
         except ActionError as error:
             log.record(request_id, action, "failed", str(error))
@@ -206,10 +220,22 @@ async def inbox_forever(
         except Exception as error:  # cosmetic; Telegram rate-limits renames
             logger.info("Could not update bot name (ignored): %s", error)
 
+    # Imported here: the handlers pull in the whole bot, which imports this
+    # module's caller.
+    work: WorkRunner | None = None
+    try:
+        from ai_agent.bot.work_actions import run_work_action
+    except ImportError as error:  # setup requests must keep working regardless
+        logger.warning("Work actions unavailable: %s", error)
+    else:
+
+        async def work(action: str, args: dict[str, str]) -> str:
+            return await run_work_action(ptb_app, owner_id, action, args)
+
     while True:
         try:
             handled = await process_inbox(
-                inbox, log, ptb_app.user_data[owner_id], rename_bot
+                inbox, log, ptb_app.user_data[owner_id], rename_bot, work=work
             )
             if handled:
                 # PTB saves state only for users it just handled an update for;
