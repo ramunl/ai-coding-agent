@@ -182,6 +182,7 @@ async def bugfix_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         context.user_data["pending_bugfix_clarification"] = {
             "bug": bug,
             "branch_source": bug,
+            "questions": questions,
         }
         await reply_chunks(
             update,
@@ -221,6 +222,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         context.user_data["pending_bugfix_clarification"] = {
             "bug": combined_bug,
             "branch_source": branch_source,
+            "questions": questions,
         }
         await reply_chunks(
             update,

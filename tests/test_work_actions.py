@@ -172,6 +172,41 @@ class WorkActionTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(self.actions.ActionError, msg=str(args)):
                 self.inbox.validate(request(args))
 
+    async def test_answer_goes_to_the_bugfix_questions_one_at_a_time(self) -> None:
+        seen: dict = {}
+        release = asyncio.Event()
+
+        async def slow_answer(update, context) -> None:
+            seen["args"] = list(context.args)
+            await update.message.reply_text("Checking the updated bug report...")
+            await release.wait()
+
+        with self.assertRaises(self.actions.ActionError) as raised:
+            await self.run_action("answer_bugfix", {"text": "on Android 14"})
+        self.assertIn("no bugfix questions", str(raised.exception))
+        self.data["pending_bugfix_clarification"] = {"bug": "crash", "questions": "?"}
+        with patch.object(self.work, "answer", slow_answer):
+            result = await self.run_action("answer_bugfix", {"text": "on Android  14"})
+            self.assertEqual(result, "Checking the updated bug report...")
+            self.assertEqual(seen["args"], ["on", "Android", "14"])
+            with self.assertRaises(self.actions.ActionError) as raised:
+                await self.run_action("answer_bugfix", {"text": "again"})
+            self.assertIn("still being checked", str(raised.exception))
+            release.set()
+            await asyncio.sleep(0.01)
+
+    def test_snapshot_publishes_bounded_bugfix_questions(self) -> None:
+        state = importlib.import_module("ai_agent.bot.state")
+        self.assertIsNone(state.snapshot({})["bugfix_questions"])
+        # Saved by an agent that predates the questions field: nothing to show.
+        old = {"pending_bugfix_clarification": {"bug": "crash"}}
+        self.assertIsNone(state.snapshot(old)["bugfix_questions"])
+        pending = {"bug": "crash " * 1000, "questions": "1. Which screen?"}
+        snap = state.snapshot({"pending_bugfix_clarification": pending})
+        self.assertTrue(snap["awaiting_bugfix_answer"])
+        self.assertEqual(snap["bugfix_questions"]["questions"], "1. Which screen?")
+        self.assertEqual(len(snap["bugfix_questions"]["bug"]), state.BUGFIX_TEXT_LENGTH)
+
     async def test_start_is_refused_while_other_work_is_pending(self) -> None:
         self.data["pending_plan"] = self.plan
         with self.assertRaises(self.actions.ActionError) as raised:

@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from telegram.ext import ContextTypes
 
+from ai_agent.config import redact_sensitive
 from ai_agent.plan_state import (
     ExecutionState,
     PlanState,
@@ -212,6 +213,20 @@ def current_planning_agent(context: ContextTypes.DEFAULT_TYPE) -> str:
     )
 
 
+BUGFIX_TEXT_LENGTH = 2000
+
+
+def _bugfix_questions(data: Any) -> dict | None:
+    """The bug report and the open questions about it, bounded and redacted."""
+    pending = data.get("pending_bugfix_clarification")
+    if not isinstance(pending, dict) or not pending.get("questions"):
+        return None
+    return {
+        "bug": redact_sensitive(str(pending.get("bug", "")))[:BUGFIX_TEXT_LENGTH],
+        "questions": redact_sensitive(str(pending["questions"]))[:BUGFIX_TEXT_LENGTH],
+    }
+
+
 def snapshot(context: Any) -> dict:
     """Plain, JSON-serializable view of the agent state for non-chat clients.
 
@@ -252,6 +267,7 @@ def snapshot(context: Any) -> dict:
         "awaiting_bugfix_answer": isinstance(
             data.get("pending_bugfix_clarification"), dict
         ),
+        "bugfix_questions": _bugfix_questions(data),
         "planning_agent": current_planning_agent(context),
         "implementation_agent": current_implementation_agent(context),
         "verbosity": get_verbosity(context).value,
