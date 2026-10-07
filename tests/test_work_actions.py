@@ -108,6 +108,57 @@ class WorkActionTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(finished.is_set())
             await asyncio.wait_for(finished.wait(), 1)
 
+    async def test_start_passes_the_text_as_command_words_and_answers_early(
+        self,
+    ) -> None:
+        seen: dict = {}
+        release = asyncio.Event()
+
+        async def slow_plan(update, context) -> None:
+            seen["args"] = list(context.args)
+            await update.message.reply_text("Planning with Claude...")
+            await release.wait()
+
+        args = {"kind": "plan", "text": "add  login page"}
+        with patch.dict(self.work.STARTERS, {"plan": slow_plan}):
+            result = await self.run_action("start_work", args)
+            self.assertEqual(result, "Planning with Claude...")
+            self.assertEqual(seen["args"], ["add", "login", "page"])
+            # Still thinking: a second request must not overwrite the first.
+            with self.assertRaises(self.actions.ActionError) as raised:
+                await self.run_action("start_work", args)
+            self.assertIn("already being planned", str(raised.exception))
+            release.set()
+            await asyncio.sleep(0.01)
+            await self.run_action("start_work", args)
+            release.set()
+
+    async def test_start_is_refused_while_other_work_is_pending(self) -> None:
+        self.data["pending_plan"] = self.plan
+        with self.assertRaises(self.actions.ActionError) as raised:
+            await self.run_action("start_work", {"kind": "bugfix", "text": "crash"})
+        self.assertIn("pending work first", str(raised.exception))
+
+    def test_start_text_is_one_visible_line_and_the_kind_is_fixed(self) -> None:
+        def request(kind: str, text: object) -> dict:
+            args = {"kind": kind, "text": text}
+            return {"id": "a1b2c3d4", "action": "start_work", "args": args}
+
+        self.inbox.validate(
+            request("implement", "add a /health endpoint; keep it small")
+        )
+        for kind, text in (
+            ("deploy", "x"),
+            ("plan", ""),
+            ("plan", "   "),
+            ("plan", "two\nlines"),
+            ("plan", "bell\x07"),
+            ("plan", "x" * 4001),
+            ("plan", ["x"]),
+        ):
+            with self.assertRaises(self.actions.ActionError, msg=repr(text)):
+                self.inbox.validate(request(kind, text))
+
     async def test_inbox_routes_work_actions_and_validates_arguments(self) -> None:
         self.assertEqual(self.inbox.WORK_ACTIONS, self.work.WORK_ACTIONS)
         for bad in (

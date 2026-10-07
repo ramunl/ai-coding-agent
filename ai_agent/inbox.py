@@ -45,6 +45,9 @@ _REPOSITORY = re.compile(r"^[A-Za-z0-9._-]{1,100}/[A-Za-z0-9._-]{1,100}$")
 _MODEL = re.compile(r"^[A-Za-z0-9._:-]{1,100}$")
 _AGENTS = ("codex", "claude")
 _TASK = re.compile(r"^[0-9]{1,9}$")
+# Free text for a plan or bug report: one line, something visible in it.
+_TEXT = re.compile(r"^(?=.*\S)[^\x00-\x1f\x7f]{1,4000}$")
+_KINDS = ("plan", "implement", "bugfix")
 WorkRunner = Callable[[str, dict[str, str]], Awaitable[str]]
 
 # action -> {argument: allowed pattern or values}
@@ -58,8 +61,15 @@ ACTIONS: dict[str, dict[str, Any]] = {
     "confirm_work": {},
     "cancel_pending": {},
     "remove_queued": {"task": _TASK},
+    "start_work": {"kind": _KINDS, "text": _TEXT},
 }
-WORK_ACTIONS = ("approve_plan", "confirm_work", "cancel_pending", "remove_queued")
+WORK_ACTIONS = (
+    "approve_plan",
+    "confirm_work",
+    "cancel_pending",
+    "remove_queued",
+    "start_work",
+)
 
 
 def validate(request: dict) -> tuple[str, str, dict[str, str]]:

@@ -1,9 +1,9 @@
-"""Work requests from the dashboard: approve, confirm, cancel, remove queued.
+"""Work requests from the dashboard: start, approve, confirm, cancel, remove.
 
-Each one runs the same handler as its Telegram command (/approve, /confirm,
-/cancel), through a stand-in for the owner's chat. So the rules stay in one
-place, and replies and task progress still arrive in the bot chat; the
-dashboard only gets a one-line result.
+Each one runs the same handler as its Telegram command (/plan, /implement,
+/bugfix, /approve, /confirm, /cancel), through a stand-in for the owner's
+chat. So the rules stay in one place, and replies and task progress still
+arrive in the bot chat; the dashboard only gets a one-line result.
 
 A request is checked against the current state first, so a stale tap (the
 plan is already gone, the task already started) is refused with a clear
@@ -23,16 +23,25 @@ from telegram.ext import CallbackContext
 from ai_agent.actions import ActionError
 from ai_agent.bot.execution import confirm
 from ai_agent.bot.inspection import cancel
-from ai_agent.bot.planning import approve
+from ai_agent.bot.planning import approve, bugfix_cmd, implement_cmd, plan
 
 logger = logging.getLogger(__name__)
 
 FIRST_REPLY_SECONDS = 15
 SUMMARY_LENGTH = 200
-WORK_ACTIONS = ("approve_plan", "confirm_work", "cancel_pending", "remove_queued")
+WORK_ACTIONS = (
+    "approve_plan",
+    "confirm_work",
+    "cancel_pending",
+    "remove_queued",
+    "start_work",
+)
+STARTERS = {"plan": plan, "implement": implement_cmd, "bugfix": bugfix_cmd}
 
-# Queue runs started here; kept so they are not garbage-collected mid-run.
+# Long handlers started here; kept so they are not garbage-collected mid-run.
 _runs: set[asyncio.Task] = set()
+# Planning requests still thinking; a second one would overwrite the first.
+_starting: set[asyncio.Task] = set()
 
 
 class ChatMessage:
@@ -68,25 +77,37 @@ def chat_update(bot: Any, chat_id: int) -> SimpleNamespace:
 
 def refusal(action: str, args: dict[str, str], user_data: MutableMapping) -> str | None:
     """Why the request makes no sense in the current state, or None."""
-    plan = user_data.get("pending_plan")
+    pending_plan = user_data.get("pending_plan")
     pending = user_data.get("pending_implementation")
     queue = user_data.get("task_queue") or []
+    if action == "start_work":
+        if _starting:
+            return "A request is already being planned; wait for the bot chat."
+        if pending_plan or pending or user_data.get("pending_bugfix_clarification"):
+            return "Finish or cancel the pending work first."
+        return None
     if action == "approve_plan":
-        if not plan:
+        if not pending_plan:
             return "There is no plan to approve."
-        return "The plan is already approved." if plan.approved else None
+        return "The plan is already approved." if pending_plan.approved else None
     if action == "confirm_work":
-        if plan and not plan.approved and not pending:
+        if pending_plan and not pending_plan.approved and not pending:
             return "The plan is not approved yet."
         is_resumable = queue and not user_data.get("queue_runner_active")
-        if not pending and not (plan and plan.approved) and not is_resumable:
+        if (
+            not pending
+            and not (pending_plan and pending_plan.approved)
+            and not is_resumable
+        ):
             return "There is nothing to confirm."
         return None
     if action == "remove_queued":
         if not any(str(task.get("id")) == args["task"] for task in queue):
             return f"Task #{args['task']} is not in the queue (it may have started)."
         return None
-    has_pending = plan or pending or user_data.get("pending_bugfix_clarification")
+    has_pending = (
+        pending_plan or pending or user_data.get("pending_bugfix_clarification")
+    )
     return None if has_pending else "There is nothing pending to cancel."
 
 
@@ -99,10 +120,26 @@ def summary(message: ChatMessage, fallback: str) -> str:
 
 def _finished(task: asyncio.Task) -> None:
     _runs.discard(task)
+    _starting.discard(task)
     if not task.cancelled() and task.exception():
         logger.error(
-            "Queue run started from the dashboard failed", exc_info=task.exception()
+            "Work started from the dashboard failed", exc_info=task.exception()
         )
+
+
+async def _start(handler: Any, update: SimpleNamespace, context: Any) -> asyncio.Task:
+    """Run a long handler in the background; return once it has first replied."""
+    run = asyncio.create_task(handler(update, context))
+    _runs.add(run)
+    run.add_done_callback(_finished)
+    replied = asyncio.create_task(update.message.replied.wait())
+    await asyncio.wait(
+        {run, replied},
+        timeout=FIRST_REPLY_SECONDS,
+        return_when=asyncio.FIRST_COMPLETED,
+    )
+    replied.cancel()
+    return run
 
 
 async def run_work_action(
@@ -118,17 +155,15 @@ async def run_work_action(
         # /confirm also runs the queue, which can take an hour: start it and
         # answer as soon as it has said what it queued.
         context.args = []
-        run = asyncio.create_task(confirm(update, context))
-        _runs.add(run)
-        run.add_done_callback(_finished)
-        replied = asyncio.create_task(update.message.replied.wait())
-        await asyncio.wait(
-            {run, replied},
-            timeout=FIRST_REPLY_SECONDS,
-            return_when=asyncio.FIRST_COMPLETED,
-        )
-        replied.cancel()
+        await _start(confirm, update, context)
         return summary(update.message, "Started; progress is in the bot chat.")
+    if action == "start_work":
+        # Planning takes minutes; the plan itself arrives in the bot chat.
+        context.args = args["text"].split()
+        run = await _start(STARTERS[args["kind"]], update, context)
+        if not run.done():
+            _starting.add(run)
+        return summary(update.message, "Started; the result will be in the bot chat.")
     if action == "approve_plan":
         context.args = []
         await approve(update, context)
