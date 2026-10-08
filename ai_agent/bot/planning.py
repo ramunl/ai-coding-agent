@@ -11,6 +11,7 @@ from ai_agent.bot.state import (
     current_planning_agent,
     forget_pending_implementation,
     set_pending_from_plan,
+    think,
 )
 from ai_agent.bot.transport import (
     prompt_for_arguments,
@@ -48,7 +49,7 @@ async def plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     provider = current_planning_agent(context)
     await reply_chunks(update, f"Planning with {planning_agent_label(provider)}...")
-    plan_text = await asyncio.to_thread(plan_feature, feature, provider)
+    plan_text = await think(context, "plan", feature, plan_feature, feature, provider)
     plan_state = new_plan_state(feature, plan_text)
     context.user_data["pending_plan"] = plan_state
     forget_pending_implementation(context)
@@ -75,7 +76,10 @@ async def discuss(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await reply_chunks(
         update, f"Revising plan with {planning_agent_label(provider)}..."
     )
-    plan_text = await asyncio.to_thread(
+    plan_text = await think(
+        context,
+        "revise",
+        plan_state.feature,
         revise_feature_plan,
         plan_state.feature,
         plan_state.plan_text,
@@ -147,7 +151,9 @@ async def implement_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     provider = current_planning_agent(context)
     await reply_chunks(update, f"Planning with {planning_agent_label(provider)}...")
-    plan_text = await asyncio.to_thread(plan_feature, feature, provider)
+    plan_text = await think(
+        context, "implement", feature, plan_feature, feature, provider
+    )
     plan_state = new_plan_state(feature, plan_text)
     plan_state.approved = True
     context.user_data["pending_plan"] = plan_state
@@ -175,8 +181,13 @@ async def bugfix_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         return
 
     await reply_chunks(update, "Checking whether the bug report is actionable...")
-    questions = await asyncio.to_thread(
-        get_bugfix_questions, bug, current_planning_agent(context)
+    questions = await think(
+        context,
+        "bugfix",
+        bug,
+        get_bugfix_questions,
+        bug,
+        current_planning_agent(context),
     )
     if questions:
         context.user_data["pending_bugfix_clarification"] = {
@@ -215,8 +226,13 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     combined_bug = f"{pending['bug']}\n\nUser clarification:\n{details}"
     branch_source = pending.get("branch_source", pending["bug"])
     await reply_chunks(update, "Checking the updated bug report...")
-    questions = await asyncio.to_thread(
-        get_bugfix_questions, combined_bug, current_planning_agent(context)
+    questions = await think(
+        context,
+        "answer",
+        branch_source,
+        get_bugfix_questions,
+        combined_bug,
+        current_planning_agent(context),
     )
     if questions:
         context.user_data["pending_bugfix_clarification"] = {

@@ -271,3 +271,44 @@ class WorkActionTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ThinkingMarkTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self) -> None:
+        self.previous_env = dict(os.environ)
+        os.environ["TELEGRAM_BOT_TOKEN"] = "telegram-secret"
+        os.environ["YOUR_CHAT_ID"] = str(OWNER)
+        self.state = importlib.import_module("ai_agent.bot.state")
+
+    def tearDown(self) -> None:
+        os.environ.clear()
+        os.environ.update(self.previous_env)
+
+    async def test_mark_is_published_while_the_call_runs_then_cleared(self) -> None:
+        data: dict = {}
+        seen: list = []
+
+        def slow_call(value: str) -> str:
+            seen.append(self.state.snapshot(data)["thinking"])
+            return value.upper()
+
+        result = await self.state.think(
+            data, "plan", "add login " * 50, slow_call, "ok"
+        )
+        self.assertEqual(result, "OK")
+        self.assertEqual(seen[0]["kind"], "plan")
+        self.assertEqual(len(seen[0]["about"]), self.state.THINKING_ABOUT_LENGTH)
+        self.assertIsNone(self.state.snapshot(data)["thinking"])
+
+    async def test_mark_is_cleared_when_the_call_fails_and_never_persisted(
+        self,
+    ) -> None:
+        data: dict = {}
+
+        def failing_call() -> None:
+            raise RuntimeError("planner down")
+
+        with self.assertRaises(RuntimeError):
+            await self.state.think(data, "revise", "x", failing_call)
+        self.assertNotIn("thinking", data)
+        self.assertNotIn("thinking", self.state.PERSISTENT_KEYS)

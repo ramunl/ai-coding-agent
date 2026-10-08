@@ -8,7 +8,9 @@ Mini App API — without changing any existing handler call.
 
 from __future__ import annotations
 
-from collections.abc import MutableMapping
+import asyncio
+import time
+from collections.abc import Callable, MutableMapping
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -213,6 +215,29 @@ def current_planning_agent(context: ContextTypes.DEFAULT_TYPE) -> str:
     )
 
 
+THINKING_ABOUT_LENGTH = 200
+
+
+async def think(
+    context: Any, kind: str, about: str, work: Callable[..., Any], *args: Any
+) -> Any:
+    """Run a slow AI call in a thread, marked as in progress while it runs.
+
+    The mark ("thinking") is what the dashboard shows as "Planning…". It is not
+    in PERSISTENT_KEYS, so a restart never restores a mark for work that died.
+    """
+    data = _data(context)
+    data["thinking"] = {
+        "kind": kind,
+        "about": redact_sensitive(about)[:THINKING_ABOUT_LENGTH],
+        "started_at": time.time(),
+    }
+    try:
+        return await asyncio.to_thread(work, *args)
+    finally:
+        data.pop("thinking", None)
+
+
 BUGFIX_TEXT_LENGTH = 2000
 
 
@@ -268,6 +293,9 @@ def snapshot(context: Any) -> dict:
             data.get("pending_bugfix_clarification"), dict
         ),
         "bugfix_questions": _bugfix_questions(data),
+        "thinking": dict(data["thinking"])
+        if isinstance(data.get("thinking"), dict)
+        else None,
         "planning_agent": current_planning_agent(context),
         "implementation_agent": current_implementation_agent(context),
         "verbosity": get_verbosity(context).value,
