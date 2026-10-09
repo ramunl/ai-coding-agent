@@ -188,7 +188,24 @@ class TaskActionTests(unittest.IsolatedAsyncioTestCase):
         task = self.data["tasks"][0]
         self.assertEqual(task["stage"], "todo")
         self.assertIsNone(task["todo"])
-        self.assertIn("planning failed", task["note"])
+        self.assertEqual(
+            task["note"], "planning failed: planner down; see the bot chat"
+        )
+        sent = [c.kwargs["text"] for c in self.app.bot.send_message.await_args_list]
+        self.assertEqual(sent, ["Planning with Claude...", "Failed: planner down"])
+
+    async def test_planning_that_makes_no_plan_says_so(self) -> None:
+        async def silent_plan(update, context) -> None:
+            await update.message.reply_text("Planning with Claude...")
+
+        with patch.object(self.task_actions, "plan", silent_plan):
+            await self.run_action(
+                "create_task", {"repo": "repo", "text": "x", "todo": "-"}
+            )
+            await asyncio.sleep(0.02)
+        self.assertEqual(
+            self.data["tasks"][0]["note"], "no plan was made; see the bot chat"
+        )
 
     async def test_a_busy_agent_keeps_the_new_task_as_todo(self) -> None:
         self.data["pending_plan"] = self.PlanState(

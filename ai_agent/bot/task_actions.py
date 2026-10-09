@@ -41,8 +41,12 @@ async def _plan_task(update: Any, context: Any, task: dict) -> None:
     """Run /plan for the task, then tie the resulting plan to it."""
     data = context.user_data
     before = data.get("pending_plan")
+    failure = None
     try:
         await plan(update, context)
+    except Exception as error:
+        failure = work_actions.error_text(error).splitlines()[0][:150]
+        raise
     finally:
         data.pop("planning_task", None)
         after = data.get("pending_plan")
@@ -51,7 +55,8 @@ async def _plan_task(update: Any, context: Any, task: dict) -> None:
             task["branch"] = parse_plan_document(after.plan_text, after.feature).branch
             set_stage(task, "planned")
         elif task.get("stage") == "planning":
-            set_stage(task, "todo", "planning failed; see the bot chat")
+            reason = f"planning failed: {failure}" if failure else "no plan was made"
+            set_stage(task, "todo", f"{reason}; see the bot chat")
 
 
 async def _switch_to(ptb_app: Any, data: Any, repo: str) -> None:

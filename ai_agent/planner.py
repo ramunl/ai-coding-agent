@@ -107,7 +107,12 @@ def _planner_message(
         max_tokens=max_tokens,
         messages=[{"role": "user", "content": prompt}],
     )
-    return response.content[0].text
+    text = "\n".join(
+        block.text for block in response.content if block.type == "text"
+    ).strip()
+    if not text:
+        raise RuntimeError("Claude returned no text for the plan. Please retry.")
+    return text
 
 
 IMPLEMENTATION_QUESTION_PATTERNS = (

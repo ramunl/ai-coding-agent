@@ -14,6 +14,7 @@ message instead of running the handler for nothing.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from collections.abc import MutableMapping
 from types import SimpleNamespace
@@ -32,6 +33,7 @@ from ai_agent.bot.planning import (
     implement_cmd,
     plan,
 )
+from ai_agent.config import redact_sensitive
 
 logger = logging.getLogger(__name__)
 
@@ -148,9 +150,32 @@ def _finished(task: asyncio.Task) -> None:
         )
 
 
+ERROR_LINES = 20
+
+
+def error_text(error: BaseException) -> str:
+    """A failure as the chat shows it: secrets removed, at most ERROR_LINES lines."""
+    lines = redact_sensitive(str(error) or type(error).__name__).splitlines()
+    return "\n".join(lines[:ERROR_LINES])
+
+
+async def _reported(handler: Any, update: SimpleNamespace, context: Any) -> None:
+    """Run a handler; if it fails, tell the owner's chat, as a chat command would.
+
+    Without this, a failure in work started from the dashboard only reached the
+    log: the chat showed "Planning with Claude..." and then nothing.
+    """
+    try:
+        await handler(update, context)
+    except Exception as error:
+        with contextlib.suppress(Exception):  # reporting must not hide the error
+            await update.message.reply_text(f"Failed: {error_text(error)}")
+        raise
+
+
 async def _start(handler: Any, update: SimpleNamespace, context: Any) -> asyncio.Task:
     """Run a long handler in the background; return once it has first replied."""
-    run = asyncio.create_task(handler(update, context))
+    run = asyncio.create_task(_reported(handler, update, context))
     _runs.add(run)
     run.add_done_callback(_finished)
     replied = asyncio.create_task(update.message.replied.wait())

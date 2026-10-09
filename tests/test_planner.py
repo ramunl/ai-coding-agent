@@ -33,7 +33,7 @@ class PlannerTests(unittest.TestCase):
             def create(self, **kwargs):
                 self.kwargs = kwargs
                 return types.SimpleNamespace(
-                    content=[types.SimpleNamespace(text="planned")]
+                    content=[types.SimpleNamespace(type="text", text="planned")]
                 )
 
         self.fake_anthropic_class = FakeAnthropic
@@ -177,6 +177,28 @@ class PlannerTests(unittest.TestCase):
         self.assertIn("Files:\nplayer.py", context)
         self.assertIn("unreadable", logs.output[0])
 
+    def test_planner_reads_text_after_thinking_blocks(self):
+        planner = importlib.import_module("ai_agent.planner")
+        response = types.SimpleNamespace(
+            content=[
+                types.SimpleNamespace(type="thinking", thinking="private reasoning"),
+                types.SimpleNamespace(type="text", text="first"),
+                types.SimpleNamespace(type="text", text="second"),
+            ]
+        )
+        with patch.object(planner, "_create_message", return_value=response):
+            self.assertEqual(
+                planner._planner_message("prompt", "claude", "plan.json", 4000),
+                "first\nsecond",
+            )
 
-if __name__ == "__main__":
-    unittest.main()
+    def test_planner_reports_missing_text_without_exposing_thinking(self):
+        planner = importlib.import_module("ai_agent.planner")
+        response = types.SimpleNamespace(
+            content=[
+                types.SimpleNamespace(type="thinking", thinking="private reasoning")
+            ]
+        )
+        with patch.object(planner, "_create_message", return_value=response):
+            with self.assertRaisesRegex(RuntimeError, "Claude returned no text"):
+                planner._planner_message("prompt", "claude", "plan.json", 4000)

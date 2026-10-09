@@ -207,6 +207,24 @@ class WorkActionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(snap["bugfix_questions"]["questions"], "1. Which screen?")
         self.assertEqual(len(snap["bugfix_questions"]["bug"]), state.BUGFIX_TEXT_LENGTH)
 
+    async def test_a_failing_background_run_is_reported_in_the_chat(self) -> None:
+        async def failing_plan(update, context) -> None:
+            await update.message.reply_text("Planning with Claude...")
+            raise RuntimeError("Anthropic API error 529: overloaded\n" + "x\n" * 40)
+
+        with (
+            patch.dict(self.work.STARTERS, {"plan": failing_plan}),
+            self.assertLogs("ai_agent.bot.work_actions", "ERROR"),
+        ):
+            await self.run_action("start_work", {"kind": "plan", "text": "add login"})
+            await asyncio.sleep(0.02)
+        failure = self.sent()[-1]
+        self.assertTrue(
+            failure.startswith("Failed: Anthropic API error 529: overloaded")
+        )
+        self.assertEqual(len(failure.splitlines()), self.work.ERROR_LINES)
+        self.assertEqual(self.work._starting, set())  # a new request may start
+
     async def test_start_is_refused_while_other_work_is_pending(self) -> None:
         self.data["pending_plan"] = self.plan
         with self.assertRaises(self.actions.ActionError) as raised:
