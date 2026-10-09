@@ -25,6 +25,8 @@ from ai_agent.bot.setup_view import ModelChoices, files_part, state_part
 from ai_agent.bot.state import snapshot
 from ai_agent.config import ACTION_RESULTS_FILE
 from ai_agent.provider_limits import limits_snapshot, poll_limits
+from ai_agent.task_pulls import track_forever as track_pulls
+from ai_agent.tasks import sync as sync_tasks
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +110,7 @@ async def publish_forever(
         logger.warning("Snapshot: could not read versions: %s", error)
         versions = {"version": "unknown", "core": "unknown"}
     limits_task = asyncio.create_task(poll_limits())
+    pulls_task = asyncio.create_task(track_pulls(ptb_app, owner_id))
     choices = ModelChoices()
     choices_task = asyncio.create_task(choices.refresh_forever())
     try:
@@ -120,6 +123,9 @@ async def publish_forever(
                 # Read queue state on the event-loop thread, where handlers mutate
                 # it, so the published view is consistent.
                 user_data = ptb_app.user_data.get(owner_id, {})
+                if sync_tasks(user_data):
+                    # Not from a Telegram update, so PTB would not save it.
+                    ptb_app.mark_data_for_update_persistence(user_ids=owner_id)
                 content = build_content(
                     user_data, project, versions, {**files, **state_part(user_data)}
                 )
@@ -128,7 +134,7 @@ async def publish_forever(
                 logger.warning("Snapshot publish failed (will retry): %s", error)
             await asyncio.sleep(interval)
     finally:
-        for task in (limits_task, choices_task):
+        for task in (limits_task, choices_task, pulls_task):
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task

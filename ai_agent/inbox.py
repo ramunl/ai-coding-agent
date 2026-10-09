@@ -48,6 +48,9 @@ _TASK = re.compile(r"^[0-9]{1,9}$")
 # Free text for a plan or bug report: one line, something visible in it.
 _TEXT = re.compile(r"^(?=.*\S)[^\x00-\x1f\x7f]{1,4000}$")
 _KINDS = ("plan", "implement", "bugfix")
+_TASK_ID = re.compile(r"^[0-9a-f]{8}$")
+# Where a task came from: "<todo project>:<todo id>", or "-" for none.
+_TODO_REF = re.compile(r"^(-|[A-Za-z0-9._-]{1,64}:[A-Za-z0-9]{1,64})$")
 WorkRunner = Callable[[str, dict[str, str]], Awaitable[str]]
 
 # action -> {argument: allowed pattern or values}
@@ -64,6 +67,9 @@ ACTIONS: dict[str, dict[str, Any]] = {
     "start_work": {"kind": _KINDS, "text": _TEXT},
     "discuss_plan": {"text": _TEXT},
     "answer_bugfix": {"text": _TEXT},
+    "create_task": {"repo": _NAME, "text": _TEXT, "todo": _TODO_REF},
+    "start_task": {"task": _TASK_ID},
+    "remove_task": {"task": _TASK_ID},
 }
 WORK_ACTIONS = (
     "approve_plan",
@@ -73,6 +79,9 @@ WORK_ACTIONS = (
     "start_work",
     "discuss_plan",
     "answer_bugfix",
+    "create_task",
+    "start_task",
+    "remove_task",
 )
 
 
@@ -238,12 +247,15 @@ async def inbox_forever(
     # module's caller.
     work: WorkRunner | None = None
     try:
+        from ai_agent.bot.task_actions import TASK_ACTIONS, run_task_action
         from ai_agent.bot.work_actions import run_work_action
     except ImportError as error:  # setup requests must keep working regardless
         logger.warning("Work actions unavailable: %s", error)
     else:
 
         async def work(action: str, args: dict[str, str]) -> str:
+            if action in TASK_ACTIONS:
+                return await run_task_action(ptb_app, owner_id, action, args)
             return await run_work_action(ptb_app, owner_id, action, args)
 
     while True:
