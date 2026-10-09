@@ -4,6 +4,7 @@ import os
 import re
 from dataclasses import dataclass
 
+from ai_agent.codex_models import model_args
 from ai_agent.config import (
     CLAUDE_CODE_ARGS,
     CODEX_TIMEOUT_SECONDS,
@@ -80,7 +81,7 @@ def implementation_command(prompt: str, agent: str | None = None) -> list[str]:
     # marked trusted in ~/.codex/config.toml, producing "no file changes" with no error.
     # Requesting workspace-write explicitly makes writes work regardless of ambient
     # trust.
-    return ["codex", "exec", "-s", "workspace-write", prompt]
+    return ["codex", "exec", *model_args(), "-s", "workspace-write", prompt]
 
 
 def run_implementation_agent(prompt: str, agent: str | None = None) -> CommandResult:

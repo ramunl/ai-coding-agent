@@ -1,3 +1,4 @@
+import os
 import unittest
 from unittest.mock import patch
 
@@ -15,6 +16,11 @@ from ai_agent.workflow import (
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_codex_implementation_uses_selected_model(self):
+        with patch.dict(os.environ, CODEX_MODEL="codex-test"):
+            command = implementation_command("implement", "codex")
+        self.assertEqual(command[command.index("--model") + 1], "codex-test")
+
     def test_slugify_branch_name_normalizes_feature_text(self) -> None:
         branch = slugify_branch_name("Add per-channel proxy toggle!")
 

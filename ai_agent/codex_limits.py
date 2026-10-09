@@ -58,12 +58,14 @@ async def _response(process: asyncio.subprocess.Process, request_id: int) -> dic
             continue
         if "error" in message:
             # Do not publish raw provider errors, which may contain identifiers.
-            raise RuntimeError("Codex limits unavailable; check login and CLI version")
+            raise RuntimeError(
+                "Codex metadata unavailable; check login and CLI version"
+            )
         return message["result"]
-    raise RuntimeError("Codex app-server exited before returning limits")
+    raise RuntimeError("Codex app-server exited before returning metadata")
 
 
-async def _read(process: asyncio.subprocess.Process) -> dict:
+async def _read(process: asyncio.subprocess.Process, method: str, params: dict) -> dict:
     await _send(
         process,
         {
@@ -74,12 +76,12 @@ async def _read(process: asyncio.subprocess.Process) -> dict:
     )
     await _response(process, 1)
     await _send(process, {"method": "initialized", "params": {}})
-    await _send(process, {"method": "account/rateLimits/read", "id": 2})
+    await _send(process, {"method": method, "params": params, "id": 2})
     return await _response(process, 2)
 
 
-async def read_codex_limits() -> list[dict]:
-    """Read account limits without inference; terminate the process on all exits."""
+async def read_codex_response(method: str, params: dict) -> dict:
+    """Read CLI metadata without inference; terminate the process on all exits."""
     process = await asyncio.create_subprocess_exec(
         "codex",
         "app-server",
@@ -90,8 +92,10 @@ async def read_codex_limits() -> list[dict]:
         start_new_session=True,
     )
     try:
-        result = await asyncio.wait_for(_read(process), LIMIT_TIMEOUT_SECONDS)
-        return quota_windows(result)
+        result = await asyncio.wait_for(
+            _read(process, method, params), LIMIT_TIMEOUT_SECONDS
+        )
+        return result
     finally:
         # Helpers inherit pipes: kill the group even if the parent already exited.
         try:
@@ -99,3 +103,8 @@ async def read_codex_limits() -> list[dict]:
         except ProcessLookupError:
             pass
         await process.wait()
+
+
+async def read_codex_limits() -> list[dict]:
+    """Read account limits without inference."""
+    return quota_windows(await read_codex_response("account/rateLimits/read", {}))

@@ -3,12 +3,8 @@
 Scope (deliberately limited): this manages the *model dial* per tool, not
 auth, keys, or how each tool is invoked. Those stay tool-specific.
 
-Reality the interface must represent honestly:
-- The Claude API planner has a model string this agent controls and can
-  verify against the live API. Fully manageable.
-- The Codex CLI and Claude Code CLI choose their model from their own
-  login/config. This agent does not control or verify them, so they are
-  exposed read-only, pointing the user at the right place.
+Claude API and Codex have agent-managed model overrides. Claude Code remains
+read-only and uses its own CLI configuration.
 
 Adding a future tool = one new AITool subclass registered below. The /model
 command, registry, and tests do not change.
@@ -19,7 +15,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
-from ai_agent import model_manager
+from ai_agent import codex_models, model_manager
 
 
 @dataclass(frozen=True)
@@ -85,6 +81,33 @@ class ClaudeApiTool(AITool):
         return model_manager.list_models()
 
 
+class CodexTool(AITool):
+    """Select an agent override using the installed CLI's model catalog."""
+
+    name = "codex"
+    manageable = True
+
+    def current_model(self) -> str:
+        """Return the override, or the explicit CLI-default option."""
+        return codex_models.current_model()
+
+    def list_models(self) -> tuple[bool, list[dict[str, str]] | str]:
+        """Read picker-visible models without running inference."""
+        return codex_models.list_models()
+
+    def verify(self, model: str) -> tuple[bool, str]:
+        """Require a model from a fresh catalog or the default option."""
+        return codex_models.verify_model(model)
+
+    def set_model(self, model: str) -> None:
+        """Persist the override and apply it to future CLI invocations."""
+        model_manager.set_model_in_env(model, "CODEX_MODEL")
+        os.environ["CODEX_MODEL"] = model
+
+    def _note(self) -> str:
+        return "Used for every Codex role. Changes apply to the next run."
+
+
 class CliTool(AITool):
     """A CLI whose model lives in its own config; read-only from here."""
 
@@ -108,12 +131,7 @@ class CliTool(AITool):
 
 _TOOLS: dict[str, AITool] = {
     "claude": ClaudeApiTool(),
-    "codex": CliTool(
-        "codex",
-        env_var="CODEX_MODEL",
-        default="(codex CLI default)",
-        note="Managed by the Codex CLI's own login/config, not this agent.",
-    ),
+    "codex": CodexTool(),
     "claude-code": CliTool(
         "claude-code",
         env_var="CLAUDE_CODE_MODEL",

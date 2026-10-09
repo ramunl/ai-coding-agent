@@ -111,20 +111,24 @@ def _probe(model: str) -> tuple[int, dict, str]:
         limits_module.ANTHROPIC_MODEL = original
 
 
-def set_model_in_env(model: str) -> None:
-    """Write ANTHROPIC_MODEL to the env file, replacing any existing line."""
+def set_model_in_env(model: str, variable: str = "ANTHROPIC_MODEL") -> None:
+    """Write an agent model override to the service env file."""
+    if variable not in {"ANTHROPIC_MODEL", "CODEX_MODEL"}:
+        raise ValueError("Unsupported model variable")
+    if not _MODEL_PATTERN.fullmatch(model):
+        raise ValueError("Invalid model identifier")
     ENV_FILE.parent.mkdir(parents=True, exist_ok=True)
     existing = ENV_FILE.read_text(encoding="utf-8") if ENV_FILE.is_file() else ""
 
     lines = existing.splitlines()
     replaced = False
     for index, line in enumerate(lines):
-        is_model_line = line.startswith("ANTHROPIC_MODEL=")
+        is_model_line = line.startswith(f"{variable}=")
         if is_model_line:
-            lines[index] = f"ANTHROPIC_MODEL={model}"
+            lines[index] = f"{variable}={model}"
             replaced = True
     if not replaced:
-        lines.append(f"ANTHROPIC_MODEL={model}")
+        lines.append(f"{variable}={model}")
 
     ENV_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    logger.info("Persisted ANTHROPIC_MODEL=%s to %s", model, ENV_FILE)
+    logger.info("Persisted %s=%s to %s", variable, model, ENV_FILE)

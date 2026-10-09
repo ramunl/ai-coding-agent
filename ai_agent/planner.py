@@ -12,6 +12,7 @@ from pathlib import Path
 
 import anthropic
 
+from ai_agent.codex_models import model_args
 from ai_agent.config import (
     ANTHROPIC_KEY,
     ANTHROPIC_MODEL,
@@ -63,6 +64,7 @@ def _codex_message(prompt: str, schema_name: str) -> str:
                 [
                     "codex",
                     "exec",
+                    *model_args(),
                     "--sandbox",
                     "read-only",
                     "--ephemeral",

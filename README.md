@@ -15,6 +15,11 @@ Optional values:
 
 - `PLANNING_AGENT`, `codex` or `claude`, defaults to `codex`
 - `ANTHROPIC_API_KEY`, required only when Claude is selected for planning
+- `CODEX_MODEL`: optional model override for all Codex planning and implementation runs.
+  Set it in **Coding → Setup → AI tools**, or `/model codex set <id>`;
+  `/model codex list` lists the installed CLI catalog. `default` restores CLI
+  configuration. Selection is saved to `AGENT_ENV_FILE` and applies to the next
+  run without a restart. Listing/validation uses `model/list`, with no inference.
 - `ANTHROPIC_MODEL`, defaults to `claude-sonnet-4-6`
 - `IMPLEMENTATION_AGENT`, `codex` or `claude`, defaults to `codex`
 - `CLAUDE_CODE_ARGS`, extra Claude Code CLI args, defaults to `--permission-mode acceptEdits`;

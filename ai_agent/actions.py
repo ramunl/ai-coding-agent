@@ -126,6 +126,10 @@ async def switch_model(tool_name: str, model: str) -> str:
             f"Refusing to switch: {model} is {detail}. The current model is unchanged."
         )
     await asyncio.to_thread(tool.set_model, model)
+    if tool.name == "codex":
+        return (
+            f"Saved Codex model = {model}. Applies to the next run; no restart needed."
+        )
     try:
         restart_note = await asyncio.to_thread(schedule_restart)
     except RuntimeError as error:

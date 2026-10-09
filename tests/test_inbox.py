@@ -145,6 +145,7 @@ class ValidationTests(InboxTestCase):
             ("set_planner", {"value": "claude"}),
             ("set_implementer", {"value": "codex"}),
             ("switch_model", {"tool": "claude", "model": "claude-sonnet-4-6"}),
+            ("switch_model", {"tool": "codex", "model": "default"}),
         ]:
             self.assertEqual(self.inbox.validate(self.request(action, args))[1], action)
 
@@ -156,7 +157,7 @@ class ValidationTests(InboxTestCase):
             self.request("add_repository", {"repository": "owner/repo; rm -rf /"}),
             self.request("add_repository", {"repository": "https://evil.example/x/y"}),
             self.request("set_planner", {"value": "gpt"}),
-            self.request("switch_model", {"tool": "codex", "model": "m"}),
+            self.request("switch_model", {"tool": "claude-code", "model": "m"}),
             self.request("switch_model", {"tool": "claude", "model": "a b"}),
             self.request("use_project", {"name": "cc"}, request_id="../../x"),
             self.request("use_project", "cc"),

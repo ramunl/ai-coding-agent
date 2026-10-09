@@ -35,7 +35,7 @@ class AIToolsTests(unittest.TestCase):
         self.assertTrue(claude.manageable)
 
     def test_clis_are_read_only_and_explain_why(self) -> None:
-        for name in ("codex", "claude-code"):
+        for name in ("claude-code",):
             tool = self.ai_tools.get_tool(name)
             self.assertFalse(tool.manageable)
             # A read-only tool must tell the user where its model really lives.

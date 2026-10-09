@@ -41,7 +41,11 @@ class ModelChoices:
             if not info.manageable:
                 continue
             tool = get_tool(info.tool)
-            ok, models = tool.list_models() if tool else (False, "unknown tool")
+            try:
+                ok, models = tool.list_models() if tool else (False, "unknown tool")
+            except (OSError, RuntimeError, ValueError):
+                logger.exception("Model choices refresh failed for %s", info.tool)
+                ok, models = False, "Could not refresh this tool; check server logs."
             if ok:
                 self.choices[info.tool] = [
                     model["id"] for model in models if model.get("id")

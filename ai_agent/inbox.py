@@ -59,7 +59,7 @@ ACTIONS: dict[str, dict[str, Any]] = {
     "add_repository": {"repository": _REPOSITORY},
     "set_planner": {"value": _AGENTS},
     "set_implementer": {"value": _AGENTS},
-    "switch_model": {"tool": ("claude",), "model": _MODEL},
+    "switch_model": {"tool": ("claude", "codex"), "model": _MODEL},
     "approve_plan": {},
     "confirm_work": {},
     "cancel_pending": {},

@@ -112,7 +112,10 @@ class PlannerTests(unittest.TestCase):
     def test_codex_planner_uses_read_only_structured_output(self) -> None:
         planner = importlib.import_module("ai_agent.planner")
 
-        with patch("ai_agent.planner.run") as run_mock:
+        with (
+            patch("ai_agent.planner.run") as run_mock,
+            patch.dict(os.environ, CODEX_MODEL="codex-test"),
+        ):
 
             def write_output(args, timeout):
                 output_path = args[args.index("--output-last-message") + 1]
@@ -124,6 +127,7 @@ class PlannerTests(unittest.TestCase):
 
         args = run_mock.call_args.args[0]
         self.assertEqual(result, '{"status":"ready","questions":[]}')
+        self.assertEqual(args[args.index("--model") + 1], "codex-test")
         self.assertIn("--sandbox", args)
         self.assertIn("read-only", args)
         self.assertIn("--ephemeral", args)
