@@ -3,7 +3,9 @@
 The agent records a pull request when a task's run finishes; what happens to
 it afterwards (review, merge) happens on GitHub. Every few minutes this asks
 GitHub about the branch of each task in the "pr" stage and moves the task:
-merged -> "done", closed without merging -> "stopped". Read-only requests.
+merged -> "done", closed without merging -> "stopped". A task whose run ended
+unseen ("ended") becomes "pr" if a pull request exists, otherwise "stopped".
+Read-only requests.
 """
 
 from __future__ import annotations
@@ -21,6 +23,8 @@ from ai_agent.tasks import set_stage, tasks_of
 logger = logging.getLogger(__name__)
 
 POLL_SECONDS = 300
+# A run that just ended unseen is settled sooner: the owner is likely watching.
+ENDED_POLL_SECONDS = 30
 
 
 def _epoch(value: Any) -> float | None:
@@ -54,9 +58,14 @@ def pull_state(repository: str, branch: str) -> dict | None:
 
 def apply_pull(task: dict, pull: dict | None) -> bool:
     """Move a task by its pull request's state; True if anything changed."""
-    if pull is None:
-        return False
     before = dict(task)
+    if pull is None:
+        if task.get("stage") != "ended":
+            return False
+        set_stage(
+            task, "stopped", "the run ended without a pull request; see the bot chat"
+        )
+        return True
     if pull.get("url"):
         task["pr_url"] = pull["url"]
     if pull["state"] == "merged":
@@ -65,7 +74,7 @@ def apply_pull(task: dict, pull: dict | None) -> bool:
         set_stage(task, "done")
     elif pull["state"] == "closed":
         set_stage(task, "stopped", "the pull request was closed without merging")
-    elif task.get("note") == "run finished; pull request not recorded":
+    elif task.get("stage") == "ended":
         set_stage(task, "pr")
     return task != before
 
@@ -74,7 +83,9 @@ async def check_once(data: MutableMapping) -> bool:
     """Ask GitHub about every task waiting on its pull request; True if any moved."""
     changed = False
     for task in [
-        t for t in tasks_of(data) if t.get("stage") == "pr" and t.get("branch")
+        t
+        for t in tasks_of(data)
+        if t.get("stage") in ("pr", "ended") and t.get("branch")
     ]:
         try:
             repository = (
@@ -101,4 +112,6 @@ async def track_forever(
                 ptb_app.mark_data_for_update_persistence(user_ids=owner_id)
         except Exception as error:
             logger.warning("Pull request tracking failed (will retry): %s", error)
-        await asyncio.sleep(interval)
+        data = ptb_app.user_data.get(owner_id) or {}
+        waiting = any(task.get("stage") == "ended" for task in data.get("tasks") or [])
+        await asyncio.sleep(min(interval, ENDED_POLL_SECONDS) if waiting else interval)

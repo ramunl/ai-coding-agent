@@ -21,7 +21,21 @@ import time
 from collections.abc import MutableMapping
 from typing import Any
 
-STAGES = ("todo", "planning", "planned", "implementing", "pr", "done", "stopped")
+# "ended": the run finished but the agent did not see how (another run's result
+# replaced it, or it failed); task_pulls asks GitHub whether a pull request exists.
+STAGES = (
+    "todo",
+    "planning",
+    "planned",
+    "implementing",
+    "ended",
+    "pr",
+    "done",
+    "stopped",
+)
+ENDED_NOTE = "run finished; checking GitHub for a pull request"
+# Saved by an earlier version, which wrongly called such a task "PR open".
+_OLD_UNKNOWN_NOTE = "run finished; pull request not recorded"
 FINISHED = ("pr", "done", "stopped")
 MAX_TASKS = 50
 TITLE_LENGTH = 300
@@ -98,7 +112,9 @@ def _advance(
     task: dict, data: MutableMapping, pending_id: Any, busy: set, last: Any
 ) -> None:
     stage = task.get("stage")
-    if stage == "planning" and data.get("planning_task") != task.get("id"):
+    if stage == "pr" and task.get("note") == _OLD_UNKNOWN_NOTE:
+        set_stage(task, "ended", ENDED_NOTE)
+    elif stage == "planning" and data.get("planning_task") != task.get("id"):
         set_stage(task, "todo", "planning was interrupted")
     elif stage == "planned":
         if task.get("branch") in busy:
@@ -107,7 +123,9 @@ def _advance(
             set_stage(task, "stopped", "the plan was cancelled or replaced")
     elif stage == "implementing" and task.get("branch") not in busy:
         if getattr(last, "branch", None) != task.get("branch"):
-            set_stage(task, "pr", "run finished; pull request not recorded")
+            # Most often a failed run (failures do not replace last_execution):
+            # never claim a pull request without seeing one.
+            set_stage(task, "ended", ENDED_NOTE)
         elif getattr(last, "pr_url", None):
             task["pr_url"] = last.pr_url
             set_stage(task, "pr")

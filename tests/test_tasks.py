@@ -66,6 +66,18 @@ class StageTests(unittest.TestCase):
         self.assertEqual(self.task["stage"], "pr")
         self.assertEqual(self.task["pr_url"], "https://github.com/o/r/pull/7")
 
+    def test_a_run_that_ends_unseen_is_not_called_pr_open(self) -> None:
+        self.tasks.set_stage(self.task, "implementing")
+        self.data["last_execution"] = SimpleNamespace(branch="other", pr_url="u")
+        self.tasks.sync(self.data)
+        self.assertEqual(self.task["stage"], "ended")
+        self.assertEqual(self.task["note"], self.tasks.ENDED_NOTE)
+
+    def test_tasks_saved_as_pr_open_by_the_old_guess_are_moved_to_ended(self) -> None:
+        self.tasks.set_stage(self.task, "pr", "run finished; pull request not recorded")
+        self.assertTrue(self.tasks.sync(self.data))
+        self.assertEqual(self.task["stage"], "ended")
+
     def test_cancelled_or_replaced_plan_stops_the_task(self) -> None:
         self.tasks.set_stage(self.task, "planned")
         self.data["pending_plan"] = self.plan("other")

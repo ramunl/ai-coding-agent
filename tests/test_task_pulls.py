@@ -67,7 +67,7 @@ class TaskPullTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(self.pulls.apply_pull(self.task, merged))
         self.assertEqual((self.task["stage"], self.task["merged_at"]), ("done", 5.0))
         other = self.tasks.add_task(self.data, "x", "repo", None)
-        other.update(stage="pr", note="run finished; pull request not recorded")
+        other.update(stage="ended", note=self.tasks.ENDED_NOTE)
         self.assertTrue(self.pulls.apply_pull(other, {"url": "u2", "state": "open"}))
         self.assertEqual(
             (other["stage"], other["note"], other["pr_url"]), ("pr", None, "u2")
@@ -116,3 +116,38 @@ class TaskPullTests(unittest.IsolatedAsyncioTestCase):
                 await loop
         app.mark_data_for_update_persistence.assert_called_with(user_ids=123)
         self.assertIn("done", self.tasks.FINISHED)
+
+    def test_an_ended_run_without_a_pull_request_is_stopped_not_pr_open(self) -> None:
+        self.task.update(stage="ended", note=self.tasks.ENDED_NOTE)
+        self.assertTrue(self.pulls.apply_pull(self.task, None))
+        self.assertEqual(self.task["stage"], "stopped")
+        self.assertIn("without a pull request", self.task["note"])
+        pr_task = self.tasks.add_task(self.data, "y", "repo", None)
+        pr_task.update(stage="pr", branch="b")
+        self.assertFalse(self.pulls.apply_pull(pr_task, None))  # PR open stays
+
+    async def test_ended_tasks_are_checked_again_soon(self) -> None:
+        self.task.update(stage="ended")
+        app = SimpleNamespace(
+            user_data={123: self.data}, mark_data_for_update_persistence=MagicMock()
+        )
+        calls = []
+
+        def first_none_then_open(repository, branch):
+            calls.append(branch)
+            return None if len(calls) == 1 else {"url": "u", "state": "open"}
+
+        other = self.tasks.add_task(self.data, "z", "repo", None)
+        other.update(stage="ended", branch="feature/z")
+        with (
+            patch.object(self.pulls, "pull_state", first_none_then_open),
+            patch.object(self.pulls, "ENDED_POLL_SECONDS", 0.01),
+        ):
+            loop = asyncio.create_task(self.pulls.track_forever(app, 123, interval=60))
+            await asyncio.sleep(0.05)
+            loop.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await loop
+        # Both settled on the first pass; no waiting for the 60-second interval.
+        self.assertEqual(calls, ["feature/login", "feature/z"])
+        self.assertEqual((self.task["stage"], other["stage"]), ("stopped", "pr"))
