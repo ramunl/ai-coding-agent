@@ -36,6 +36,11 @@ from ai_agent.config import CI_FIX_ATTEMPTS
 from ai_agent.github import PullRequest, ensure_github_configured, github_request
 from ai_agent.plan_state import Verbosity, render_completion
 from ai_agent.projects import active_project
+from ai_agent.run_outcomes import (
+    NoCodeOutcomeError,
+    discard_empty_branch,
+    record_outcome,
+)
 from ai_agent.workflow import (
     ImplementationResult,
     create_pull_request,
@@ -122,6 +127,7 @@ async def run_queued_implementation(
         task.get("implementation_agent")
     )
     confirmation_label = task.get("confirmation_label", "implementation")
+    no_code = False
     try:
         pull_request, commit_sha = await _publish_queued_implementation(
             update, context, task
@@ -147,9 +153,25 @@ async def run_queued_implementation(
             f"Done with {confirmation_label}.\nBranch: {branch_name}\nPR: "
             f"{pull_request.url}",
         )
+    except NoCodeOutcomeError as outcome:
+        no_code = True
+        record_outcome(context.user_data, branch_name, outcome)
+        context.application.mark_data_for_update_persistence(
+            user_ids=[update.effective_user.id]
+        )
+        await reply_chunks(
+            update,
+            str(outcome) + "\n\nUse the Ops dashboard or Ops bot for server actions. "
+            "After resolving the blocker, retry the task.",
+        )
     finally:
         context.user_data.pop("active_execution", None)
         await reset_to_base_branch()
+        if no_code:
+            try:
+                await asyncio.to_thread(discard_empty_branch, branch_name)
+            except RuntimeError:
+                logger.warning("Could not remove empty branch %s", branch_name)
 
 
 async def _publish_queued_implementation(

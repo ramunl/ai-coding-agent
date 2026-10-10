@@ -9,11 +9,12 @@ from ai_agent.config import (
     CLAUDE_CODE_ARGS,
     CODEX_TIMEOUT_SECONDS,
     IMPLEMENTATION_AGENT,
-    redact_sensitive,
 )
 from ai_agent.github import PullRequest, ensure_github_configured, github_request
 from ai_agent.model_errors import codex_capacity_explained
+from ai_agent.ops_context import OUTCOME_INSTRUCTIONS, diagnostic_context
 from ai_agent.projects import active_project
+from ai_agent.run_outcomes import NoCodeOutcomeError
 from ai_agent.shell import CommandResult, run
 
 
@@ -88,7 +89,12 @@ def implementation_command(prompt: str, agent: str | None = None) -> list[str]:
 def run_implementation_agent(prompt: str, agent: str | None = None) -> CommandResult:
     """Run a provider command and explain capacity failures."""
     with codex_capacity_explained():
-        return run(implementation_command(prompt, agent), timeout=CODEX_TIMEOUT_SECONDS)
+        return run(
+            implementation_command(
+                prompt + diagnostic_context() + OUTCOME_INSTRUCTIONS, agent
+            ),
+            timeout=CODEX_TIMEOUT_SECONDS,
+        )
 
 
 def slugify_branch_name(
@@ -180,17 +186,7 @@ def _run_and_capture_changes(prompt: str, agent: str | None) -> ImplementationRe
     run(["git", "add", "-N", "."])
     files_changed = changed_files()
     if not files_changed:
-        detail = redact_sensitive(agent_result.output).strip()
-        detail = "\n".join(detail.splitlines()[:18])[:3500]
-        raise RuntimeError(
-            "Implementation stopped without file changes; "
-            "no commit or PR was created.\n"
-            + (
-                f"Agent report:\n{detail}"
-                if detail
-                else "The agent returned no explanation."
-            )
-        )
+        raise NoCodeOutcomeError(agent_result.output)
     diff = run(["git", "diff", "--no-ext-diff"]).output
     return ImplementationResult(
         output=agent_result.output, files_changed=files_changed, diff=diff

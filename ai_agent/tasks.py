@@ -29,6 +29,8 @@ STAGES = (
     "planned",
     "implementing",
     "ended",
+    "blocked",
+    "ops_required",
     "pr",
     "done",
     "stopped",

@@ -23,7 +23,7 @@ from ai_agent.tasks import add_task, find_task, set_stage, tasks_of
 logger = logging.getLogger(__name__)
 
 TASK_ACTIONS = ("create_task", "start_task", "remove_task")
-REMOVABLE = ("todo", "stopped", "pr", "done")
+REMOVABLE = ("todo", "stopped", "pr", "done", "blocked", "ops_required")
 
 
 def start_refusal(data: Any) -> str | None:
@@ -116,8 +116,10 @@ async def run_task_action(
     if task is None:
         raise ActionError("That task no longer exists.")
     if action == "start_task":
-        if task.get("stage") not in ("todo", "stopped"):
-            raise ActionError("Only a To do or stopped task can be started.")
+        if task.get("stage") not in ("todo", "stopped", "blocked", "ops_required"):
+            raise ActionError(
+                "Only a To do, stopped, blocked or Ops-action task can be started."
+            )
         return await start(ptb_app, owner_id, task)
     if task.get("stage") not in REMOVABLE:
         raise ActionError("A task can be removed only when it is not in progress.")

@@ -276,3 +276,20 @@ if overriding it; the capture file is owner-only.
 
 Core pin updates are prepared and pushed from a temporary checkout of remote main.
 The running repository is left unchanged until the deployment manager installs and verifies the update.
+
+### Coding runs that need server evidence or an operational action
+
+For the four managed agent repositories, the orchestrator calls the Ops-owned
+`/usr/local/sbin/ai-diagnostics <service>` before planning and implementation.
+Install it using the Ops README. The coding model receives bounded, redacted
+read-only evidence in its prompt, without opening live env files or changing its
+CLI permission mode. Other repositories receive no server diagnostics.
+
+A run that makes no repository changes can return a structured `blocked` or
+`ops_required` report with `summary`, `evidence` and `next_step`. Unstructured
+no-change reports default to Blocked. Telegram reports the outcome; the snapshot
+and persistent state retain it, and linked tasks remain open and retryable.
+These outcomes skip commit, PR creation and CI. They never complete a linked todo.
+Use the existing Ops bot/dashboard controls for reviewed server actions. Actions
+outside those controls still require an administrator; arbitrary shell execution
+is not exposed to the model. The report is a proposal, not proof of a repair.

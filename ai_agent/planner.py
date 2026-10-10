@@ -24,6 +24,7 @@ from ai_agent.model_errors import (
     codex_capacity_explained,
     model_error_message,
 )
+from ai_agent.ops_context import diagnostic_context
 from ai_agent.projects import active_project
 from ai_agent.provider_limits import record_claude_response
 from ai_agent.rules import rules_prompt_block
@@ -95,6 +96,7 @@ def _create_message(
 def _planner_message(
     prompt: str, provider: str | None, schema_name: str, max_tokens: int
 ) -> str:
+    prompt += diagnostic_context()
     selected = normalize_planning_agent(provider)
     if selected == "codex":
         return _codex_message(prompt, schema_name)

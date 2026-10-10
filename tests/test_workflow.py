@@ -28,9 +28,8 @@ class WorkflowTests(unittest.TestCase):
             ),
             patch.object(workflow, "run", return_value=CommandResult([], 0, "")),
             patch.object(workflow, "changed_files", return_value=[]),
-            patch.object(
-                workflow,
-                "redact_sensitive",
+            patch(
+                "ai_agent.run_outcomes.redact_sensitive",
                 side_effect=lambda text: text.replace("private-value", "[redacted]"),
             ),
         ):
@@ -179,9 +178,10 @@ class WorkflowTests(unittest.TestCase):
 
         calls = [call.args[0] for call in mock_run.call_args_list]
         self.assertIn(["git", "checkout", "bugfix/example"], calls)
-        self.assertIn(
-            ["codex", "exec", "-s", "workspace-write", "fix compile error"], calls
-        )
+        command = next(command for command in calls if command[0] == "codex")
+        self.assertEqual(command[:4], ["codex", "exec", "-s", "workspace-write"])
+        self.assertTrue(command[-1].startswith("fix compile error"))
+        self.assertIn("ops_required", command[-1])
         self.assertEqual(result.files_changed, ["File.kt"])
 
     @patch("ai_agent.workflow.run")
@@ -198,10 +198,11 @@ class WorkflowTests(unittest.TestCase):
         repair_implementation("fix compile error", "bugfix/example", "claude")
 
         calls = [call.args[0] for call in mock_run.call_args_list]
-        self.assertIn(
-            ["claude", "-p", "fix compile error", "--permission-mode", "acceptEdits"],
-            calls,
-        )
+        command = next(command for command in calls if command[0] == "claude")
+        self.assertEqual(command[:2], ["claude", "-p"])
+        self.assertTrue(command[2].startswith("fix compile error"))
+        self.assertIn("ops_required", command[2])
+        self.assertEqual(command[3:], ["--permission-mode", "acceptEdits"])
 
     @patch("ai_agent.workflow.run")
     def test_repair_pull_request_branch_resets_from_origin_branch(
@@ -223,9 +224,10 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn(
             ["git", "checkout", "-B", "bugfix/example", "origin/bugfix/example"], calls
         )
-        self.assertIn(
-            ["codex", "exec", "-s", "workspace-write", "fix compile error"], calls
-        )
+        command = next(command for command in calls if command[0] == "codex")
+        self.assertEqual(command[:4], ["codex", "exec", "-s", "workspace-write"])
+        self.assertTrue(command[-1].startswith("fix compile error"))
+        self.assertIn("ops_required", command[-1])
         self.assertEqual(result.files_changed, ["File.kt"])
 
     @patch("ai_agent.workflow.run")

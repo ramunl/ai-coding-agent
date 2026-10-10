@@ -43,6 +43,7 @@ PERSISTENT_KEYS = frozenset(
         "planning_agent",
         "implementation_agent",
         "last_execution",
+        "last_run_outcome",
         "tasks",
     }
 )
@@ -302,6 +303,7 @@ def snapshot(context: Any) -> dict:
         "planning_agent": current_planning_agent(context),
         "implementation_agent": current_implementation_agent(context),
         "verbosity": get_verbosity(context).value,
+        "last_run_outcome": data.get("last_run_outcome"),
         "last_execution": (
             {
                 "branch": last.branch,
