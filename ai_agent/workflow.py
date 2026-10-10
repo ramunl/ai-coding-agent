@@ -9,6 +9,7 @@ from ai_agent.config import (
     CLAUDE_CODE_ARGS,
     CODEX_TIMEOUT_SECONDS,
     IMPLEMENTATION_AGENT,
+    redact_sensitive,
 )
 from ai_agent.github import PullRequest, ensure_github_configured, github_request
 from ai_agent.model_errors import codex_capacity_explained
@@ -178,6 +179,18 @@ def _run_and_capture_changes(prompt: str, agent: str | None) -> ImplementationRe
     agent_result = run_implementation_agent(prompt, agent)
     run(["git", "add", "-N", "."])
     files_changed = changed_files()
+    if not files_changed:
+        detail = redact_sensitive(agent_result.output).strip()
+        detail = "\n".join(detail.splitlines()[:18])[:3500]
+        raise RuntimeError(
+            "Implementation stopped without file changes; "
+            "no commit or PR was created.\n"
+            + (
+                f"Agent report:\n{detail}"
+                if detail
+                else "The agent returned no explanation."
+            )
+        )
     diff = run(["git", "diff", "--no-ext-diff"]).output
     return ImplementationResult(
         output=agent_result.output, files_changed=files_changed, diff=diff
@@ -208,11 +221,8 @@ def push(branch_name: str, change_name: str, commit_type: str = "feat") -> str:
     validate_branch_name(branch_name)
     if not has_changes():
         raise RuntimeError(
-            "The implementation agent finished but made no file changes, so "
-            "there is nothing to commit. This usually means the task was too "
-            "vague to act on or the agent described the change instead of "
-            "making it. Try /discuss to sharpen the plan, or re-run with a "
-            "more specific feature description."
+            "There are no uncommitted file changes to publish. "
+            "No commit or pull request was created."
         )
     run(["git", "add", "."])
     run(["git", "commit", "-m", f"{commit_type}: {change_name}"])

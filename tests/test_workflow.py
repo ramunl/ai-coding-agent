@@ -16,6 +16,48 @@ from ai_agent.workflow import (
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_no_changes_preserves_bounded_redacted_agent_explanation(self):
+        from ai_agent import workflow
+
+        output = "Permission denied reading server logs\n" + "private-value\n" * 40
+        with (
+            patch.object(
+                workflow,
+                "run_implementation_agent",
+                return_value=CommandResult([], 0, output),
+            ),
+            patch.object(workflow, "run", return_value=CommandResult([], 0, "")),
+            patch.object(workflow, "changed_files", return_value=[]),
+            patch.object(
+                workflow,
+                "redact_sensitive",
+                side_effect=lambda text: text.replace("private-value", "[redacted]"),
+            ),
+        ):
+            with self.assertRaises(RuntimeError) as caught:
+                workflow._run_and_capture_changes("fix", "claude")
+        message = str(caught.exception)
+        self.assertIn("Permission denied reading server logs", message)
+        self.assertIn("no commit or PR", message)
+        self.assertNotIn("private-value", message)
+        self.assertNotIn("too vague", message)
+        self.assertLessEqual(len(message.splitlines()), 20)
+
+    def test_no_changes_without_agent_output_says_so(self):
+        from ai_agent import workflow
+
+        with (
+            patch.object(
+                workflow,
+                "run_implementation_agent",
+                return_value=CommandResult([], 0, ""),
+            ),
+            patch.object(workflow, "run", return_value=CommandResult([], 0, "")),
+            patch.object(workflow, "changed_files", return_value=[]),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "returned no explanation"):
+                workflow._run_and_capture_changes("fix", "claude")
+
     def test_codex_implementation_uses_selected_model(self):
         with patch.dict(os.environ, CODEX_MODEL="codex-test"):
             command = implementation_command("implement", "codex")
