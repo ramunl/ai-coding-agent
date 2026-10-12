@@ -15,7 +15,7 @@ from telegram.ext import ContextTypes
 from ai_agent.bot.transport import reply_chunks, require_authorized
 from ai_agent.worker import settings, view
 
-WORKER_ACTIONS = ("worker_switch", "worker_settings", "worker_tools")
+WORKER_ACTIONS = ("worker_switch", "worker_settings", "worker_tools", "worker_scan")
 USAGE = "Usage: /worker [on|off|budget <runs per day> <reserve %>|tools auto|fixed]"
 
 
@@ -53,7 +53,7 @@ def status_text(data: Any) -> str:
             f"{tool} out until {time.strftime('%H:%M', time.localtime(until))}\n"
             for tool, until in shown["out_until"].items()
         )
-        + "\n/worker on · off · budget <runs> <reserve%> · tools auto|fixed"
+        + "\n/worker on · off · scan · budget <runs> <reserve%> · tools auto|fixed"
     )
 
 
@@ -62,6 +62,13 @@ async def worker_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     if not require_authorized(update):
         return
     args = [arg.lower() for arg in context.args]
+    if args == ["scan"]:
+        from ai_agent.bot.worker_loop import scan_logs  # needs the whole bot
+
+        proposed = await scan_logs(context.application, update.effective_chat.id)
+        if not proposed:
+            await reply_chunks(update, "No new recurring errors in the last 24 hours.")
+        return
     if len(args) == 2 and args[0] == "tools" and args[1] in ("auto", "fixed"):
         run_worker_action(context.user_data, "worker_tools", {"value": args[1]})
     elif args in (["on"], ["off"]):

@@ -72,6 +72,9 @@ ACTIONS: dict[str, dict[str, Any]] = {
     "create_task": {"repo": _NAME, "text": _TEXT, "todo": _TODO_REF},
     "start_task": {"task": _TASK_ID},
     "remove_task": {"task": _TASK_ID},
+    "accept_task": {"task": _TASK_ID},
+    "dismiss_task": {"task": _TASK_ID},
+    "worker_scan": {},
     "worker_switch": {"value": ("on", "off")},
     "worker_settings": {"max_runs": _COUNT, "reserve": _PERCENT},
     "worker_tools": {"value": ("auto", "fixed")},
@@ -87,9 +90,12 @@ WORK_ACTIONS = (
     "create_task",
     "start_task",
     "remove_task",
+    "accept_task",
+    "dismiss_task",
     "worker_switch",
     "worker_settings",
     "worker_tools",
+    "worker_scan",
 )
 
 
@@ -263,6 +269,15 @@ async def inbox_forever(
     else:
 
         async def work(action: str, args: dict[str, str]) -> str:
+            if action == "worker_scan":
+                from ai_agent.bot.worker_loop import scan_logs
+
+                found = await scan_logs(ptb_app, owner_id)
+                return (
+                    f"Proposed {len(found)} task(s) from the logs."
+                    if found
+                    else ("No new recurring errors in the last 24 hours.")
+                )
             if action in WORKER_ACTIONS:
                 return run_worker_action(ptb_app.user_data[owner_id], action, args)
             if action in TASK_ACTIONS:

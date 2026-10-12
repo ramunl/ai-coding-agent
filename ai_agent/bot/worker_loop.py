@@ -13,8 +13,10 @@ import logging
 import time
 from typing import Any
 
+from ai_agent import log_scan
 from ai_agent.actions import ActionError
 from ai_agent.bot import task_actions, work_actions
+from ai_agent.projects import list_projects
 from ai_agent.provider_limits import limits_snapshot
 from ai_agent.tasks import find_task, set_stage, tasks_of
 from ai_agent.worker import (
@@ -106,6 +108,9 @@ async def tick(ptb_app: Any, owner_id: int, now: float | None = None) -> str:
         return decision_status
     decision = decide(data, tasks_of(data), limits_snapshot(), now)
     data["worker_status"] = decision.status
+    is_idle = worker["enabled"] and decision.status.startswith("idle")
+    if is_idle and log_scan.is_due(data, now):
+        await scan_logs(ptb_app, owner_id, now)
     if decision.action == "wait" or not worker["enabled"]:
         return decision.status
     task = decision.task
@@ -146,6 +151,30 @@ async def tick(ptb_app: Any, owner_id: int, now: float | None = None) -> str:
         data["worker_status"] = f"waiting: {error}"
     ptb_app.mark_data_for_update_persistence(user_ids=owner_id)
     return data["worker_status"]
+
+
+async def scan_logs(
+    ptb_app: Any, owner_id: int, now: float | None = None
+) -> list[dict]:
+    """Propose tasks from the server logs and say so in the chat."""
+    now = time.time() if now is None else now
+    data = ptb_app.user_data[owner_id]
+    projects = {project.name for project in await asyncio.to_thread(list_projects)}
+    services = [name for name, repo in log_scan.SERVICES.items() if repo in projects]
+    journals = await asyncio.to_thread(
+        lambda: {name: log_scan.read_journal(name) for name in services}
+    )
+    proposed = log_scan.scan(data, projects, now, lambda name: journals.get(name, []))
+    ptb_app.mark_data_for_update_persistence(user_ids=owner_id)
+    if proposed:
+        titles = "\n".join(f"• {task['title'][:120]}" for task in proposed)
+        await _tell(
+            ptb_app,
+            owner_id,
+            f"proposed {len(proposed)} task(s) from the server logs; accept or "
+            f"dismiss them in Tasks:\n{titles}",
+        )
+    return proposed
 
 
 async def worker_forever(

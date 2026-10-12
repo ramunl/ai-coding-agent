@@ -314,3 +314,14 @@ until the reset time in the error (an hour if none is given), puts the task
 back to To do, and does not count as a failure. A task the
 worker fails is not picked again until you start it; after three failures in
 a row the worker switches itself off and says so in the chat.
+
+### Tasks from the server logs
+
+Once a day, when it has nothing to do, the worker reads the last 24 hours of
+error-level journal lines of the four agent services, groups lines that differ
+only in numbers, ids and times, and proposes a task for the three most
+frequent new errors ("Fix error in ai-pm-agent: …", with example lines). No AI
+is used for this; the planner looks at the error once you accept the proposal.
+Proposals never start by themselves: accept one in Tasks (it becomes To do) or
+dismiss it, and that error is not proposed again for 30 days. `/worker scan`
+(or **Scan logs now** in the dashboard) scans at once.

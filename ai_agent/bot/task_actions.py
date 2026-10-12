@@ -9,10 +9,12 @@ reason, and is started later from the Tasks window.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 from telegram.ext import CallbackContext
 
+from ai_agent import log_scan
 from ai_agent.actions import ActionError, use_project
 from ai_agent.bot import work_actions
 from ai_agent.bot.planning import plan
@@ -22,7 +24,13 @@ from ai_agent.tasks import add_task, find_task, set_stage, tasks_of
 
 logger = logging.getLogger(__name__)
 
-TASK_ACTIONS = ("create_task", "start_task", "remove_task")
+TASK_ACTIONS = (
+    "create_task",
+    "start_task",
+    "remove_task",
+    "accept_task",
+    "dismiss_task",
+)
 REMOVABLE = ("todo", "stopped", "pr", "done", "blocked", "ops_required")
 
 
@@ -127,6 +135,15 @@ async def run_task_action(
     task = find_task(data, args["task"])
     if task is None:
         raise ActionError("That task no longer exists.")
+    if action in ("accept_task", "dismiss_task"):
+        if task.get("stage") != "proposed":
+            raise ActionError("That task is not a proposal any more.")
+        if action == "accept_task":
+            set_stage(task, "todo")
+            return f"Accepted as To do: {task['title']}"
+        log_scan.dismiss(data, task, time.time())
+        tasks_of(data).remove(task)
+        return "Dismissed; that error will not be proposed again for 30 days."
     if action == "start_task":
         if task.get("stage") not in ("todo", "stopped", "blocked", "ops_required"):
             raise ActionError(

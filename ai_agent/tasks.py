@@ -23,7 +23,10 @@ from typing import Any
 
 # "ended": the run finished but the agent did not see how (another run's result
 # replaced it, or it failed); task_pulls asks GitHub whether a pull request exists.
+# "proposed": drafted by the worker from the server logs; the owner accepts it
+# (it becomes "todo") or dismisses it. The worker never starts a proposal.
 STAGES = (
+    "proposed",
     "todo",
     "planning",
     "planned",
@@ -153,6 +156,8 @@ def view(task: dict, data: MutableMapping) -> dict:
         "merged_at": task.get("merged_at"),
         "merge_commit": task.get("merge_commit"),
         "created_at": task.get("created_at"),
+        "source": task.get("source"),
+        "evidence": list(task.get("evidence") or []),
         "plan_revision": getattr(pending, "revision", None) if is_own_plan else None,
         "plan_approved": bool(getattr(pending, "approved", False))
         if is_own_plan

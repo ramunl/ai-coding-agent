@@ -47,6 +47,7 @@ PERSISTENT_KEYS = frozenset(
         "last_run_outcome",
         "tasks",
         "worker",
+        "log_scan",
     }
 )
 
