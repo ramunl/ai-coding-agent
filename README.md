@@ -293,3 +293,17 @@ These outcomes skip commit, PR creation and CI. They never complete a linked tod
 Use the existing Ops bot/dashboard controls for reviewed server actions. Actions
 outside those controls still require an administrator; arbitrary shell execution
 is not exposed to the model. The report is a proposal, not proof of a repair.
+
+## Autonomous worker (`/worker`)
+
+When switched on (dashboard Tasks window, or `/worker on`), the worker checks
+every minute and, while the agent is idle, takes the oldest **To do** task:
+it plans it, waits for **your** approval, then runs it to a pull request. It
+never merges or deploys, and handles one task at a time.
+
+Budget, changeable in the dashboard or with `/worker budget <runs> <reserve%>`:
+implementation runs per 24 h (0 = no cap, default 3) and the share of a Codex
+limit window it must leave for you (default 30%). Claude Code's limits cannot
+be read outside an interactive session, so they are not checked. A task the
+worker fails is not picked again until you start it; after three failures in
+a row the worker switches itself off and says so in the chat.

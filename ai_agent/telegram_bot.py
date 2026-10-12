@@ -74,6 +74,7 @@ from ai_agent.bot.repositories import (
 )
 from ai_agent.bot.state import task_queue
 from ai_agent.bot.transport import error_handler, require_authorized
+from ai_agent.bot.worker_commands import worker_cmd
 from ai_agent.config import (
     ACTION_RESULTS_FILE,
     CHAT_ID,
@@ -113,6 +114,23 @@ def _start_snapshot_publisher(app: Application) -> None:
         publish_forever(app, CHAT_ID, SNAPSHOT_FILE)
     )
     _start_inbox(app)
+    _start_worker(app)
+
+
+_worker_task: asyncio.Task | None = None
+
+
+def _start_worker(app: Application) -> None:
+    """Run the autonomous worker (off until switched on; see ai_agent/worker.py)."""
+    global _worker_task
+    if _worker_task is not None and not _worker_task.done():
+        return
+    try:
+        from ai_agent.bot.worker_loop import worker_forever
+    except ImportError as error:  # the bot must start even if the worker cannot
+        logger.warning("Worker unavailable: %s", error)
+        return
+    _worker_task = asyncio.get_running_loop().create_task(worker_forever(app, CHAT_ID))
 
 
 _inbox_task: asyncio.Task | None = None
@@ -276,6 +294,7 @@ def command_handlers() -> dict:
         "answer": answer,
         "confirm": confirm,
         "queue": queue_cmd,
+        "worker": worker_cmd,
         "planner": planner_cmd,
         "agent": agent_cmd,
         "cancel": cancel,

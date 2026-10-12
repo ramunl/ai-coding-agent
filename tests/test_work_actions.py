@@ -253,8 +253,10 @@ class WorkActionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_inbox_routes_work_actions_and_validates_arguments(self) -> None:
         tasks = importlib.import_module("ai_agent.bot.task_actions")
+        workers = importlib.import_module("ai_agent.bot.worker_commands")
         self.assertEqual(
-            self.inbox.WORK_ACTIONS, self.work.WORK_ACTIONS + tasks.TASK_ACTIONS
+            self.inbox.WORK_ACTIONS,
+            self.work.WORK_ACTIONS + tasks.TASK_ACTIONS + workers.WORKER_ACTIONS,
         )
         for bad in (
             {"action": "remove_queued", "args": {"task": "4; rm"}},

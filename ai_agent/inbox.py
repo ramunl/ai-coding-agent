@@ -49,6 +49,8 @@ _TASK = re.compile(r"^[0-9]{1,9}$")
 _TEXT = re.compile(r"^(?=.*\S)[^\x00-\x1f\x7f]{1,4000}$")
 _KINDS = ("plan", "implement", "bugfix")
 _TASK_ID = re.compile(r"^[0-9a-f]{8}$")
+_COUNT = re.compile(r"^([0-9]|[1-4][0-9]|50)$")  # runs per day, 0 = no cap
+_PERCENT = re.compile(r"^([0-9]|[1-8][0-9]|90)$")  # reserve, 0-90 %
 # Where a task came from: "<todo project>:<todo id>", or "-" for none.
 _TODO_REF = re.compile(r"^(-|[A-Za-z0-9._-]{1,64}:[A-Za-z0-9]{1,64})$")
 WorkRunner = Callable[[str, dict[str, str]], Awaitable[str]]
@@ -70,6 +72,8 @@ ACTIONS: dict[str, dict[str, Any]] = {
     "create_task": {"repo": _NAME, "text": _TEXT, "todo": _TODO_REF},
     "start_task": {"task": _TASK_ID},
     "remove_task": {"task": _TASK_ID},
+    "worker_switch": {"value": ("on", "off")},
+    "worker_settings": {"max_runs": _COUNT, "reserve": _PERCENT},
 }
 WORK_ACTIONS = (
     "approve_plan",
@@ -82,6 +86,8 @@ WORK_ACTIONS = (
     "create_task",
     "start_task",
     "remove_task",
+    "worker_switch",
+    "worker_settings",
 )
 
 
@@ -249,11 +255,14 @@ async def inbox_forever(
     try:
         from ai_agent.bot.task_actions import TASK_ACTIONS, run_task_action
         from ai_agent.bot.work_actions import run_work_action
+        from ai_agent.bot.worker_commands import WORKER_ACTIONS, run_worker_action
     except ImportError as error:  # setup requests must keep working regardless
         logger.warning("Work actions unavailable: %s", error)
     else:
 
         async def work(action: str, args: dict[str, str]) -> str:
+            if action in WORKER_ACTIONS:
+                return run_worker_action(ptb_app.user_data[owner_id], action, args)
             if action in TASK_ACTIONS:
                 return await run_task_action(ptb_app, owner_id, action, args)
             return await run_work_action(ptb_app, owner_id, action, args)

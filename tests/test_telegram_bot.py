@@ -35,6 +35,7 @@ class ApplicationTests(TelegramTestCase):
                 "answer",
                 "confirm",
                 "queue",
+                "worker",
                 "planner",
                 "agent",
                 "cancel",

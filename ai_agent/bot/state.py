@@ -28,6 +28,7 @@ from ai_agent.plan_state import (
 )
 from ai_agent.planner import normalize_planning_agent
 from ai_agent.tasks import view as task_view
+from ai_agent.worker import view as worker_view
 from ai_agent.workflow import ImplementationResult, normalize_implementation_agent
 
 # Saved across restarts. Allowlist on purpose: a key nobody classified is
@@ -45,6 +46,7 @@ PERSISTENT_KEYS = frozenset(
         "last_execution",
         "last_run_outcome",
         "tasks",
+        "worker",
     }
 )
 
@@ -52,7 +54,13 @@ PERSISTENT_KEYS = frozenset(
 # queue_runner_active=True would stop the queue from ever running again, and
 # active_execution would report work that died with the old process.
 TRANSIENT_KEYS = frozenset(
-    {"active_execution", "queue_runner_active", "argument_prompt", "planning_task"}
+    {
+        "active_execution",
+        "queue_runner_active",
+        "argument_prompt",
+        "planning_task",
+        "worker_status",
+    }
 )
 
 
@@ -297,6 +305,7 @@ def snapshot(context: Any) -> dict:
         ),
         "bugfix_questions": _bugfix_questions(data),
         "tasks": [task_view(task, data) for task in data.get("tasks") or []],
+        "worker": worker_view(data, time.time()),
         "thinking": dict(data["thinking"])
         if isinstance(data.get("thinking"), dict)
         else None,

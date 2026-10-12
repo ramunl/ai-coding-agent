@@ -21,6 +21,7 @@ BOT_COMMANDS = [
     BotCommand("answer", "Answer bugfix questions"),
     BotCommand("confirm", "Queue approved work and run tasks"),
     BotCommand("queue", "Show queued work"),
+    BotCommand("worker", "Autonomous worker: status, on/off, budget"),
     BotCommand("planner", "Choose Codex or Claude for planning"),
     BotCommand("agent", "Choose Codex or Claude for implementation"),
     BotCommand("fixpr", "Repair failed CI on an existing PR"),
