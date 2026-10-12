@@ -34,6 +34,10 @@ TOOLS = ("codex", "claude")
 LIMIT_FALLBACK_SECONDS = 3600
 MAX_FAILURES = 3
 DAY = 24 * 3600
+HISTORY_DAYS = 7
+HISTORY_LIMIT = 200
+# How a finished step of the worker went, as kept in its history.
+OUTCOMES = ("planned", "pr", "failed", "limit")
 
 
 @dataclass(frozen=True)
@@ -249,6 +253,42 @@ def follow_up(worker: dict, task: dict | None) -> str | None:
     return "ok" if stage in ("pr", "done") else "failed"
 
 
+def record(worker: dict, current: dict, outcome: str, title: str, now: float) -> None:
+    """Remember how one step went, for the dashboard's stats (last 7 days)."""
+    entry = {
+        "at": now,
+        "phase": current.get("phase"),
+        "tool": current.get("tool"),
+        "outcome": outcome,
+        "title": str(title)[:120],
+    }
+    history = [
+        item
+        for item in worker.get("history", [])
+        if isinstance(item, dict) and now - item.get("at", 0) < HISTORY_DAYS * DAY
+    ]
+    worker["history"] = (history + [entry])[-HISTORY_LIMIT:]
+
+
+def stats(worker: dict, now: float) -> list[dict]:
+    """Per day, newest first: steps by outcome and by tool, for the last 7 days."""
+    days: dict[str, dict] = {}
+    for offset in range(HISTORY_DAYS):
+        day = time.strftime("%Y-%m-%d", time.localtime(now - offset * DAY))
+        days[day] = {"day": day, **dict.fromkeys(OUTCOMES, 0), "tools": {}}
+    for item in worker.get("history", []):
+        if not isinstance(item, dict) or item.get("outcome") not in OUTCOMES:
+            continue
+        day = time.strftime("%Y-%m-%d", time.localtime(item.get("at", 0)))
+        if day not in days:
+            continue
+        days[day][item["outcome"]] += 1
+        tool = item.get("tool")
+        if tool in TOOLS:
+            days[day]["tools"][tool] = days[day]["tools"].get(tool, 0) + 1
+    return list(days.values())
+
+
 def view(data: MutableMapping, now: float) -> dict:
     """What the dashboard shows about the worker."""
     worker = data.get("worker") if isinstance(data.get("worker"), dict) else {}
@@ -262,6 +302,14 @@ def view(data: MutableMapping, now: float) -> dict:
         "status": data.get("worker_status")
         or ("off" if not merged["enabled"] else "starting"),
         "current_task": (merged.get("current") or {}).get("task"),
+        "current_phase": (merged.get("current") or {}).get("phase"),
+        "current_tool": (merged.get("current") or {}).get("tool"),
+        "stats": stats(merged, now),
+        "recent": [
+            item
+            for item in (merged.get("history") or [])[-5:][::-1]
+            if isinstance(item, dict)
+        ],
         "auto_tool": bool(merged.get("auto_tool", True)),
         "out_until": {
             tool: until

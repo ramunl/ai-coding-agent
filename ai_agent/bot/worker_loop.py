@@ -25,6 +25,7 @@ from ai_agent.worker import (
     decide,
     follow_up,
     limit_reset,
+    record,
     settings,
 )
 
@@ -68,7 +69,9 @@ async def _limit_failure(
     return True
 
 
-async def _settle(ptb_app: Any, owner_id: int, data: Any, worker: dict) -> None:
+async def _settle(
+    ptb_app: Any, owner_id: int, data: Any, worker: dict, now: float
+) -> None:
     """Record how the current task went; switch off after repeated failures."""
     current = worker.get("current")
     task = find_task(data, current["task"]) if current else None
@@ -76,13 +79,17 @@ async def _settle(ptb_app: Any, owner_id: int, data: Any, worker: dict) -> None:
     if outcome is None:
         return
     worker["current"] = None
-    if outcome == "ok":
-        worker["failures"] = 0
-        return
     if outcome == "gone":
         return
-    if await _limit_failure(ptb_app, owner_id, data, worker, current, task):
+    if outcome == "ok":
+        worker["failures"] = 0
+        done = "planned" if current.get("phase") == "planning" else "pr"
+        record(worker, current, done, task["title"], now)
         return
+    if await _limit_failure(ptb_app, owner_id, data, worker, current, task):
+        record(worker, current, "limit", task["title"], now)
+        return
+    record(worker, current, "failed", task["title"], now)
     worker["failures"] = int(worker.get("failures", 0)) + 1
     task["worker_failed"] = True  # not picked again until started by hand
     await _tell(ptb_app, owner_id, f"“{task['title']}” failed ({task.get('note')}).")
@@ -101,7 +108,7 @@ async def tick(ptb_app: Any, owner_id: int, now: float | None = None) -> str:
     now = time.time() if now is None else now
     data = ptb_app.user_data[owner_id]
     worker = settings(data)
-    await _settle(ptb_app, owner_id, data, worker)
+    await _settle(ptb_app, owner_id, data, worker, now)
     if work_actions._starting:
         decision_status = "waiting: the agent is planning"
         data["worker_status"] = decision_status

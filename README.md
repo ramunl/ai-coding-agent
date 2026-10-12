@@ -315,6 +315,12 @@ back to To do, and does not count as a failure. A task the
 worker fails is not picked again until you start it; after three failures in
 a row the worker switches itself off and says so in the chat.
 
+### Worker stats
+
+The worker keeps the last 7 days of its finished steps: plans made, runs that
+opened a pull request, failures and usage-limit stops, with the tool that did
+each. The dashboard's Worker card shows them per day with the latest five.
+
 ### Tasks from the server logs
 
 Once a day, when it has nothing to do, the worker reads the last 24 hours of

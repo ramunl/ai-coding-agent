@@ -292,6 +292,34 @@ class TickTests(unittest.IsolatedAsyncioTestCase):
         await self.loop.tick(self.app, OWNER, NOW)
         self.assertEqual(self.data["worker"]["failures"], 0)
 
+    async def test_finished_steps_are_kept_as_daily_stats(self) -> None:
+        self.data["worker"].update(
+            current={"task": self.task["id"], "phase": "running", "tool": "claude"}
+        )
+        self.tasks.set_stage(self.task, "pr")
+        await self.loop.tick(self.app, OWNER, NOW)
+        failed = self.tasks.add_task(self.data, "fix cache", "repo", None)
+        self.tasks.set_stage(failed, "todo", "planning failed: boom")
+        self.data["worker"]["current"] = {
+            "task": failed["id"],
+            "phase": "planning",
+            "tool": "codex",
+        }
+        old = {"at": NOW - 8 * 24 * 3600, "outcome": "pr", "tool": "codex"}
+        self.data["worker"]["history"].insert(0, old)
+        with patch.object(self.loop.task_actions, "start", AsyncMock()):
+            await self.loop.tick(self.app, OWNER, NOW + 60)
+        view = importlib.import_module("ai_agent.worker").view(self.data, NOW + 60)
+        today = view["stats"][0]
+        self.assertEqual(len(view["stats"]), 7)
+        self.assertEqual((today["pr"], today["failed"], today["planned"]), (1, 1, 0))
+        self.assertEqual(today["tools"], {"claude": 1, "codex": 1})
+        self.assertEqual(
+            [(item["title"], item["outcome"]) for item in view["recent"]],
+            [("fix cache", "failed"), ("add login", "pr")],
+        )
+        self.assertNotIn(old, self.data["worker"]["history"])  # older than 7 days
+
     async def test_a_refused_start_is_shown_as_waiting(self) -> None:
         refusing = AsyncMock(
             side_effect=self.loop.ActionError(
