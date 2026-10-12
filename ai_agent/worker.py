@@ -9,10 +9,18 @@ Budget, both changeable from the dashboard or /worker:
 - max_runs: implementation runs per rolling 24 h (0 = no cap);
 - reserve: percent of a Codex limit window it must leave for the owner.
 After MAX_FAILURES failed tasks in a row it switches itself off.
+
+Tools: with auto_tool on (the default) it uses the chosen planner or
+implementer while that tool has room, otherwise the other one. "Room" means
+above the reserve in the tool's last limits reading, and not marked out: a
+run that fails with a usage-limit error marks its tool out until the reset
+time in the error (an hour if it gives none). Claude Code's limits are not
+readable from the server, so for Claude that error is the only signal.
 """
 
 from __future__ import annotations
 
+import re
 import time
 from collections.abc import MutableMapping
 from dataclasses import dataclass
@@ -21,7 +29,9 @@ from typing import Any
 from ai_agent.planner import normalize_planning_agent
 from ai_agent.workflow import normalize_implementation_agent
 
-DEFAULTS = {"enabled": False, "max_runs": 3, "reserve": 30}
+DEFAULTS = {"enabled": False, "max_runs": 3, "reserve": 30, "auto_tool": True}
+TOOLS = ("codex", "claude")
+LIMIT_FALLBACK_SECONDS = 3600
 MAX_FAILURES = 3
 DAY = 24 * 3600
 
@@ -47,6 +57,8 @@ def settings(data: MutableMapping) -> dict:
     worker.setdefault("runs", [])
     worker.setdefault("failures", 0)
     worker.setdefault("current", None)
+    if not isinstance(worker.get("out_until"), dict):
+        worker["out_until"] = {}
     return worker
 
 
@@ -74,7 +86,16 @@ def short_window(limits: dict, tool: str, reserve: int, now: float) -> dict | No
     return None
 
 
-def _tool_wait(limits: dict, tool: str, reserve: int, now: float) -> str | None:
+def _clock(seconds: float) -> str:
+    return time.strftime("%H:%M", time.localtime(seconds))
+
+
+def _tool_wait(
+    limits: dict, tool: str, reserve: int, now: float, worker: dict | None = None
+) -> str | None:
+    out = (worker or {}).get("out_until", {}).get(tool)
+    if isinstance(out, (int, float)) and out > now:
+        return f"{tool} hit its usage limit; out until {_clock(out)}"
     window = short_window(limits, tool, reserve, now)
     if window is None:
         return None
@@ -86,6 +107,61 @@ def _tool_wait(limits: dict, tool: str, reserve: int, now: float) -> str | None:
         else ""
     )
     return f"waiting: {tool} has {left}% left, below the {reserve}% reserve{until}"
+
+
+def pick_tool(
+    preferred: str, limits: dict, worker: dict, now: float
+) -> tuple[str | None, str]:
+    """The tool to use (preferred first, the other if auto_tool), or None and why."""
+    reserve = int(worker["reserve"])
+    order = [preferred]
+    if worker.get("auto_tool", True):
+        order += [tool for tool in TOOLS if tool != preferred]
+    reasons = []
+    for tool in order:
+        reason = _tool_wait(limits, tool, reserve, now, worker)
+        if reason is None:
+            note = f" ({reasons[0].removeprefix('waiting: ')})" if reasons else ""
+            return tool, note
+        reasons.append(reason)
+    return None, "waiting: " + "; ".join(r.removeprefix("waiting: ") for r in reasons)
+
+
+# Usage-limit failures as the CLIs word them, and where they say the reset is.
+_LIMIT_ERROR = re.compile(
+    r"usage limit|limit reached|hit your (usage )?limit|rate.?limit|quota exceeded",
+    re.IGNORECASE,
+)
+_RESET_EPOCH = re.compile(r"\|(\d{10})\b")
+_RESET_IN = re.compile(
+    r"(?:try again|retry|resets?) in (\d+)\s*(minute|min|hour|h)", re.IGNORECASE
+)
+_RESET_AT = re.compile(
+    r"resets?(?: at)? (\d{1,2})(?::(\d{2}))?\s*(am|pm)?", re.IGNORECASE
+)
+
+
+def limit_reset(text: str, now: float) -> float | None:
+    """When a usage-limit error says the limit resets; None if it is no such error."""
+    if not text or not _LIMIT_ERROR.search(text):
+        return None
+    if match := _RESET_EPOCH.search(text):
+        return float(match.group(1))
+    if match := _RESET_IN.search(text):
+        amount = int(match.group(1))
+        return now + amount * (3600 if match.group(2).lower().startswith("h") else 60)
+    if match := _RESET_AT.search(text):
+        hour, minute = int(match.group(1)), int(match.group(2) or 0)
+        meridiem = (match.group(3) or "").lower()
+        if meridiem == "pm" and hour < 12:
+            hour += 12
+        if meridiem == "am" and hour == 12:
+            hour = 0
+        if hour < 24 and minute < 60:
+            local = time.localtime(now)
+            target = time.mktime((*local[:3], hour, minute, 0, 0, 0, -1))
+            return target if target > now else target + DAY
+    return now + LIMIT_FALLBACK_SECONDS
 
 
 def _approved_task(data: MutableMapping, tasks: list[dict]) -> dict | None:
@@ -117,17 +193,18 @@ def decide(
     busy = data.get("active_execution") or data.get("task_queue")
     if busy or data.get("queue_runner_active"):
         return Decision("wait", "waiting: a run is in progress")
-    reserve = int(worker["reserve"])
     approved = _approved_task(data, tasks)
     if approved is not None:
         cap = int(worker["max_runs"])
         if cap and runs_today(worker, now) >= cap:
             return Decision("wait", f"waiting: {cap} runs today, the daily cap")
-        tool = normalize_implementation_agent(data.get("implementation_agent"))
-        reason = _tool_wait(limits, tool, reserve, now)
-        if reason:
-            return Decision("wait", reason)
-        return Decision("run", f"running {approved['title']}", approved, tool)
+        preferred = normalize_implementation_agent(data.get("implementation_agent"))
+        tool, note = pick_tool(preferred, limits, worker, now)
+        if tool is None:
+            return Decision("wait", note)
+        return Decision(
+            "run", f"running {approved['title']} with {tool}{note}", approved, tool
+        )
     plan = data.get("pending_plan")
     if plan is not None:
         title = getattr(plan, "feature", "the plan")
@@ -144,11 +221,11 @@ def decide(
     )
     if todo is None:
         return Decision("wait", "idle: no To do tasks")
-    tool = normalize_planning_agent(data.get("planning_agent"))
-    reason = _tool_wait(limits, tool, reserve, now)
-    if reason:
-        return Decision("wait", reason)
-    return Decision("plan", f"planning {todo['title']}", todo, tool)
+    preferred = normalize_planning_agent(data.get("planning_agent"))
+    tool, note = pick_tool(preferred, limits, worker, now)
+    if tool is None:
+        return Decision("wait", note)
+    return Decision("plan", f"planning {todo['title']} with {tool}{note}", todo, tool)
 
 
 def follow_up(worker: dict, task: dict | None) -> str | None:
@@ -185,4 +262,10 @@ def view(data: MutableMapping, now: float) -> dict:
         "status": data.get("worker_status")
         or ("off" if not merged["enabled"] else "starting"),
         "current_task": (merged.get("current") or {}).get("task"),
+        "auto_tool": bool(merged.get("auto_tool", True)),
+        "out_until": {
+            tool: until
+            for tool, until in (merged.get("out_until") or {}).items()
+            if isinstance(until, (int, float)) and until > now
+        },
     }

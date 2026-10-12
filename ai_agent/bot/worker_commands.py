@@ -15,8 +15,8 @@ from telegram.ext import ContextTypes
 from ai_agent.bot.transport import reply_chunks, require_authorized
 from ai_agent.worker import settings, view
 
-WORKER_ACTIONS = ("worker_switch", "worker_settings")
-USAGE = "Usage: /worker [on|off|budget <runs per day> <reserve %>]"
+WORKER_ACTIONS = ("worker_switch", "worker_settings", "worker_tools")
+USAGE = "Usage: /worker [on|off|budget <runs per day> <reserve %>|tools auto|fixed]"
 
 
 def run_worker_action(data: Any, action: str, args: dict[str, str]) -> str:
@@ -28,6 +28,11 @@ def run_worker_action(data: Any, action: str, args: dict[str, str]) -> str:
             worker["failures"] = 0
         data["worker_status"] = "starting" if worker["enabled"] else "off"
         return f"Worker {'on' if worker['enabled'] else 'off'}."
+    if action == "worker_tools":
+        worker["auto_tool"] = args["value"] == "auto"
+        if worker["auto_tool"]:
+            return "Worker switches between Codex and Claude by their limits."
+        return "Worker uses only the chosen planner and implementer."
     worker["max_runs"] = int(args["max_runs"])
     worker["reserve"] = int(args["reserve"])
     cap = worker["max_runs"] or "no cap"
@@ -42,8 +47,13 @@ def status_text(data: Any) -> str:
         f"Worker: {'on' if shown['enabled'] else 'off'}\n"
         f"Now: {shown['status']}\n"
         f"Runs today: {shown['runs_today']} (cap {cap})\n"
-        f"Reserve: {shown['reserve']}% of Codex limits\n\n"
-        "/worker on · /worker off · /worker budget <runs> <reserve%>"
+        f"Reserve: {shown['reserve']}% of Codex limits\n"
+        f"Tools: {'switch by limits' if shown['auto_tool'] else 'chosen ones only'}\n"
+        + "".join(
+            f"{tool} out until {time.strftime('%H:%M', time.localtime(until))}\n"
+            for tool, until in shown["out_until"].items()
+        )
+        + "\n/worker on · off · budget <runs> <reserve%> · tools auto|fixed"
     )
 
 
@@ -52,7 +62,9 @@ async def worker_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     if not require_authorized(update):
         return
     args = [arg.lower() for arg in context.args]
-    if args in (["on"], ["off"]):
+    if len(args) == 2 and args[0] == "tools" and args[1] in ("auto", "fixed"):
+        run_worker_action(context.user_data, "worker_tools", {"value": args[1]})
+    elif args in (["on"], ["off"]):
         run_worker_action(context.user_data, "worker_switch", {"value": args[0]})
     elif len(args) == 3 and args[0] == "budget":
         runs, reserve = args[1], args[2].rstrip("%")

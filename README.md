@@ -304,6 +304,13 @@ never merges or deploys, and handles one task at a time.
 Budget, changeable in the dashboard or with `/worker budget <runs> <reserve%>`:
 implementation runs per 24 h (0 = no cap, default 3) and the share of a Codex
 limit window it must leave for you (default 30%). Claude Code's limits cannot
-be read outside an interactive session, so they are not checked. A task the
+be read outside an interactive session, so they are not checked from readings.
+
+With tool switching on (the default; `/worker tools auto|fixed` or the
+dashboard), the worker uses your chosen planner or implementer while it has
+room and the other one otherwise, for that plan or run only; your setting is
+not changed. A run that fails with a usage-limit error marks its tool out
+until the reset time in the error (an hour if none is given), puts the task
+back to To do, and does not count as a failure. A task the
 worker fails is not picked again until you start it; after three failures in
 a row the worker switches itself off and says so in the chat.

@@ -219,6 +219,23 @@ class TaskActionTests(unittest.IsolatedAsyncioTestCase):
             self.data["tasks"][0]["note"], "no plan was made; see the bot chat"
         )
 
+    async def test_a_planner_override_lasts_for_one_plan(self) -> None:
+        seen = {}
+
+        async def plan(update, context) -> None:
+            seen["planner"] = context.user_data.get("planning_agent")
+            await update.message.reply_text("Planning with Codex...")
+
+        self.data["planning_agent"] = "claude"
+        task = importlib.import_module("ai_agent.tasks").add_task(
+            self.data, "x", "repo", None
+        )
+        with patch.object(self.task_actions, "plan", plan):
+            await self.task_actions.start(self.app, OWNER, task, "codex")
+            await asyncio.sleep(0.02)
+        self.assertEqual(seen["planner"], "codex")
+        self.assertEqual(self.data["planning_agent"], "claude")
+
     async def test_a_busy_agent_keeps_the_new_task_as_todo(self) -> None:
         self.data["pending_plan"] = self.PlanState(
             id="p1", feature="other", revision=1, plan_text="{}", approved=False

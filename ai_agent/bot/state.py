@@ -60,6 +60,7 @@ TRANSIENT_KEYS = frozenset(
         "argument_prompt",
         "planning_task",
         "worker_status",
+        "last_work_error",
     }
 )
 

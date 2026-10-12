@@ -95,6 +95,7 @@ class DecideTests(unittest.TestCase):
         self.assertEqual(self.decide().action, "run")  # 0 = no cap
 
     def test_keeps_the_reserve_of_codex_limits(self) -> None:
+        self.data["worker"]["auto_tool"] = False
         low = {
             "codex": {"windows": [{"remaining_percent": 20, "resets_at": NOW + 3600}]}
         }
@@ -109,9 +110,46 @@ class DecideTests(unittest.TestCase):
         self.assertEqual(self.decide(reset).action, "plan")  # that window has reset
         self.data["worker"]["reserve"] = 10
         self.assertEqual(self.decide(low).action, "plan")
-        self.data["planning_agent"] = "claude"  # no Claude Code reading: allowed
-        self.data["worker"]["reserve"] = 30
-        self.assertEqual(self.decide(low).action, "plan")
+
+    def test_switches_to_the_other_tool_when_one_has_no_room(self) -> None:
+        low = {
+            "codex": {"windows": [{"remaining_percent": 20, "resets_at": NOW + 3600}]}
+        }
+        decision = self.decide(low)
+        self.assertEqual((decision.action, decision.tool), ("plan", "claude"))
+        self.assertIn("with claude (codex has 20% left", decision.status)
+        self.data["worker"]["out_until"] = {"claude": NOW + 600}
+        decision = self.decide(low)
+        self.assertEqual(decision.action, "wait")
+        self.assertIn("codex has 20% left", decision.status)
+        self.assertIn("claude hit its usage limit; out until", decision.status)
+        self.data["worker"]["out_until"] = {"claude": NOW - 1}  # over
+        self.assertEqual(self.decide(low).tool, "claude")
+
+    def test_the_run_uses_the_implementer_with_room(self) -> None:
+        self.approved_plan()
+        self.data["implementation_agent"] = "claude"
+        self.data["worker"]["out_until"] = {"claude": NOW + 600}
+        decision = self.decide()
+        self.assertEqual((decision.action, decision.tool), ("run", "codex"))
+
+    def test_limit_errors_and_their_reset_times(self) -> None:
+        reset = self.worker.limit_reset
+        self.assertIsNone(reset("The implementation agent made no file changes", NOW))
+        self.assertIsNone(reset("", NOW))
+        self.assertEqual(
+            reset("Claude AI usage limit reached|1800003600", NOW), 1800003600
+        )
+        self.assertEqual(
+            reset("You've hit your usage limit. Try again in 2 hours.", NOW), NOW + 7200
+        )
+        self.assertEqual(
+            reset("Rate limit exceeded, retry in 15 minutes", NOW), NOW + 900
+        )
+        at_six = reset("5-hour limit reached ∙ resets 6pm", NOW)
+        self.assertEqual(time.localtime(at_six).tm_hour, 18)
+        self.assertTrue(NOW < at_six <= NOW + 24 * 3600)
+        self.assertEqual(reset("usage limit reached", NOW), NOW + 3600)  # no time given
 
     def test_follow_up_reads_the_task_stage(self) -> None:
         worker = {"current": {"task": "x", "phase": "planning"}}
@@ -155,11 +193,12 @@ class TickTests(unittest.IsolatedAsyncioTestCase):
         start = AsyncMock(return_value="Planning with Codex...")
         with patch.object(self.loop.task_actions, "start", start):
             status = await self.loop.tick(self.app, OWNER, NOW)
-        start.assert_awaited_once_with(self.app, OWNER, self.task)
-        self.assertEqual(status, "planning add login")
+        start.assert_awaited_once_with(self.app, OWNER, self.task, "codex")
+        self.assertEqual(status, "planning add login with codex")
+        current = self.data["worker"]["current"]
         self.assertEqual(
-            self.data["worker"]["current"],
-            {"task": self.task["id"], "phase": "planning"},
+            (current["task"], current["phase"], current["tool"]),
+            (self.task["id"], "planning", "codex"),
         )
         self.assertIn("Approve the plan to let me run it", self.said()[0])
 
@@ -175,6 +214,64 @@ class TickTests(unittest.IsolatedAsyncioTestCase):
         run.assert_awaited_once_with(self.app, OWNER, "confirm_work", {})
         self.assertEqual(self.data["worker"]["runs"], [NOW])
         self.assertEqual(self.data["worker"]["current"]["phase"], "running")
+
+    async def test_the_run_keeps_the_chosen_implementer_for_this_task_only(
+        self,
+    ) -> None:
+        self.task.update(stage="planned", plan_id="p1")
+        self.data["pending_plan"] = SimpleNamespace(
+            id="p1", approved=True, feature="add login"
+        )
+        self.data["pending_implementation"] = {"branch_name": "b"}
+        self.data["implementation_agent"] = "claude"
+        self.data["worker"]["out_until"] = {"claude": NOW + 600}
+        with patch.object(self.loop.work_actions, "run_work_action", AsyncMock()):
+            await self.loop.tick(self.app, OWNER, NOW)
+        self.assertEqual(
+            self.data["pending_implementation"]["implementation_agent"], "codex"
+        )
+        self.assertEqual(
+            self.data["implementation_agent"], "claude"
+        )  # your setting stays
+
+    async def test_a_limit_failure_marks_the_tool_out_and_retries_the_task(
+        self,
+    ) -> None:
+        self.tasks.set_stage(
+            self.task, "stopped", "the run ended without a pull request"
+        )
+        self.data["worker"]["current"] = {
+            "task": self.task["id"],
+            "phase": "running",
+            "tool": "claude",
+            "started_at": NOW - 60,
+        }
+        self.data["last_work_error"] = {
+            "text": "Claude AI usage limit reached|1800003600",
+            "at": NOW - 10,
+        }
+        with patch.object(self.loop.task_actions, "start", AsyncMock()) as start:
+            await self.loop.tick(self.app, OWNER, NOW)
+        self.assertEqual(self.data["worker"]["out_until"]["claude"], 1800003600)
+        self.assertEqual(self.data["worker"]["failures"], 0)
+        self.assertNotIn("worker_failed", self.task)
+        self.assertIn("claude hit its usage limit until", self.said()[0])
+        self.assertIn("using codex meanwhile", self.said()[0])
+        # Back to To do, and picked again at once with the other tool.
+        start.assert_awaited_once_with(self.app, OWNER, self.task, "codex")
+
+    async def test_an_old_error_does_not_count_as_this_runs_failure(self) -> None:
+        self.tasks.set_stage(self.task, "stopped", "no plan was made")
+        self.data["worker"]["current"] = {
+            "task": self.task["id"],
+            "phase": "running",
+            "tool": "claude",
+            "started_at": NOW - 60,
+        }
+        self.data["last_work_error"] = {"text": "usage limit reached", "at": NOW - 3600}
+        await self.loop.tick(self.app, OWNER, NOW)
+        self.assertEqual(self.data["worker"]["failures"], 1)
+        self.assertEqual(self.data["worker"]["out_until"], {})
 
     async def test_three_failures_in_a_row_switch_it_off(self) -> None:
         for attempt in range(3):
@@ -259,10 +356,14 @@ class TickTests(unittest.IsolatedAsyncioTestCase):
             await self.commands.worker_cmd(None, context)
             context.args = ["on"]
             await self.commands.worker_cmd(None, context)
+            context.args = ["tools", "fixed"]
+            await self.commands.worker_cmd(None, context)
         self.assertIn("Runs today: 0 (cap 5)", replies[0])
         self.assertIn("Reserve: 20%", replies[0])
         self.assertIn("0–50", replies[1])
         self.assertTrue(context.user_data["worker"]["enabled"])
+        self.assertFalse(context.user_data["worker"]["auto_tool"])
+        self.assertIn("Tools: chosen ones only", replies[-1])
 
     async def test_loop_survives_a_failing_tick(self) -> None:
         with (

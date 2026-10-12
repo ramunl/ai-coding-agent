@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import time
 from collections.abc import MutableMapping
 from types import SimpleNamespace
 from typing import Any
@@ -168,6 +169,11 @@ async def _reported(handler: Any, update: SimpleNamespace, context: Any) -> None
     try:
         await handler(update, context)
     except Exception as error:
+        # The worker reads this to tell a usage-limit failure from a real one.
+        context.user_data["last_work_error"] = {
+            "text": error_text(error),
+            "at": time.time(),
+        }
         with contextlib.suppress(Exception):  # reporting must not hide the error
             await update.message.reply_text(f"Failed: {error_text(error)}")
         raise

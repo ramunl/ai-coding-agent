@@ -37,10 +37,15 @@ def start_refusal(data: Any) -> str | None:
     return None
 
 
-async def _plan_task(update: Any, context: Any, task: dict) -> None:
-    """Run /plan for the task, then tie the resulting plan to it."""
+async def _plan_task(
+    update: Any, context: Any, task: dict, planner: str | None = None
+) -> None:
+    """Run /plan for the task (with planner, if given), then tie the plan to it."""
     data = context.user_data
     before = data.get("pending_plan")
+    chosen = data.get("planning_agent")
+    if planner:  # this plan only: the owner's setting comes back afterwards
+        data["planning_agent"] = planner
     failure = None
     try:
         await plan(update, context)
@@ -48,6 +53,11 @@ async def _plan_task(update: Any, context: Any, task: dict) -> None:
         failure = work_actions.error_text(error).splitlines()[0][:150]
         raise
     finally:
+        if planner and data.get("planning_agent") == planner:
+            if chosen is None:
+                data.pop("planning_agent", None)
+            else:
+                data["planning_agent"] = chosen
         data.pop("planning_task", None)
         after = data.get("pending_plan")
         if after is not None and after is not before:
@@ -69,7 +79,9 @@ async def _switch_to(ptb_app: Any, data: Any, repo: str) -> None:
         logger.info("Could not update bot name (ignored): %s", error)
 
 
-async def start(ptb_app: Any, owner_id: int, task: dict) -> str:
+async def start(
+    ptb_app: Any, owner_id: int, task: dict, planner: str | None = None
+) -> str:
     """Start planning a task in its repository; raise ActionError if it can't."""
     data = ptb_app.user_data[owner_id]
     reason = start_refusal(data)
@@ -83,7 +95,7 @@ async def start(ptb_app: Any, owner_id: int, task: dict) -> str:
     set_stage(task, "planning")
 
     async def handler(update: Any, context: Any) -> None:
-        await _plan_task(update, context, task)
+        await _plan_task(update, context, task, planner)
 
     run = await work_actions._start(handler, update, context)
     if not run.done():

@@ -74,6 +74,7 @@ ACTIONS: dict[str, dict[str, Any]] = {
     "remove_task": {"task": _TASK_ID},
     "worker_switch": {"value": ("on", "off")},
     "worker_settings": {"max_runs": _COUNT, "reserve": _PERCENT},
+    "worker_tools": {"value": ("auto", "fixed")},
 }
 WORK_ACTIONS = (
     "approve_plan",
@@ -88,6 +89,7 @@ WORK_ACTIONS = (
     "remove_task",
     "worker_switch",
     "worker_settings",
+    "worker_tools",
 )
 
 

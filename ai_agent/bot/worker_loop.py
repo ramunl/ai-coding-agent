@@ -16,8 +16,15 @@ from typing import Any
 from ai_agent.actions import ActionError
 from ai_agent.bot import task_actions, work_actions
 from ai_agent.provider_limits import limits_snapshot
-from ai_agent.tasks import find_task, tasks_of
-from ai_agent.worker import MAX_FAILURES, decide, follow_up, settings
+from ai_agent.tasks import find_task, set_stage, tasks_of
+from ai_agent.worker import (
+    MAX_FAILURES,
+    TOOLS,
+    decide,
+    follow_up,
+    limit_reset,
+    settings,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +36,34 @@ async def _tell(ptb_app: Any, owner_id: int, text: str) -> None:
         await ptb_app.bot.send_message(chat_id=owner_id, text=f"🤖 Worker: {text}")
     except Exception as error:  # a lost message must not stop the worker
         logger.warning("Worker message not sent: %s", error)
+
+
+async def _limit_failure(
+    ptb_app: Any, owner_id: int, data: Any, worker: dict, current: dict, task: dict
+) -> bool:
+    """A failure caused by a tool's usage limit: mark the tool out, retry later.
+
+    Not the task's fault, so it neither counts towards switching the worker
+    off nor marks the task as failed; a stopped run goes back to To do.
+    """
+    error = data.get("last_work_error") or {}
+    recent = error.get("at", 0) >= current.get("started_at", 0)
+    text = error.get("text", "") if recent else ""
+    now = time.time()
+    until = limit_reset(text or str(task.get("note") or ""), now)
+    tool = current.get("tool")
+    if until is None or tool is None:
+        return False
+    worker["out_until"][tool] = until
+    if task.get("stage") in ("stopped", "ended"):
+        set_stage(task, "todo", f"{tool} hit its usage limit; will retry")
+    until_text = time.strftime("%H:%M", time.localtime(until))
+    others = [name for name in TOOLS if name != tool]
+    plan_b = f"; using {others[0]} meanwhile" if worker.get("auto_tool", True) else ""
+    await _tell(
+        ptb_app, owner_id, f"{tool} hit its usage limit until {until_text}{plan_b}."
+    )
+    return True
 
 
 async def _settle(ptb_app: Any, owner_id: int, data: Any, worker: dict) -> None:
@@ -43,6 +78,8 @@ async def _settle(ptb_app: Any, owner_id: int, data: Any, worker: dict) -> None:
         worker["failures"] = 0
         return
     if outcome == "gone":
+        return
+    if await _limit_failure(ptb_app, owner_id, data, worker, current, task):
         return
     worker["failures"] = int(worker.get("failures", 0)) + 1
     task["worker_failed"] = True  # not picked again until started by hand
@@ -74,8 +111,13 @@ async def tick(ptb_app: Any, owner_id: int, now: float | None = None) -> str:
     task = decision.task
     try:
         if decision.action == "plan":
-            await task_actions.start(ptb_app, owner_id, task)
-            worker["current"] = {"task": task["id"], "phase": "planning"}
+            await task_actions.start(ptb_app, owner_id, task, decision.tool)
+            worker["current"] = {
+                "task": task["id"],
+                "phase": "planning",
+                "tool": decision.tool,
+                "started_at": now,
+            }
             await _tell(
                 ptb_app,
                 owner_id,
@@ -83,11 +125,20 @@ async def tick(ptb_app: Any, owner_id: int, now: float | None = None) -> str:
                 "Approve the plan to let me run it.",
             )
         else:
+            # This run only: the queued task keeps the implementer chosen here.
+            pending = data.get("pending_implementation")
+            if isinstance(pending, dict):
+                pending["implementation_agent"] = decision.tool
             await work_actions.run_work_action(ptb_app, owner_id, "confirm_work", {})
             worker["runs"] = [
                 at for at in worker.get("runs", []) if now - at < 24 * 3600
             ] + [now]
-            worker["current"] = {"task": task["id"], "phase": "running"}
+            worker["current"] = {
+                "task": task["id"],
+                "phase": "running",
+                "tool": decision.tool,
+                "started_at": now,
+            }
             await _tell(
                 ptb_app, owner_id, f"running “{task['title']}” with {decision.tool}."
             )
