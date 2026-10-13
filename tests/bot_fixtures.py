@@ -50,6 +50,7 @@ class TelegramTestCase(unittest.TestCase):
                 "agent",
                 "ai_agent.config",
                 "ai_agent.planner",
+                "ai_agent.planning_provider",
                 "ai_agent.telegram_bot",
             ]
         }

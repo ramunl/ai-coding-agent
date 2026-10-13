@@ -5,14 +5,24 @@
 ## Overview
 Uses Anthropic's Claude API to generate implementation plans for features and assess whether bug reports have enough information for a coding agent to proceed.
 
+## Module layout
+
+`planner.py` builds the prompts and re-exports the helpers it uses, so
+`from ai_agent.planner import ...` keeps working. The helpers live in:
+
+- `planning_provider.py` — provider selection, Codex/Claude calls, schema paths
+- `repository_context.py` — repository sampling and bounded codebase search
+- `bugfix_questions.py` — triage parsing and clarification-question filtering
+
+Patch a name in the module where it is looked up (for example
+`ai_agent.planning_provider.run`, `ai_agent.repository_context.active_project`).
+These modules never import `planner`.
+
 ## Initialization
 
 ### Client Setup
-```python
-client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
-```
-
-A global Anthropic client is initialized at module load time.
+`planning_provider.client()` creates the Anthropic client on the first Claude
+request and caches it; importing the modules creates no client.
 
 ## Key Functions
 
