@@ -1,16 +1,38 @@
 import json
+import types
 import unittest
+from unittest.mock import patch
 
+import ai_agent.plan_document as plan_document
+import ai_agent.plan_state as plan_state
 from ai_agent.plan_state import (
     ExecutionState,
+    PlanState,
     Verbosity,
     new_plan_state,
     parse_plan_document,
+    plan_outline,
     render_completion,
+    render_diff_summary,
     render_history,
     render_plan,
     revise_plan_state,
 )
+
+PROJECT = types.SimpleNamespace(name="repo", github_repository="owner/repo")
+
+
+def _execution(**overrides) -> ExecutionState:
+    values = {
+        "branch": "feature/example",
+        "files_changed": ["A.kt"],
+        "diff_summary": "Modified files:\n1. A.kt",
+        "full_diff": "diff --git a/A.kt b/A.kt",
+        "logs": "verbose output",
+        "pr_url": "https://github.example/pr/1",
+        "tests": "PASS",
+    }
+    return ExecutionState(**{**values, **overrides})
 
 
 class PlanStateTests(unittest.TestCase):
@@ -153,6 +175,161 @@ class PlanStateTests(unittest.TestCase):
 
         self.assertIn("Implementation failed.", output)
         self.assertNotIn("Implementation completed.", output)
+
+    def test_render_completion_debug_lists_files_diff_and_logs(self) -> None:
+        output = render_completion(_execution(), Verbosity.DEBUG)
+
+        self.assertEqual(
+            output,
+            "Implementation completed.\n\nFiles changed: 1\nTests: PASS\n"
+            "PR: https://github.example/pr/1\n\nFiles changed:\n- A.kt\n\n"
+            "Diff:\ndiff --git a/A.kt b/A.kt\n\nLogs:\nverbose output\n\n"
+            "Commands:\n- /diff\n- /show <file-number>\n- /logs\n- /pr",
+        )
+        normal = render_completion(_execution(pr_url=None), Verbosity.NORMAL)
+        self.assertIn("Files changed:\n- A.kt", normal)
+        self.assertNotIn("verbose output", normal)
+        self.assertNotIn("PR:", normal)
+
+    def test_render_plan_full_output(self) -> None:
+        plan = PlanState(
+            id="abc12345",
+            feature="Add login",
+            revision=2,
+            plan_text=json.dumps(
+                {
+                    "branch": "feature/add-login",
+                    "summary": "Add a login page",
+                    "files": ["login.py"],
+                    "steps": ["Add form", "Wire route"],
+                    "risks": ["Session expiry"],
+                }
+            ),
+            approved=False,
+        )
+
+        with patch.object(plan_state, "active_project", return_value=PROJECT):
+            output = render_plan(plan)
+
+        self.assertEqual(
+            output,
+            "Plan #abc12345\nRevision: 2\n\nProject:\nrepo (owner/repo)\n\n"
+            "Branch:\nfeature/add-login\n\nSummary:\nAdd a login page\n\n"
+            "Files:\n- login.py\n\nImplementation:\n1. Add form\n2. Wire route\n\n"
+            "Risks:\n- Session expiry\n\n"
+            "Commands:\n- /discuss <feedback>\n- /approve\n- /cancel",
+        )
+
+    def test_render_plan_looks_up_the_parser_in_plan_state(self) -> None:
+        document = plan_document.PlanDocument(
+            branch="feature/patched",
+            summary="Patched summary",
+            files=[],
+            steps=[],
+            risks=[],
+            codex_prompt="",
+        )
+        plan = new_plan_state("Feature", "ignored")
+
+        with (
+            patch.object(plan_state, "active_project", return_value=PROJECT),
+            patch.object(plan_state, "parse_plan_document", return_value=document),
+        ):
+            output = render_plan(plan)
+
+        self.assertIn("Branch:\nfeature/patched", output)
+        self.assertIn("Summary:\nPatched summary", output)
+
+    def test_render_diff_summary_counts_changed_lines(self) -> None:
+        diff = "--- a/A.kt\n+++ b/A.kt\n+added\n+again\n-removed"
+
+        self.assertEqual(
+            render_diff_summary(diff, ["A.kt"]),
+            "Modified files:\n1. A.kt\n\n+2 lines\n-1 lines",
+        )
+        self.assertEqual(
+            render_diff_summary("", []), "Modified files:\n(none)\n\n+0 lines\n-0 lines"
+        )
+
+    def test_revisions_keep_history_and_reset_approval(self) -> None:
+        plan = new_plan_state("Feature", "v1")
+        plan.approved = True
+
+        second = revise_plan_state(plan, "v2")
+        third = revise_plan_state(second, "v3")
+
+        self.assertEqual((plan.revision, plan.history), (1, []))
+        self.assertEqual(third.id, plan.id)
+        self.assertEqual(third.feature, "Feature")
+        self.assertEqual(third.revision, 3)
+        self.assertEqual(third.history, ["v1", "v2"])
+        self.assertEqual(third.plan_text, "v3")
+        self.assertFalse(second.approved)
+        self.assertEqual(len(plan.id), 8)
+
+    def test_malformed_plans_fall_back_to_plain_text(self) -> None:
+        non_object = parse_plan_document('["a", "b"]', "Add login")
+        self.assertEqual(non_object.branch, "feature/add-login")
+        self.assertEqual(non_object.summary, '["a", "b"]')
+        self.assertEqual(non_object.files, [])
+
+        empty = parse_plan_document("", "Add login")
+        self.assertEqual(empty.summary, "Add login")
+        self.assertEqual(empty.steps, [])
+
+        nothing = parse_plan_document("")
+        self.assertEqual(nothing.branch, "feature/change")
+        self.assertEqual(nothing.summary, "Planned change")
+
+        bullets = parse_plan_document("- one\n- two\n" + "- more\n" * 10)
+        self.assertEqual(bullets.steps[:2], ["one", "two"])
+        self.assertEqual(len(bullets.steps), 8)
+
+    def test_plan_fields_are_normalized(self) -> None:
+        document = parse_plan_document(
+            json.dumps(
+                {
+                    "branch": "no-prefix",
+                    "summary": "  Add login page  ",
+                    "files": [" a.py ", 3, "", None],
+                    "steps": "not a list",
+                }
+            )
+        )
+
+        self.assertEqual(document.branch, "feature/add-login-page")
+        self.assertEqual(document.summary, "Add login page")
+        self.assertEqual(document.files, ["a.py"])
+        self.assertEqual(document.steps, [])
+
+        invalid_prefix = parse_plan_document(
+            json.dumps({"branch": "bad prefix!/x", "summary": "Add login"})
+        )
+        self.assertEqual(invalid_prefix.branch, "feature/add-login")
+
+    def test_plan_outline_is_bounded(self) -> None:
+        plan = new_plan_state(
+            "Feature",
+            json.dumps(
+                {
+                    "summary": "s" * 2000,
+                    "files": [f"f{n}.py" for n in range(100)],
+                    "codex_prompt": "secret prompt",
+                }
+            ),
+        )
+
+        outline = plan_outline(plan)
+
+        self.assertEqual(len(outline["summary"]), plan_state.OUTLINE_ITEM_LENGTH)
+        self.assertEqual(len(outline["files"]), plan_state.OUTLINE_ITEMS)
+        self.assertNotIn("secret prompt", json.dumps(outline))
+
+    def test_old_plan_state_import_paths_resolve_to_moved_objects(self) -> None:
+        for name in ("PlanDocument", "parse_plan_document"):
+            with self.subTest(name=name):
+                self.assertIn(name, plan_state.__all__)
+                self.assertIs(getattr(plan_state, name), getattr(plan_document, name))
 
 
 if __name__ == "__main__":

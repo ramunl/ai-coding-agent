@@ -2,276 +2,43 @@
 
 from __future__ import annotations
 
-import json
-import logging
-import os
-import re
-import tempfile
-from collections.abc import Iterator
-from pathlib import Path
-
-import anthropic
-
-from ai_agent.codex_models import model_args
-from ai_agent.config import (
-    ANTHROPIC_KEY,
-    ANTHROPIC_MODEL,
-    CODEX_TIMEOUT_SECONDS,
-    PLANNING_AGENT,
+from ai_agent.bugfix_questions import (
+    IMPLEMENTATION_QUESTION_PATTERNS,
+    bugfix_questions,
 )
 from ai_agent.github_links import enrich_feature_description
-from ai_agent.model_errors import (
-    codex_capacity_explained,
-    model_error_message,
+from ai_agent.planning_provider import (
+    SCHEMAS_DIR,
+    SUPPORTED_PLANNING_AGENTS,
+    normalize_planning_agent,
+    planner_message,
+    planning_agent_label,
 )
-from ai_agent.ops_context import diagnostic_context
 from ai_agent.projects import active_project
-from ai_agent.provider_limits import record_claude_response
+from ai_agent.repository_context import (
+    EXCLUDED_DIR_NAMES,
+    SOURCE_EXTENSIONS,
+    codebase_search_context,
+    repo_file_sample,
+)
 from ai_agent.rules import rules_prompt_block
-from ai_agent.shell import run
 
-logger = logging.getLogger(__name__)
-
-client = anthropic.Anthropic(
-    api_key=ANTHROPIC_KEY,
-    http_client=anthropic.DefaultHttpxClient(
-        event_hooks={"response": [record_claude_response]}
-    ),
-)
-SCHEMAS_DIR = Path(__file__).with_name("schemas")
-SUPPORTED_PLANNING_AGENTS = ("codex", "claude")
-
-
-def normalize_planning_agent(agent: str | None = None) -> str:
-    """Resolve the requested planner or reject an unsupported provider."""
-    value = (agent or PLANNING_AGENT).strip().lower()
-    if value not in SUPPORTED_PLANNING_AGENTS:
-        raise ValueError(f"Unsupported planning agent: {value}. Use codex or claude.")
-    return value
-
-
-def planning_agent_label(agent: str | None = None) -> str:
-    """Return the display name for the selected planner."""
-    return {"codex": "Codex", "claude": "Claude"}[normalize_planning_agent(agent)]
-
-
-def _codex_message(prompt: str, schema_name: str) -> str:
-    schema_path = SCHEMAS_DIR / schema_name
-    with tempfile.NamedTemporaryFile(
-        prefix="ai-agent-codex-", suffix=".json"
-    ) as output:
-        with codex_capacity_explained():
-            run(
-                [
-                    "codex",
-                    "exec",
-                    *model_args(),
-                    "--sandbox",
-                    "read-only",
-                    "--ephemeral",
-                    "--output-schema",
-                    str(schema_path),
-                    "--output-last-message",
-                    output.name,
-                    prompt,
-                ],
-                timeout=CODEX_TIMEOUT_SECONDS,
-            )
-        return Path(output.name).read_text(encoding="utf-8").strip()
-
-
-def _create_message(
-    *, model: str, max_tokens: int, messages: list[anthropic.types.MessageParam]
-) -> anthropic.types.Message:
-    """Call the API, translating a retired/invalid model into a clear error."""
-    try:
-        return client.messages.create(
-            model=model, max_tokens=max_tokens, messages=messages
-        )
-    except anthropic.NotFoundError as error:
-        # 404 here means the model string was rejected, not a network fault.
-        raise RuntimeError(model_error_message()) from error
-
-
-def _planner_message(
-    prompt: str, provider: str | None, schema_name: str, max_tokens: int
-) -> str:
-    prompt += diagnostic_context()
-    selected = normalize_planning_agent(provider)
-    if selected == "codex":
-        return _codex_message(prompt, schema_name)
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        raise RuntimeError(
-            "Claude planning is unavailable because "
-            "ANTHROPIC_API_KEY is not configured. "
-            "Use /planner codex or configure the key."
-        )
-    response = _create_message(
-        model=ANTHROPIC_MODEL,
-        max_tokens=max_tokens,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    text = "\n".join(
-        block.text for block in response.content if block.type == "text"
-    ).strip()
-    if not text:
-        raise RuntimeError("Claude returned no text for the plan. Please retry.")
-    return text
-
-
-IMPLEMENTATION_QUESTION_PATTERNS = (
-    "where is",
-    "where are",
-    "where in the code",
-    "current implementation",
-    "how is the current",
-    "how is the new",
-    "how is it calculated",
-    "how is the new url",
-    "how is the url",
-    "what method",
-    "what api",
-    "which method",
-    "which api",
-    "what function",
-    "which function",
-    "stored/accessed",
-    "stored or accessed",
-    "located in the ui",
-    "button located",
-)
-
-
-SOURCE_EXTENSIONS = {
-    ".kt",
-    ".kts",
-    ".java",
-    ".xml",
-    ".gradle",
-    ".properties",
-    ".py",
-    ".js",
-    ".jsx",
-    ".ts",
-    ".tsx",
-    ".go",
-    ".rb",
-    ".rs",
-    ".c",
-    ".h",
-    ".cpp",
-    ".hpp",
-    ".cs",
-    ".php",
-    ".swift",
-    ".m",
-    ".sh",
-    ".yaml",
-    ".yml",
-    ".json",
-    ".toml",
-}
-
-EXCLUDED_DIR_NAMES = {
-    "build",
-    ".gradle",
-    "node_modules",
-    ".git",
-    ".venv",
-    "venv",
-    "dist",
-    "target",
-    "__pycache__",
-    ".mypy_cache",
-    ".pytest_cache",
-}
-
-
-_NOISY_SEARCH_TERMS = {
-    "the",
-    "and",
-    "for",
-    "with",
-    "should",
-    "current",
-    "when",
-    "user",
-    "new",
-    "bug",
-    "fix",
-    "active",
-}
-
-
-def _source_paths(repo_path: Path) -> Iterator[Path]:
-    """Yield source files outside generated and dependency directories."""
-    for path in repo_path.rglob("*"):
-        if not path.is_file() or path.suffix not in SOURCE_EXTENSIONS:
-            continue
-        if not EXCLUDED_DIR_NAMES.intersection(path.relative_to(repo_path).parts):
-            yield path
-
-
-def repo_file_sample() -> str:
-    """Sample source paths from the active repository, excluding build artifacts."""
-    repo_path = active_project().repo_path
-    files = []
-    for path in _source_paths(repo_path):
-        files.append(str(path.relative_to(repo_path)))
-        if len(files) >= 50:
-            break
-    return "\n".join(files)
-
-
-def _matching_source_lines(
-    path: Path, relative: str, terms: set[str], limit: int
-) -> list[str]:
-    """Collect bounded line excerpts whose path or content matches search terms."""
-    if limit <= 0:
-        return []
-    try:
-        lines = path.read_text(errors="ignore").splitlines()
-    except OSError as error:
-        logger.warning("Skipping unreadable source file %s: %s", path, error)
-        return []
-    name_matches = any(term in relative.lower() for term in terms)
-    matches = []
-    for line_number, line in enumerate(lines, start=1):
-        if not (name_matches or any(term in line.lower() for term in terms)):
-            continue
-        stripped = line.strip()
-        if stripped:
-            matches.append(f"{relative}:{line_number}: {stripped[:220]}")
-        if len(matches) >= limit:
-            break
-    return matches
-
-
-def codebase_search_context(
-    query: str, max_files: int = 80, max_matches: int = 80
-) -> str:
-    """Return bounded source paths and excerpts for codebase-first bug triage."""
-    repo_path = active_project().repo_path
-    if not repo_path.exists():
-        return f"Repository path does not exist: {repo_path}"
-    terms = set(re.findall(r"[A-Za-z][A-Za-z0-9_]{2,}", query.lower()))
-    terms -= _NOISY_SEARCH_TERMS
-    files: list[str] = []
-    matches: list[str] = []
-    for path in _source_paths(repo_path):
-        relative = str(path.relative_to(repo_path))
-        files.append(relative)
-        matches.extend(
-            _matching_source_lines(path, relative, terms, max_matches - len(matches))
-        )
-        if len(files) >= max_files and len(matches) >= max_matches:
-            break
-    return (
-        "Files:\n"
-        + "\n".join(files[:max_files])
-        + "\n\nRelevant matches:\n"
-        + "\n".join(matches[:max_matches])
-    )
+__all__ = [
+    "EXCLUDED_DIR_NAMES",
+    "IMPLEMENTATION_QUESTION_PATTERNS",
+    "SCHEMAS_DIR",
+    "SOURCE_EXTENSIONS",
+    "SUPPORTED_PLANNING_AGENTS",
+    "assess_bugfix_report",
+    "bugfix_questions",
+    "build_bugfix_prompt",
+    "codebase_search_context",
+    "normalize_planning_agent",
+    "plan_feature",
+    "planning_agent_label",
+    "repo_file_sample",
+    "revise_feature_plan",
+]
 
 
 def plan_feature(feature_description: str, provider: str | None = None) -> str:
@@ -303,7 +70,7 @@ Use a branch slug that replaces /, \\, :, ?, *, [, ], (, and ) with -.
 Keep the JSON compact so it is never truncated: at most 8 files and 8 steps, each \
 under 200 characters.
                 """
-    return _planner_message(prompt, provider, "feature_plan.json", 4000)
+    return planner_message(prompt, provider, "feature_plan.json", 4000)
 
 
 def revise_feature_plan(
@@ -345,7 +112,7 @@ Use a branch slug that replaces /, \\, :, ?, *, [, ], (, and ) with -.
 Keep the JSON compact so it is never truncated: at most 8 files and 8 steps, each \
 under 200 characters.
                 """
-    return _planner_message(prompt, provider, "feature_plan.json", 4000)
+    return planner_message(prompt, provider, "feature_plan.json", 4000)
 
 
 def build_bugfix_prompt(bug_description: str) -> str:
@@ -414,75 +181,4 @@ Questions response:
 
 Ask at most 2 questions.
                 """
-    return _planner_message(prompt, provider, "bugfix_assessment.json", 500).strip()
-
-
-def _extract_json_object(text: str) -> dict | None:
-    stripped = text.strip()
-    try:
-        value = json.loads(stripped)
-    except json.JSONDecodeError:
-        match = re.search(r"\{.*\}", stripped, re.DOTALL)
-        if not match:
-            return None
-        try:
-            value = json.loads(match.group(0))
-        except json.JSONDecodeError:
-            return None
-    return value if isinstance(value, dict) else None
-
-
-def _looks_ready(text: str) -> bool:
-    normalized = text.upper()
-    has_ready = bool(re.search(r"\bREADY\b", normalized))
-    has_questions_marker = bool(re.search(r"\bQUESTIONS\s*:", normalized))
-    return has_ready and not has_questions_marker
-
-
-def bugfix_questions(assessment: str) -> str | None:
-    """Extract useful clarification questions from bug triage."""
-    text = assessment.strip()
-    assessment_json = _extract_json_object(text)
-    if assessment_json:
-        status = str(assessment_json.get("status", "")).strip().lower()
-        if status == "ready":
-            return None
-        if status == "questions":
-            questions_value = assessment_json.get("questions", [])
-            if isinstance(questions_value, list):
-                questions = "\n".join(
-                    str(question).strip()
-                    for question in questions_value
-                    if str(question).strip()
-                )
-            else:
-                questions = str(questions_value).strip()
-            return _filter_product_questions(questions)
-
-    if _looks_ready(text):
-        return None
-
-    if text.upper().startswith("QUESTIONS:"):
-        questions = text.split(":", 1)[1].strip()
-    else:
-        questions = text
-
-    return _filter_product_questions(questions)
-
-
-def _filter_product_questions(questions: str) -> str | None:
-    if not questions:
-        return "Please provide the missing expected product behavior."
-
-    question_lines = [line.strip() for line in questions.splitlines() if line.strip()]
-    product_questions = []
-    for line in question_lines:
-        normalized = re.sub(r"^\d+[.)]\s*", "", line).strip().lower()
-        if any(pattern in normalized for pattern in IMPLEMENTATION_QUESTION_PATTERNS):
-            continue
-        product_questions.append(line)
-
-    if not product_questions:
-        return None
-
-    return "\n".join(product_questions)
+    return planner_message(prompt, provider, "bugfix_assessment.json", 500).strip()
