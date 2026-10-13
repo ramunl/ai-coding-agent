@@ -1,7 +1,9 @@
 """Send planning prompts to the selected provider and return its text output.
 
-Importing this module has no side effects: the Anthropic client is created on
-first use and configuration is read when a request is made.
+The Anthropic client is created on first use. Configuration is read once, at
+import, like the rest of the agent: importing ai_agent.config lazily from here
+let a test import it without the bot's environment and leak an empty owner
+into later tests.
 """
 
 from __future__ import annotations
@@ -14,6 +16,12 @@ from pathlib import Path
 import anthropic
 
 from ai_agent.codex_models import model_args
+from ai_agent.config import (
+    ANTHROPIC_KEY,
+    ANTHROPIC_MODEL,
+    CODEX_TIMEOUT_SECONDS,
+    PLANNING_AGENT,
+)
 from ai_agent.model_errors import codex_capacity_explained, model_error_message
 from ai_agent.ops_context import diagnostic_context
 from ai_agent.provider_limits import record_claude_response
@@ -31,8 +39,6 @@ def schema_path(schema_name: str) -> Path:
 @functools.cache
 def client() -> anthropic.Anthropic:
     """Create the Anthropic client once, on the first Claude planning request."""
-    from ai_agent.config import ANTHROPIC_KEY
-
     return anthropic.Anthropic(
         api_key=ANTHROPIC_KEY,
         http_client=anthropic.DefaultHttpxClient(
@@ -43,8 +49,6 @@ def client() -> anthropic.Anthropic:
 
 def normalize_planning_agent(agent: str | None = None) -> str:
     """Resolve the requested planner or reject an unsupported provider."""
-    from ai_agent.config import PLANNING_AGENT
-
     value = (agent or PLANNING_AGENT).strip().lower()
     if value not in SUPPORTED_PLANNING_AGENTS:
         raise ValueError(f"Unsupported planning agent: {value}. Use codex or claude.")
@@ -57,8 +61,6 @@ def planning_agent_label(agent: str | None = None) -> str:
 
 
 def _codex_message(prompt: str, schema_name: str) -> str:
-    from ai_agent.config import CODEX_TIMEOUT_SECONDS
-
     with tempfile.NamedTemporaryFile(
         prefix="ai-agent-codex-", suffix=".json"
     ) as output:
@@ -99,8 +101,6 @@ def planner_message(
     prompt: str, provider: str | None, schema_name: str, max_tokens: int
 ) -> str:
     """Send a prompt to the selected planner and return its text response."""
-    from ai_agent.config import ANTHROPIC_MODEL
-
     prompt += diagnostic_context()
     selected = normalize_planning_agent(provider)
     if selected == "codex":
