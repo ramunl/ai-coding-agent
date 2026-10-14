@@ -6,6 +6,7 @@ from ai_agent.bugfix_questions import (
     IMPLEMENTATION_QUESTION_PATTERNS,
     bugfix_questions,
 )
+from ai_agent.ecosystem import ecosystem_block
 from ai_agent.github_links import enrich_feature_description
 from ai_agent.planning_provider import (
     SCHEMAS_DIR,
@@ -46,7 +47,7 @@ def plan_feature(feature_description: str, provider: str | None = None) -> str:
     """Request a structured implementation plan with project rules and context."""
     context = repo_file_sample()
     enriched_feature_description = enrich_feature_description(feature_description)
-    rules_block = project_brief_block() + rules_prompt_block()
+    rules_block = project_brief_block() + ecosystem_block() + rules_prompt_block()
     repository = active_project().github_repository
 
     prompt = f"""
@@ -64,10 +65,15 @@ Return only valid JSON with this shape:
   "summary": "Short implementation summary",
   "files": ["path/or/File.kt"],
   "steps": ["Step one"],
-  "risks": ["Risk to verify"]
+  "risks": ["Risk to verify"],
+  "repositories": [{{"name": "registered-repo", "changes": "What changes there"}}]
 }}
 
 Use a branch slug that replaces /, \\, :, ?, *, [, ], (, and ) with -.
+In "repositories" list each registered repository the change needs, by its \
+name from the REPOSITORIES list, in the order to change them (storage or API \
+before the screens that use it). When there are several, start each file and \
+step with its repository name.
 Keep the JSON compact so it is never truncated: at most 8 files and 8 steps, each \
 under 200 characters.
                 """
@@ -82,7 +88,7 @@ def revise_feature_plan(
 ) -> str:
     """Request a revised plan using the existing plan and user feedback."""
     enriched_feature_description = enrich_feature_description(feature_description)
-    rules_block = project_brief_block() + rules_prompt_block()
+    rules_block = project_brief_block() + ecosystem_block() + rules_prompt_block()
     repository = active_project().github_repository
 
     prompt = f"""
@@ -104,12 +110,17 @@ Return only valid JSON with this shape:
   "summary": "Short implementation summary",
   "files": ["path/or/File.kt"],
   "steps": ["Step one"],
-  "risks": ["Risk to verify"]
+  "risks": ["Risk to verify"],
+  "repositories": [{{"name": "registered-repo", "changes": "What changes there"}}]
 }}
 
 Preserve useful parts of the current plan, incorporate the feedback, and keep the \
 change focused.
 Use a branch slug that replaces /, \\, :, ?, *, [, ], (, and ) with -.
+In "repositories" list each registered repository the change needs, by its \
+name from the REPOSITORIES list, in the order to change them (storage or API \
+before the screens that use it). When there are several, start each file and \
+step with its repository name.
 Keep the JSON compact so it is never truncated: at most 8 files and 8 steps, each \
 under 200 characters.
                 """
@@ -120,7 +131,7 @@ def build_bugfix_prompt(bug_description: str) -> str:
     """Build an implementation prompt for a reported bug and its triage."""
     enriched_bug_description = enrich_feature_description(bug_description)
     search_context = codebase_search_context(enriched_bug_description)
-    rules_block = project_brief_block() + rules_prompt_block()
+    rules_block = project_brief_block() + ecosystem_block() + rules_prompt_block()
     repository = active_project().github_repository
     return f"""
 Fix this bug in the {repository} repository.

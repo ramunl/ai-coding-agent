@@ -145,6 +145,7 @@ class PlannerTests(unittest.TestCase):
         brief = "\nPROJECT BRIEF (the repository's AGENTS.md)\nA cast app.\n"
         with (
             patch("ai_agent.planner.project_brief_block", return_value=brief),
+            patch("ai_agent.planner.ecosystem_block", return_value="\nREPOS\n"),
             patch("ai_agent.planner.rules_prompt_block", return_value="\nRULES\n"),
             patch("ai_agent.planner.repo_file_sample", return_value="App.kt"),
             patch("ai_agent.planner.enrich_feature_description", side_effect=str),
@@ -165,6 +166,9 @@ class PlannerTests(unittest.TestCase):
         for prompt in prompts:
             self.assertIn("A cast app.", prompt)
             self.assertLess(prompt.index("A cast app."), prompt.index("RULES"))
+            self.assertLess(prompt.index("REPOS"), prompt.index("RULES"))
+        for prompt in prompts[:2]:
+            self.assertIn('"repositories": [{"name"', prompt)
 
     def test_build_bugfix_prompt_uses_enriched_bug_description(self) -> None:
         planner, _ = self._modules()

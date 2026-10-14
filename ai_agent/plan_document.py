@@ -2,9 +2,10 @@
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
+from ai_agent.ecosystem import plan_repositories
 from ai_agent.workflow import slugify_branch_name
 
 
@@ -18,6 +19,7 @@ class PlanDocument:
     steps: list[str]
     risks: list[str]
     codex_prompt: str
+    repositories: list[dict[str, str]] = field(default_factory=list)
 
 
 def parse_plan_document(plan_text: str, feature: str = "") -> PlanDocument:
@@ -46,10 +48,16 @@ def parse_plan_document(plan_text: str, feature: str = "") -> PlanDocument:
     files = _string_list(data.get("files"))
     steps = _string_list(data.get("steps"))
     risks = _string_list(data.get("risks"))
+    repositories = plan_repositories(data.get("repositories"))
     # Claude's plan has no codex_prompt field; build an executable instruction
     # from the structured plan rather than handing Codex the raw plan document.
     explicit_prompt = _string_value(data, "codex_prompt")
     codex_prompt = explicit_prompt or _build_codex_prompt(summary, files, steps, risks)
+    if len(repositories) > 1:
+        codex_prompt += (
+            "\n\nThis plan spans several repositories. Change only this "
+            "repository; the others are done separately."
+        )
     return PlanDocument(
         branch=branch,
         summary=summary,
@@ -57,6 +65,7 @@ def parse_plan_document(plan_text: str, feature: str = "") -> PlanDocument:
         steps=steps,
         risks=risks,
         codex_prompt=codex_prompt,
+        repositories=repositories,
     )
 
 

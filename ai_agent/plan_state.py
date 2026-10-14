@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 
 from ai_agent.config import redact_sensitive
+from ai_agent.ecosystem import repository_note
 from ai_agent.plan_document import PlanDocument, parse_plan_document
 from ai_agent.projects import active_project
 
@@ -110,6 +111,15 @@ def render_plan(plan: PlanState) -> str:
         "Summary:",
         document.summary,
     ]
+    if document.repositories:
+        lines.extend(["", "Repositories, in order:"])
+        lines.extend(
+            f"{index}. {repository['name']}: {repository['changes']}"
+            for index, repository in enumerate(document.repositories, 1)
+        )
+        note = repository_note(document.repositories, project.name)
+        if note:
+            lines.append(note)
     if document.files:
         lines.extend(["", "Files:", *[f"- {file}" for file in document.files]])
     if document.steps:
@@ -150,7 +160,23 @@ def plan_outline(plan: PlanState) -> dict:
         "files": items(document.files),
         "steps": items(document.steps),
         "risks": items(document.risks),
+        "repositories": [
+            {"name": short(item["name"]), "changes": short(item["changes"])}
+            for item in document.repositories
+        ],
+        "repository_note": short(_repository_note(document.repositories)),
     }
+
+
+def _repository_note(repositories: list[dict[str, str]]) -> str:
+    """The note for the active project; "" if the registry can't be read."""
+    if not repositories:
+        return ""
+    try:
+        active = active_project().name
+    except Exception:  # the snapshot must not fail over the registry
+        return ""
+    return repository_note(repositories, active)
 
 
 def render_history(plan: PlanState) -> str:

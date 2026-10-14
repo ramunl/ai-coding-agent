@@ -10,6 +10,14 @@ Telegram coding agent that plans and implements features/bugfixes across registe
 revision and bugfix prompt, before the coding rules; keep one in each
 registered repository.
 
+The planner also gets a map of every registered repository (the first
+paragraph of each one's `AGENTS.md` or README, plus `ecosystem.md` at the root
+of the ai-rules repo when present: who owns which screen, command or data).
+Its plan lists the repositories the change needs, in order. If that is not
+just the active project, the plan says so before you approve: approving
+implements only the active project, and a plan that doesn't touch it at all
+asks you to switch the project or revise it.
+
 ## Required environment
 
 Set these values in the systemd `EnvironmentFile`:
