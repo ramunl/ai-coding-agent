@@ -140,6 +140,32 @@ class PlannerTests(unittest.TestCase):
         self.assertIn("User feedback:\nsplit it up", prompt)
         self.assertIn("Original feature request:\nenriched", prompt)
 
+    def test_plan_revision_and_bugfix_prompts_carry_the_project_brief(self) -> None:
+        planner = importlib.import_module("ai_agent.planner")
+        brief = "\nPROJECT BRIEF (the repository's AGENTS.md)\nA cast app.\n"
+        with (
+            patch("ai_agent.planner.project_brief_block", return_value=brief),
+            patch("ai_agent.planner.rules_prompt_block", return_value="\nRULES\n"),
+            patch("ai_agent.planner.repo_file_sample", return_value="App.kt"),
+            patch("ai_agent.planner.enrich_feature_description", side_effect=str),
+        ):
+            planner.plan_feature("add queue", "claude")
+            prompts = [
+                importlib.import_module("ai_agent.planning_provider")
+                .client()
+                .messages.kwargs["messages"][0]["content"]
+            ]
+            planner.revise_feature_plan("add queue", "{}", "smaller", "claude")
+            prompts.append(
+                importlib.import_module("ai_agent.planning_provider")
+                .client()
+                .messages.kwargs["messages"][0]["content"]
+            )
+            prompts.append(planner.build_bugfix_prompt("crash on start"))
+        for prompt in prompts:
+            self.assertIn("A cast app.", prompt)
+            self.assertLess(prompt.index("A cast app."), prompt.index("RULES"))
+
     def test_build_bugfix_prompt_uses_enriched_bug_description(self) -> None:
         planner, _ = self._modules()
 

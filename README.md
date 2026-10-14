@@ -2,6 +2,14 @@
 
 Telegram coding agent that plans and implements features/bugfixes across registered project repositories.
 
+## Project brief
+
+`AGENTS.md` describes this repository for AI agents (Codex reads it, and
+`CLAUDE.md` points Claude Code to it). The planner puts the active project's
+`AGENTS.md` (or `CLAUDE.md`, else the start of its README) into every plan,
+revision and bugfix prompt, before the coding rules; keep one in each
+registered repository.
+
 ## Required environment
 
 Set these values in the systemd `EnvironmentFile`:

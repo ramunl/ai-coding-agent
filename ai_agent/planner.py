@@ -14,6 +14,7 @@ from ai_agent.planning_provider import (
     planner_message,
     planning_agent_label,
 )
+from ai_agent.project_brief import project_brief_block
 from ai_agent.projects import active_project
 from ai_agent.repository_context import (
     EXCLUDED_DIR_NAMES,
@@ -45,7 +46,7 @@ def plan_feature(feature_description: str, provider: str | None = None) -> str:
     """Request a structured implementation plan with project rules and context."""
     context = repo_file_sample()
     enriched_feature_description = enrich_feature_description(feature_description)
-    rules_block = rules_prompt_block()
+    rules_block = project_brief_block() + rules_prompt_block()
     repository = active_project().github_repository
 
     prompt = f"""
@@ -81,7 +82,7 @@ def revise_feature_plan(
 ) -> str:
     """Request a revised plan using the existing plan and user feedback."""
     enriched_feature_description = enrich_feature_description(feature_description)
-    rules_block = rules_prompt_block()
+    rules_block = project_brief_block() + rules_prompt_block()
     repository = active_project().github_repository
 
     prompt = f"""
@@ -119,7 +120,7 @@ def build_bugfix_prompt(bug_description: str) -> str:
     """Build an implementation prompt for a reported bug and its triage."""
     enriched_bug_description = enrich_feature_description(bug_description)
     search_context = codebase_search_context(enriched_bug_description)
-    rules_block = rules_prompt_block()
+    rules_block = project_brief_block() + rules_prompt_block()
     repository = active_project().github_repository
     return f"""
 Fix this bug in the {repository} repository.
