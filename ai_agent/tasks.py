@@ -138,6 +138,21 @@ def _advance(
             set_stage(task, "stopped", "the run ended without a pull request")
 
 
+def waiting_for(task: dict, data: MutableMapping) -> dict | None:
+    """The earlier part of a split plan this task waits for, or None.
+
+    A part may start once the part before it has a pull request (or was
+    merged or removed): its code then exists for this one to build on.
+    """
+    after = task.get("after")
+    if not after:
+        return None
+    previous = find_task(data, after)
+    if previous is None or previous.get("stage") in ("pr", "done"):
+        return None
+    return previous
+
+
 def view(task: dict, data: MutableMapping) -> dict:
     """What the dashboard shows for one task."""
     pending = data.get("pending_plan")
@@ -158,6 +173,10 @@ def view(task: dict, data: MutableMapping) -> dict:
         "created_at": task.get("created_at"),
         "source": task.get("source"),
         "evidence": list(task.get("evidence") or []),
+        "group": task.get("group"),
+        "part": task.get("part"),
+        "parts": task.get("parts"),
+        "waiting_for": (waiting_for(task, data) or {}).get("title"),
         "plan_revision": getattr(pending, "revision", None) if is_own_plan else None,
         "plan_approved": bool(getattr(pending, "approved", False))
         if is_own_plan

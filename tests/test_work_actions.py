@@ -71,6 +71,27 @@ class WorkActionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("not approved", str(raised.exception))
         self.app.bot.send_message.assert_not_awaited()
 
+    async def test_a_plan_for_other_repositories_is_not_approved_here(self) -> None:
+        plan_text = json.dumps(
+            {
+                "summary": "drag todos",
+                "repositories": [
+                    {"name": "ai-pm-agent", "changes": "move"},
+                    {"name": "ai-dashboard", "changes": "drag"},
+                ],
+            }
+        )
+        self.plan.plan_text = plan_text
+        self.data["pending_plan"] = self.plan
+        planning = importlib.import_module("ai_agent.bot.planning")
+        active = SimpleNamespace(name="ai-coding-agent")
+        with patch.object(planning, "active_project", return_value=active):
+            await self.run_action("approve_plan")
+        self.assertFalse(self.plan.approved)
+        self.assertNotIn("pending_implementation", self.data)
+        self.assertIn("does not change ai-coding-agent", self.sent()[-1])
+        self.assertIn("/split", self.sent()[-1])
+
     async def test_cancel_discards_pending_work(self) -> None:
         self.data.update(pending_plan=self.plan, pending_implementation={"x": 1})
         result = await self.run_action("cancel_pending")

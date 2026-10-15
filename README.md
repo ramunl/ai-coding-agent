@@ -16,7 +16,15 @@ of the ai-rules repo when present: who owns which screen, command or data).
 Its plan lists the repositories the change needs, in order. If that is not
 just the active project, the plan says so before you approve: approving
 implements only the active project, and a plan that doesn't touch it at all
-asks you to switch the project or revise it.
+can't be approved here.
+
+`/split` (or **Split into tasks** in the dashboard) turns a plan that needs
+several repositories into one To do task per repository, in the plan's order.
+Each part is planned in its own repository with the whole change as context,
+and gets its own branch and pull request. A part waits until the part before
+it has a pull request; the worker follows the same order. The todo the plan
+came from goes with the last part, so it closes when the whole change is
+deployed.
 
 ## Required environment
 

@@ -108,11 +108,13 @@ def repository_note(repositories: list[dict[str, str]], active: str) -> str:
         return ""
     if active not in names:
         return (
-            f"This plan does not change {active}, the active project. Switch the "
-            "project to the first repository above, or revise the plan."
+            f"This plan does not change {active}, the active project. Split it "
+            "into tasks (/split), which plan each repository in turn, or revise "
+            "it."
         )
     others = ", ".join(name for name in names if name != active)
     return (
-        f"Approving runs only {active}; {others} need their own task, in the "
-        "order above."
+        f"Approving runs only {active}; {others} would need their own task. "
+        "Or split it into one task per repository, in this order: /split "
+        "(Split into tasks in the dashboard)."
     )

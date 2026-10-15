@@ -27,6 +27,7 @@ class ApplicationTests(TelegramTestCase):
                 "plan",
                 "discuss",
                 "approve",
+                "split",
                 "showplan",
                 "history",
                 "verbosity",

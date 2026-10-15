@@ -51,6 +51,7 @@ from ai_agent.bot.planning import (
     implement_cmd,
     plan,
     showplan,
+    split,
 )
 from ai_agent.bot.providers import (
     _on_agent_tap,
@@ -286,6 +287,7 @@ def command_handlers() -> dict:
         "plan": plan,
         "discuss": discuss,
         "approve": approve,
+        "split": split,
         "showplan": showplan,
         "history": history,
         "verbosity": verbosity,

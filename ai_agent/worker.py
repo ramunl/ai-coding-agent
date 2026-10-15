@@ -27,6 +27,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ai_agent.planner import normalize_planning_agent
+from ai_agent.tasks import waiting_for
 from ai_agent.workflow import normalize_implementation_agent
 
 DEFAULTS = {"enabled": False, "max_runs": 3, "reserve": 30, "auto_tool": True}
@@ -219,7 +220,9 @@ def decide(
         (
             task
             for task in tasks
-            if task.get("stage") == "todo" and not task.get("worker_failed")
+            if task.get("stage") == "todo"
+            and not task.get("worker_failed")
+            and waiting_for(task, data) is None
         ),
         None,
     )

@@ -20,7 +20,8 @@ from ai_agent.bot import work_actions
 from ai_agent.bot.planning import plan
 from ai_agent.plan_state import parse_plan_document
 from ai_agent.projects import ProjectError, active_project, get_project
-from ai_agent.tasks import add_task, find_task, set_stage, tasks_of
+from ai_agent.task_split import SplitError, split_pending
+from ai_agent.tasks import add_task, find_task, set_stage, tasks_of, waiting_for
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,7 @@ TASK_ACTIONS = (
     "remove_task",
     "accept_task",
     "dismiss_task",
+    "split_plan",
 )
 REMOVABLE = ("todo", "stopped", "pr", "done", "blocked", "ops_required")
 
@@ -118,6 +120,13 @@ async def run_task_action(
 ) -> str:
     """Run one validated task action for the owner; return a one-line result."""
     data = ptb_app.user_data[owner_id]
+    if action == "split_plan":
+        if work_actions._starting:
+            raise ActionError("Wait until the agent finishes planning.")
+        try:
+            return split_pending(data)
+        except SplitError as error:
+            raise ActionError(str(error)) from error
     if action == "create_task":
         try:
             get_project(args["repo"])
@@ -148,6 +157,11 @@ async def run_task_action(
         if task.get("stage") not in ("todo", "stopped", "blocked", "ops_required"):
             raise ActionError(
                 "Only a To do, stopped, blocked or Ops-action task can be started."
+            )
+        previous = waiting_for(task, data)
+        if previous is not None:
+            raise ActionError(
+                f"This part waits for “{previous['title']}” to have a pull request."
             )
         return await start(ptb_app, owner_id, task)
     if task.get("stage") not in REMOVABLE:

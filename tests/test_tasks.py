@@ -286,6 +286,18 @@ class TaskActionTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(self.errors.ActionError):
             await self.run_action("remove_task", {"task": task["id"]})
 
+    async def test_a_waiting_part_cannot_start_and_split_needs_a_plan(self) -> None:
+        tasks = importlib.import_module("ai_agent.tasks")
+        first = tasks.add_task(self.data, "part one", "repo", None)
+        tasks.set_stage(first, "implementing")
+        second = tasks.add_task(self.data, "part two", "repo", None)
+        second["after"] = first["id"]
+        with self.assertRaisesRegex(self.errors.ActionError, "waits for “part one”"):
+            await self.run_action("start_task", {"task": second["id"]})
+        with self.assertRaisesRegex(self.errors.ActionError, "No pending plan"):
+            await self.run_action("split_plan", {})
+        self.inbox.validate({"id": "a1b2c3d4", "action": "split_plan", "args": {}})
+
     async def test_unknown_repository_adds_nothing(self) -> None:
         def missing(name: str) -> None:
             raise self.task_actions.ProjectError(f"Unknown project '{name}'.")

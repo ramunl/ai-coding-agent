@@ -14,6 +14,7 @@ BOT_COMMANDS = [
     BotCommand("plan", "Create a plan for discussion"),
     BotCommand("discuss", "Revise the current plan"),
     BotCommand("approve", "Approve the current plan"),
+    BotCommand("split", "One task per repository for a multi-repo plan"),
     BotCommand("showplan", "Show the current plan"),
     BotCommand("history", "Show plan revisions"),
     BotCommand("implement", "Plan and wait for confirm"),

@@ -89,7 +89,7 @@ class EcosystemTests(unittest.TestCase):
         dash = {"name": "ai-dashboard", "changes": "y"}
         self.assertEqual(ecosystem.repository_note([pm], "ai-pm-agent"), "")
         self.assertIn(
-            "Approving runs only ai-pm-agent; ai-dashboard need their own task",
+            "Approving runs only ai-pm-agent; ai-dashboard would need their own task",
             ecosystem.repository_note([pm, dash], "ai-pm-agent"),
         )
         self.assertIn(
@@ -133,7 +133,9 @@ class PlanRepositoriesTests(unittest.TestCase):
         self.assertIn("Approving runs only ai-pm-agent", text)
         outline = plan_state.plan_outline(self.plan())
         self.assertEqual(outline["repositories"][1]["name"], "ai-dashboard")
-        self.assertIn("ai-dashboard need their own task", outline["repository_note"])
+        self.assertIn(
+            "ai-dashboard would need their own task", outline["repository_note"]
+        )
 
     def test_the_implementer_is_told_to_change_only_this_repository(self) -> None:
         document = plan_state.parse_plan_document(self.PLAN)

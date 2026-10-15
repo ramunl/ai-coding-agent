@@ -19,6 +19,7 @@ from ai_agent.bot.transport import (
     require_authorized,
 )
 from ai_agent.plan_state import (
+    PlanState,
     new_plan_state,
     parse_plan_document,
     render_history,
@@ -33,6 +34,8 @@ from ai_agent.planner import (
     planning_agent_label,
     revise_feature_plan,
 )
+from ai_agent.projects import active_project
+from ai_agent.task_split import SplitError, split_pending
 from ai_agent.workflow import slugify_branch_name
 
 
@@ -94,6 +97,21 @@ async def discuss(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
+def _not_here(plan_state: PlanState) -> str | None:
+    """Why this plan can't run in the active project, or None if it can."""
+    document = parse_plan_document(plan_state.plan_text, plan_state.feature)
+    names = [item["name"] for item in document.repositories]
+    if not names:
+        return None
+    active = active_project().name
+    if active in names:
+        return None
+    return (
+        f"This plan does not change {active}, so it can't run here. Use /split "
+        "to make one task per repository, or /discuss to revise it."
+    )
+
+
 async def approve(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Approve the current plan revision without starting implementation."""
     if not require_authorized(update):
@@ -101,6 +119,11 @@ async def approve(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     plan_state = context.user_data.get("pending_plan")
     if not plan_state:
         await reply_chunks(update, "No pending plan. Use /plan <feature> first.")
+        return
+
+    refusal = _not_here(plan_state)
+    if refusal:
+        await reply_chunks(update, refusal)
         return
 
     plan_state.approved = True
@@ -114,6 +137,17 @@ async def approve(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             f"to enqueue\n- /cancel"
         ),
     )
+
+
+async def split(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Turn the pending multi-repository plan into one task per repository."""
+    if not require_authorized(update):
+        return
+    try:
+        reply = split_pending(context.user_data)
+    except SplitError as error:
+        reply = str(error)
+    await reply_chunks(update, reply)
 
 
 async def showplan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -155,6 +189,12 @@ async def implement_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         context, "implement", feature, plan_feature, feature, provider
     )
     plan_state = new_plan_state(feature, plan_text)
+    refusal = _not_here(plan_state)
+    if refusal:
+        context.user_data["pending_plan"] = plan_state  # kept for /split
+        await reply_chunks(update, f"{render_plan(plan_state)}\n\n{refusal}")
+        return
+
     plan_state.approved = True
     context.user_data["pending_plan"] = plan_state
     set_pending_from_plan(context, plan_state)

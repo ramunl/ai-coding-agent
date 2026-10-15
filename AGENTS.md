@@ -27,8 +27,9 @@ bots and the `ai-dashboard` Mini App.
   `workflow.py` (implementation runs, branches), `plan_state.py`, `tasks.py`,
   `projects.py` (registry in `/etc/ai-agent-projects.json`), `rules.py`
   (coding rules from the `ai-rules` repo), `project_brief.py` (this file in
-  prompts), `ecosystem.py` (the map of all repositories), provider limits
-  and models.
+  prompts), `ecosystem.py` (the map of all repositories), `task_split.py`
+  (a multi-repository plan as one task per repository), provider limits and
+  models.
 - `ai_agent_common/` – git submodule shared with the other bots
   (auth, versions). Changing it needs `/core release` and bot updates.
 - `deploy/` – systemd unit and update script. `docs/` – per-module notes.
