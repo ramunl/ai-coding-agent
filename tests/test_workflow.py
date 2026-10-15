@@ -138,12 +138,36 @@ class WorkflowTests(unittest.TestCase):
             ["codex", "exec", "-s", "workspace-write", "do work"],
         )
 
+    @patch("ai_agent.workflow.CLAUDE_CODE_ALLOWED_TOOLS", ())
     def test_implementation_command_supports_claude(self) -> None:
         self.assertEqual(
             implementation_command("do work", "claude"),
             ["claude", "-p", "do work", "--permission-mode", "acceptEdits"],
         )
 
+    def test_claude_may_run_tests_lint_and_read_ci_without_asking(self) -> None:
+        command = implementation_command("do work", "claude")
+        self.assertEqual(command[-2], "--allowedTools")
+        allowed = command[-1].split(",")
+        for tool in (
+            "Bash(pytest:*)",
+            "Bash(python3 -m pytest:*)",
+            "Bash(ruff check:*)",
+            "Bash(gh run view:*)",
+        ):
+            self.assertIn(tool, allowed)
+        for word in ("push", "deploy", "install", "rm ", "curl", "sudo"):
+            self.assertFalse(any(word in tool for tool in allowed), word)
+
+    @patch(
+        "ai_agent.workflow.CLAUDE_CODE_ARGS", ("--allowedTools", "Bash(make test:*)")
+    )
+    def test_your_own_allowed_tools_in_claude_code_args_win(self) -> None:
+        command = implementation_command("do work", "claude")
+        self.assertEqual(command.count("--allowedTools"), 1)
+        self.assertEqual(command[-1], "Bash(make test:*)")
+
+    @patch("ai_agent.workflow.CLAUDE_CODE_ALLOWED_TOOLS", ())
     @patch(
         "ai_agent.workflow.CLAUDE_CODE_ARGS", ("--permission-mode", "bypassPermissions")
     )
@@ -154,6 +178,7 @@ class WorkflowTests(unittest.TestCase):
             ["claude", "-p", "do work", "--permission-mode", "acceptEdits"],
         )
 
+    @patch("ai_agent.workflow.CLAUDE_CODE_ALLOWED_TOOLS", ())
     @patch("ai_agent.workflow.CLAUDE_CODE_ARGS", ("--dangerously-skip-permissions",))
     @patch("ai_agent.workflow.os.geteuid", return_value=0)
     def test_root_removes_dangerous_claude_flag(self, unused_geteuid) -> None:
@@ -202,7 +227,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(command[:2], ["claude", "-p"])
         self.assertTrue(command[2].startswith("fix compile error"))
         self.assertIn("ops_required", command[2])
-        self.assertEqual(command[3:], ["--permission-mode", "acceptEdits"])
+        self.assertEqual(command[3:5], ["--permission-mode", "acceptEdits"])
+        self.assertEqual(command[5], "--allowedTools")
 
     @patch("ai_agent.workflow.run")
     def test_repair_pull_request_branch_resets_from_origin_branch(

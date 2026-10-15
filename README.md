@@ -47,6 +47,7 @@ Optional values:
 - `ANTHROPIC_MODEL`, defaults to `claude-sonnet-4-6`
 - `IMPLEMENTATION_AGENT`, `codex` or `claude`, defaults to `codex`
 - `CLAUDE_CODE_ARGS`, extra Claude Code CLI args, defaults to `--permission-mode acceptEdits`;
+- `CLAUDE_CODE_ALLOWED_TOOLS`, comma-separated commands Claude Code may run without asking (it can't ask in `claude -p`); defaults to tests (`pytest`, `npm test`, `node --test`), `ruff`, read-only `git` and read-only `gh run`/`gh pr`. Empty turns it off; an `--allowedTools` in `CLAUDE_CODE_ARGS` replaces it;
   unsafe permission-bypass flags are removed when the service runs as root
 - `GITHUB_REPOSITORY`, defaults to `owner/repo`
 - `GITHUB_BASE_BRANCH`, defaults to `main`

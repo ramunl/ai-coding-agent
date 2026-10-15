@@ -14,6 +14,33 @@ IMPLEMENTATION_AGENT = os.environ.get("IMPLEMENTATION_AGENT", "codex").strip().l
 CLAUDE_CODE_ARGS = tuple(
     shlex.split(os.environ.get("CLAUDE_CODE_ARGS", "--permission-mode acceptEdits"))
 )
+# Shell commands Claude Code may run without asking. In `claude -p` nothing can
+# answer a permission prompt, so anything not listed here is refused: tests,
+# lint and read-only CI/PR lookups, never deploys, pushes or package installs.
+DEFAULT_CLAUDE_CODE_ALLOWED_TOOLS = (
+    "Bash(pytest:*)",
+    "Bash(python -m pytest:*)",
+    "Bash(python3 -m pytest:*)",
+    "Bash(ruff check:*)",
+    "Bash(ruff format:*)",
+    "Bash(npm test:*)",
+    "Bash(node --test:*)",
+    "Bash(git status:*)",
+    "Bash(git diff:*)",
+    "Bash(git log:*)",
+    "Bash(git show:*)",
+    "Bash(gh run list:*)",
+    "Bash(gh run view:*)",
+    "Bash(gh pr view:*)",
+    "Bash(gh pr checks:*)",
+)
+CLAUDE_CODE_ALLOWED_TOOLS = tuple(
+    tool.strip()
+    for tool in os.environ.get(
+        "CLAUDE_CODE_ALLOWED_TOOLS", ",".join(DEFAULT_CLAUDE_CODE_ALLOWED_TOOLS)
+    ).split(",")
+    if tool.strip()
+)
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 GITHUB_REPOSITORY = os.environ.get("GITHUB_REPOSITORY", "owner/repo")
 GITHUB_BASE_BRANCH = os.environ.get("GITHUB_BASE_BRANCH", "main")

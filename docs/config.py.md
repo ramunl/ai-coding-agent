@@ -32,6 +32,7 @@ Defines all configuration constants for the AI agent, reading from environment v
 ### Implementation Agent Configuration
 - **`IMPLEMENTATION_AGENT`** (default: codex): AI used for implementation and CI repair, `codex` or `claude`
 - **`CLAUDE_CODE_ARGS`** (default: `--permission-mode acceptEdits`): Extra args passed to `claude -p`.
+- **`CLAUDE_CODE_ALLOWED_TOOLS`** (default: tests, lint, read-only git and gh): Commands `claude -p` may run without a permission prompt, passed as `--allowedTools`.
   Permission-bypass flags are removed when the service runs as root because Claude Code rejects them.
 
 ### GitHub Configuration

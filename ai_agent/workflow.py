@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from ai_agent.codex_models import model_args
 from ai_agent.config import (
+    CLAUDE_CODE_ALLOWED_TOOLS,
     CLAUDE_CODE_ARGS,
     CODEX_TIMEOUT_SECONDS,
     IMPLEMENTATION_AGENT,
@@ -71,11 +72,24 @@ def safe_claude_code_args() -> list[str]:
     return safe_args
 
 
+def claude_allowed_tools_args() -> list[str]:
+    """Let Claude Code run tests, lint and read CI without a permission prompt."""
+    if not CLAUDE_CODE_ALLOWED_TOOLS or "--allowedTools" in CLAUDE_CODE_ARGS:
+        return []  # nothing to allow, or CLAUDE_CODE_ARGS already decides
+    return ["--allowedTools", ",".join(CLAUDE_CODE_ALLOWED_TOOLS)]
+
+
 def implementation_command(prompt: str, agent: str | None = None) -> list[str]:
     """Build the selected provider command for an implementation prompt."""
     selected_agent = normalize_implementation_agent(agent)
     if selected_agent == "claude":
-        return ["claude", "-p", prompt, *safe_claude_code_args()]
+        return [
+            "claude",
+            "-p",
+            prompt,
+            *safe_claude_code_args(),
+            *claude_allowed_tools_args(),
+        ]
     # Codex has no TTY to answer a per-directory trust prompt when run non-
     # interactively,
     # so it silently falls back to a read-only sandbox for any repo path that isn't
