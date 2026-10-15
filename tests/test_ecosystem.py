@@ -96,6 +96,10 @@ class EcosystemTests(unittest.TestCase):
             "does not change channel-cast",
             ecosystem.repository_note([pm, dash], "channel-cast"),
         )
+        self.assertIn(
+            "This plan is for ai-dashboard, not channel-cast",
+            ecosystem.repository_note([dash], "channel-cast"),
+        )
 
 
 class PlanRepositoriesTests(unittest.TestCase):

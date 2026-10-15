@@ -68,10 +68,38 @@ class SplitTests(unittest.TestCase):
             task_split.SplitError, "Not registered: ai-unknown"
         ):
             self.split(_plan(json.dumps(data)))
-        data["repositories"] = data["repositories"][:1]
-        with self.assertRaisesRegex(task_split.SplitError, "only one repository"):
+        data["repositories"] = [{"name": "ai-pm-agent", "changes": "x"}]
+        with self.assertRaisesRegex(task_split.SplitError, "only this repository"):
+            task_split.split_plan(
+                self.data,
+                _plan(json.dumps(data)),
+                parse_plan_document(json.dumps(data)),
+                KNOWN,
+                "ai-pm-agent",
+            )
+        data["repositories"] = []
+        with self.assertRaisesRegex(task_split.SplitError, "only this repository"):
             self.split(_plan(json.dumps(data)))
         self.assertEqual(tasks.tasks_of(self.data), [])
+
+    def test_a_plan_for_another_single_repository_moves_there(self) -> None:
+        data = json.loads(PLAN)
+        data["repositories"] = [{"name": "ai-dashboard", "changes": "logs scroll"}]
+        self.data["pending_plan"] = _plan(json.dumps(data))
+        projects = [SimpleNamespace(name=name) for name in KNOWN]
+        active = SimpleNamespace(name="ai-coding-agent")
+        with (
+            patch.object(task_split, "list_projects", return_value=projects),
+            patch.object(task_split, "active_project", return_value=active),
+        ):
+            reply = task_split.split_pending(self.data)
+        (task,) = tasks.tasks_of(self.data)
+        self.assertEqual((task["repo"], task["stage"]), ("ai-dashboard", "todo"))
+        self.assertEqual(task["title"], "drag todos (ai-dashboard)")
+        self.assertIsNone(task["after"])
+        self.assertIn("In this repository: logs scroll", task["text"])
+        self.assertIn("Moved to ai-dashboard", reply)
+        self.assertNotIn("pending_plan", self.data)
 
     def test_a_part_waits_until_the_part_before_has_a_pull_request(self) -> None:
         first, second = self.split()
@@ -97,7 +125,11 @@ class SplitTests(unittest.TestCase):
     def test_split_pending_drops_the_plan_and_says_what_comes_next(self) -> None:
         self.data.update(pending_plan=_plan(), pending_implementation={"x": 1})
         projects = [SimpleNamespace(name=name) for name in KNOWN]
-        with patch.object(task_split, "list_projects", return_value=projects):
+        active = SimpleNamespace(name="ai-pm-agent")
+        with (
+            patch.object(task_split, "list_projects", return_value=projects),
+            patch.object(task_split, "active_project", return_value=active),
+        ):
             reply = task_split.split_pending(self.data)
         self.assertNotIn("pending_plan", self.data)
         self.assertNotIn("pending_implementation", self.data)

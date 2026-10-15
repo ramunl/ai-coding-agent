@@ -26,6 +26,10 @@ it has a pull request; the worker follows the same order. The todo the plan
 came from goes with the last part, so it closes when the whole change is
 deployed.
 
+A plan for one repository that isn't the active project (the task was made in
+the wrong one) is moved the same way: `/split` (**Move to <repository>** in the
+dashboard) makes one To do task there, planned again in that repository.
+
 ## Required environment
 
 Set these values in the systemd `EnvironmentFile`:

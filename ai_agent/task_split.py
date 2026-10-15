@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections.abc import Iterable, MutableMapping
 
 from ai_agent.plan_state import PlanDocument, PlanState, parse_plan_document
-from ai_agent.projects import list_projects
+from ai_agent.projects import active_project, list_projects
 from ai_agent.tasks import add_task, tasks_of
 
 TEXT_LIMIT = 4000
@@ -34,6 +34,8 @@ def part_text(
         for number, item in enumerate(parts, 1)
         if item is not repository
     )
+    if len(parts) == 1:
+        return f"{feature}\n\nIn this repository: {repository['changes']}"[:TEXT_LIMIT]
     text = (
         f"{feature}\n\n"
         f"This is part {index} of {len(parts)} of a change across several "
@@ -49,11 +51,17 @@ def split_plan(
     plan: PlanState,
     document: PlanDocument,
     known: Iterable[str],
+    active: str = "",
 ) -> list[dict]:
-    """Add one To do task per repository of the plan; return them in order."""
+    """Add one To do task per repository of the plan; return them in order.
+
+    A plan for one repository that isn't the active one becomes one task
+    there (planned again in that repository), so a task made in the wrong
+    project can be moved instead of revised.
+    """
     parts = document.repositories
-    if len(parts) < 2:
-        raise SplitError("This plan needs only one repository; approve it instead.")
+    if not parts or (len(parts) == 1 and parts[0]["name"] == active):
+        raise SplitError("This plan needs only this repository; approve it instead.")
     unknown = [item["name"] for item in parts if item["name"] not in set(known)]
     if unknown:
         raise SplitError(
@@ -75,9 +83,8 @@ def split_plan(
         task = add_task(
             data, plan.feature, repository["name"], todo if is_last else None
         )
-        task["title"] = (
-            f"{task['title']} ({repository['name']}, part {index}/{len(parts)})"
-        )
+        suffix = f", part {index}/{len(parts)}" if len(parts) > 1 else ""
+        task["title"] = f"{task['title']} ({repository['name']}{suffix})"
         task["text"] = part_text(plan.feature, document, index, repository)
         task.update(
             group=plan.id,
@@ -100,10 +107,19 @@ def split_pending(data: MutableMapping) -> str:
         raise SplitError("Wait until the agent finishes planning.")
     document = parse_plan_document(plan.plan_text, plan.feature)
     created = split_plan(
-        data, plan, document, [project.name for project in list_projects()]
+        data,
+        plan,
+        document,
+        [project.name for project in list_projects()],
+        active_project().name,
     )
     data.pop("pending_plan", None)
     data.pop("pending_implementation", None)
+    if len(created) == 1:
+        return (
+            f"Moved to {created[0]['repo']}: a To do task that is planned again "
+            "there. Start it in Tasks (or let the worker take it)."
+        )
     lines = [f"Split into {len(created)} tasks, one per repository:"]
     lines.extend(f"{task['part']}. {task['repo']}" for task in created)
     lines.append(

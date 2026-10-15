@@ -106,6 +106,11 @@ def repository_note(repositories: list[dict[str, str]], active: str) -> str:
     names = [repository["name"] for repository in repositories]
     if not names or names == [active]:
         return ""
+    if active not in names and len(names) == 1:
+        return (
+            f"This plan is for {names[0]}, not {active}, the active project. Move "
+            f"it to {names[0]} (/split), where it is planned again, or revise it."
+        )
     if active not in names:
         return (
             f"This plan does not change {active}, the active project. Split it "
