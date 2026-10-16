@@ -84,6 +84,7 @@ def set_pending_from_plan(
     document = parse_plan_document(plan_state.plan_text, plan_state.feature)
     _data(context)["pending_implementation"] = {
         "change": plan_state.feature,
+        "images": list(plan_state.images),
         "codex_prompt": document.codex_prompt,
         "branch_name": document.branch,
         "commit_type": "feat",
@@ -115,6 +116,7 @@ def enqueue_pending_implementation(
     task = {
         "id": next_task_id(context),
         "change": pending["change"],
+        "images": list(pending.get("images") or []),
         "codex_prompt": pending["codex_prompt"],
         "branch_name": pending["branch_name"],
         "commit_type": pending.get("commit_type", "feat"),

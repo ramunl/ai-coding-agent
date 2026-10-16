@@ -20,6 +20,7 @@ from telegram.ext import (
 from ai_agent.bot.ci_monitor import ci
 from ai_agent.bot.constants import BOT_COMMANDS
 from ai_agent.bot.execution import confirm, fixpr
+from ai_agent.bot.image_intake import media
 from ai_agent.bot.inspection import (
     _on_show_tap,
     _on_verbosity_tap,
@@ -84,6 +85,7 @@ from ai_agent.config import (
     STATE_FILE,
     TELEGRAM_TOKEN,
 )
+from ai_agent.task_images import initialize, references_in
 from ai_agent_common import CallbackRouter
 
 logger = logging.getLogger(__name__)
@@ -91,6 +93,9 @@ logger = logging.getLogger(__name__)
 
 async def configure_bot_commands(app: Application) -> None:
     """Register autocomplete commands and check for shared-core drift."""
+    await asyncio.to_thread(
+        initialize, references_in(getattr(app, "user_data", {}).get(CHAT_ID, {}))
+    )
     await app.bot.set_my_commands(BOT_COMMANDS)
     await _notify_core_drift_on_startup(app)
     await _notify_restored_queue(app)
@@ -341,6 +346,7 @@ def build_application() -> Application:
     for name, handler in command_handlers().items():
         app.add_handler(CommandHandler(name, handler))
     app.add_handler(CallbackQueryHandler(_callback_router.dispatch))
+    app.add_handler(MessageHandler(filters.PHOTO | filters.Document.ALL, media))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, argument_reply))
     app.add_error_handler(error_handler)
     return app

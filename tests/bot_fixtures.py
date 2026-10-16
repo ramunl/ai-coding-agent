@@ -6,6 +6,7 @@ import tempfile
 import types
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 class TelegramTestCase(unittest.TestCase):
@@ -14,6 +15,7 @@ class TelegramTestCase(unittest.TestCase):
             "TELEGRAM_BOT_TOKEN": os.environ.get("TELEGRAM_BOT_TOKEN"),
             "YOUR_CHAT_ID": os.environ.get("YOUR_CHAT_ID"),
             "ANTHROPIC_API_KEY": os.environ.get("ANTHROPIC_API_KEY"),
+            "IMAGE_DIR": os.environ.get("IMAGE_DIR"),
             "AGENT_STATE_FILE": os.environ.get("AGENT_STATE_FILE"),
             "AGENT_SNAPSHOT_FILE": os.environ.get("AGENT_SNAPSHOT_FILE"),
             "AGENT_INBOX_DIR": os.environ.get("AGENT_INBOX_DIR"),
@@ -21,6 +23,7 @@ class TelegramTestCase(unittest.TestCase):
         }
         # Tests must never write the real /var/lib state or dashboard files.
         self._state_dir = tempfile.mkdtemp()
+        os.environ["IMAGE_DIR"] = os.path.join(self._state_dir, "images")
         os.environ["AGENT_STATE_FILE"] = os.path.join(self._state_dir, "state.json")
         os.environ["AGENT_SNAPSHOT_FILE"] = os.path.join(
             self._state_dir, "snapshot.json"
@@ -32,6 +35,11 @@ class TelegramTestCase(unittest.TestCase):
         os.environ["TELEGRAM_BOT_TOKEN"] = "telegram-secret"
         os.environ["YOUR_CHAT_ID"] = "123"
         os.environ["ANTHROPIC_API_KEY"] = "anthropic-secret"
+
+        self._images_patch = patch(
+            "ai_agent.task_images.IMAGE_DIR", Path(self._state_dir) / "images"
+        )
+        self._images_patch.start()
 
         self.previous_modules = {
             name: sys.modules.get(name)
@@ -140,11 +148,17 @@ class TelegramTestCase(unittest.TestCase):
             def __and__(self, other):
                 return self
 
+            def __or__(self, other):
+                return self
+
             def __invert__(self):
                 return self
 
         ext_module.filters = types.SimpleNamespace(
-            TEXT=FakeFilter(), COMMAND=FakeFilter()
+            TEXT=FakeFilter(),
+            COMMAND=FakeFilter(),
+            PHOTO=FakeFilter(),
+            Document=types.SimpleNamespace(ALL=FakeFilter()),
         )
         ext_module.ContextTypes = types.SimpleNamespace(DEFAULT_TYPE=object)
 
@@ -157,6 +171,7 @@ class TelegramTestCase(unittest.TestCase):
         sys.modules["anthropic"] = anthropic_module
 
     def tearDown(self) -> None:
+        self._images_patch.stop()
         for key, value in self.previous_env.items():
             if value is None:
                 os.environ.pop(key, None)

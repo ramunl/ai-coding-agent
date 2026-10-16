@@ -46,6 +46,7 @@ class PlanState:
     plan_text: str
     approved: bool
     history: list[str] = field(default_factory=list)
+    images: list[dict] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -82,6 +83,7 @@ def revise_plan_state(plan: PlanState, plan_text: str) -> PlanState:
         plan_text=plan_text,
         approved=False,
         history=[*plan.history, plan.plan_text],
+        images=list(plan.images),
     )
 
 

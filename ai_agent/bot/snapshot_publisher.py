@@ -25,6 +25,7 @@ from ai_agent.bot.setup_view import ModelChoices, files_part, state_part
 from ai_agent.bot.state import snapshot
 from ai_agent.config import ACTION_RESULTS_FILE
 from ai_agent.provider_limits import limits_snapshot, poll_limits
+from ai_agent.task_images import usage
 from ai_agent.task_pulls import track_forever as track_pulls
 from ai_agent.tasks import sync as sync_tasks
 
@@ -61,6 +62,7 @@ def build_content(
     """Everything the Coding window shows, minus the timestamps."""
     content = {
         "format": SNAPSHOT_FORMAT,
+        "image_storage": usage(),
         **snapshot(user_data),
         "project": project,
         "limits": limits_snapshot(),

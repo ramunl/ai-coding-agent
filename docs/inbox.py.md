@@ -41,3 +41,7 @@ python-telegram-bot only saves users it just handled an update for.
 (with the active one), planner and implementer with their options, each AI
 tool's model (only manageable tools get `choices`; the Claude list is fetched
 every 30 minutes), the busy reason, and the action results.
+
+`create_task` optionally accepts `images: [{"name": "screen.png"}]`. See
+[task image contract](task_images.md) for staging, atomic publication, permissions,
+limits, one-time claims, cleanup, results and the dashboard part 2 responsibilities.

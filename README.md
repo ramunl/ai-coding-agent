@@ -360,3 +360,35 @@ is used for this; the planner looks at the error once you accept the proposal.
 Proposals never start by themselves: accept one in Tasks (it becomes To do) or
 dismiss it, and that error is not proposed again for 30 days. `/worker scan`
 (or **Scan logs now** in the dashboard) scans at once.
+
+### Task images
+
+Send a photo or image document to the owner bot with the task description as its
+caption. An album becomes one task after two seconds without another image;
+check the reported image count because Telegram provides no album total.
+Missing captions, invalid files and oversized batches are rejected. Tasks can
+also be created through inbox uploads; the dashboard upload UI is **part 2**.
+
+Attachments support decoded, single-frame PNG, JPEG and WebP, at most 10,000,000
+bytes each, 16 million pixels, 8000 pixels per side and five images per task.
+Pillow is required for decoding (`requirements.txt`). Defaults:
+
+- `IMAGE_DIR=/var/lib/ai-coding-agent/images` (private, outside git)
+- `IMAGE_STORAGE_CAP_BYTES=5000000000` (decimal 5 GB)
+- `IMAGE_MAX_BYTES=10000000`
+- `IMAGE_MAX_PER_TASK=5`
+
+The storage cap is enforced at startup and before every atomic save. Eviction
+always removes the oldest stored images, including queued and active tasks.
+Tasks retain opaque references and report missing images when run; missing
+attachments alone do not fail a task. Removal and pruning clean unshared files.
+Disk-full errors reject uploads; the bot never silently reduces the configured
+cap. No disk capacity has been established by this change. Any server storage,
+permissions or quota change must go through Ops.
+
+Codex planners/implementers receive `--image` attachments, Claude API planners
+receive base64 image blocks, and Claude Code implementers receive native blocks
+on stream-json stdin. Provider selection and fallback remain available. Image
+content goes only to the selected provider; snapshots contain aggregate usage
+and task image counts, with no bytes or local paths. See the
+[upload contract](docs/task_images.md) before implementing dashboard part 2.

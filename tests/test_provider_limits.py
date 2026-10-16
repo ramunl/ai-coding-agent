@@ -2,7 +2,9 @@
 
 import asyncio
 import json
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from ai_agent import codex_limits, provider_limits
@@ -103,6 +105,13 @@ class ReadTests(unittest.IsolatedAsyncioTestCase):
 
 class CacheTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        file_patch = patch.object(
+            provider_limits, "CLAUDE_CACHE_FILE", Path(temporary.name) / "limits.json"
+        )
+        file_patch.start()
+        self.addCleanup(file_patch.stop)
         self.cached = patch.dict(provider_limits._LIMITS, {}, clear=True)
         self.cached.start()
         self.addCleanup(self.cached.stop)
@@ -154,6 +163,7 @@ class CacheTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(data["claude"]["windows"][0]["remaining"], "75")
         self.assertNotIn("SECRET", json.dumps(data))
         provider_limits._LIMITS.clear()
+        provider_limits.CLAUDE_CACHE_FILE.unlink(missing_ok=True)
         with patch.object(provider_limits, "ANTHROPIC_KEY", ""):
             self.assertEqual(
                 provider_limits.limits_snapshot()["claude"]["status"], "not_configured"

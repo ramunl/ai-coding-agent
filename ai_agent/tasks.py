@@ -21,6 +21,8 @@ import time
 from collections.abc import MutableMapping
 from typing import Any
 
+from ai_agent.task_images import remove
+
 # "ended": the run finished but the agent did not see how (another run's result
 # replaced it, or it failed); task_pulls asks GitHub whether a pull request exists.
 # "proposed": drafted by the worker from the server logs; the owner accepts it
@@ -52,6 +54,8 @@ def tasks_of(data: MutableMapping) -> list[dict]:
     if not isinstance(tasks, list):
         tasks = []
         data["tasks"] = tasks
+    for task in tasks:
+        task.setdefault("images", [])
     return tasks
 
 
@@ -60,7 +64,13 @@ def find_task(data: MutableMapping, task_id: str) -> dict | None:
     return next((task for task in tasks_of(data) if task.get("id") == task_id), None)
 
 
-def add_task(data: MutableMapping, title: str, repo: str, todo: str | None) -> dict:
+def add_task(
+    data: MutableMapping,
+    title: str,
+    repo: str,
+    todo: str | None,
+    images: list[dict] | None = None,
+) -> dict:
     """Add a todo-stage task; the oldest finished ones make room past MAX_TASKS."""
     tasks = tasks_of(data)
     task = {
@@ -69,6 +79,7 @@ def add_task(data: MutableMapping, title: str, repo: str, todo: str | None) -> d
         "text": " ".join(title.split())[:4000],
         "repo": repo,
         "todo": todo,
+        "images": list(images or []),
         "stage": "todo",
         "created_at": time.time(),
         "plan_id": None,
@@ -81,7 +92,7 @@ def add_task(data: MutableMapping, title: str, repo: str, todo: str | None) -> d
         oldest = next((item for item in tasks if item.get("stage") in FINISHED), None)
         if oldest is None:
             break
-        tasks.remove(oldest)
+        remove_task(data, oldest)
     return task
 
 
@@ -162,6 +173,7 @@ def view(task: dict, data: MutableMapping) -> dict:
     return {
         "id": task.get("id"),
         "title": task.get("title"),
+        "image_count": len(task.get("images") or []),
         "repo": task.get("repo"),
         "todo": task.get("todo"),
         "stage": task.get("stage"),
@@ -182,3 +194,15 @@ def view(task: dict, data: MutableMapping) -> dict:
         if is_own_plan
         else None,
     }
+
+
+def remove_task(data: MutableMapping, task: dict) -> None:
+    """Remove a task and attachments not shared with another task or plan."""
+    tasks_of(data).remove(task)
+    retained = [*tasks_of(data), *(data.get("task_queue") or [])]
+    pending = data.get("pending_plan")
+    if pending is not None:
+        retained.append({"images": getattr(pending, "images", [])})
+    retained.append(data.get("pending_implementation") or {})
+    ids = {ref.get("id") for item in retained for ref in item.get("images", [])}
+    remove([ref for ref in task.get("images", []) if ref.get("id") not in ids])

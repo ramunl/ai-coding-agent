@@ -22,6 +22,7 @@ from ai_agent.config import (
     CODEX_TIMEOUT_SECONDS,
     PLANNING_AGENT,
 )
+from ai_agent.image_delivery import WARNING, attachments, blocks, run_with_images
 from ai_agent.model_errors import codex_capacity_explained, model_error_message
 from ai_agent.ops_context import diagnostic_context
 from ai_agent.provider_limits import record_claude_response
@@ -65,7 +66,7 @@ def _codex_message(prompt: str, schema_name: str) -> str:
         prefix="ai-agent-codex-", suffix=".json"
     ) as output:
         with codex_capacity_explained():
-            run(
+            run_with_images(
                 [
                     "codex",
                     "exec",
@@ -79,6 +80,7 @@ def _codex_message(prompt: str, schema_name: str) -> str:
                     output.name,
                     prompt,
                 ],
+                run,
                 timeout=CODEX_TIMEOUT_SECONDS,
             )
         return Path(output.name).read_text(encoding="utf-8").strip()
@@ -111,11 +113,29 @@ def planner_message(
             "ANTHROPIC_API_KEY is not configured. "
             "Use /planner codex or configure the key."
         )
-    response = _create_message(
-        model=ANTHROPIC_MODEL,
-        max_tokens=max_tokens,
-        messages=[{"role": "user", "content": prompt}],
-    )
+    images, missing = attachments()
+    if missing:
+        prompt += "\n" + WARNING
+    try:
+        response = _create_message(
+            model=ANTHROPIC_MODEL,
+            max_tokens=max_tokens,
+            messages=[
+                {
+                    "role": "user",
+                    "content": blocks(prompt, images) if images else prompt,
+                }
+            ],
+        )
+    except Exception as error:
+        if not images:
+            raise
+        # SDK errors may echo request bodies. Keep only the capacity signal.
+        if getattr(error, "status_code", None) == 429:
+            raise RuntimeError("Claude image planning usage limit reached.") from None
+        raise RuntimeError(
+            "Claude image planning failed; retry or switch planner."
+        ) from None
     text = "\n".join(
         block.text for block in response.content if block.type == "text"
     ).strip()
