@@ -11,6 +11,7 @@ from ai_agent.workflow import (
     run_implementation_agent,
     slugify_branch_name,
     truncate_slug,
+    truncate_title,
     validate_branch_name,
 )
 
@@ -103,6 +104,40 @@ class WorkflowTests(unittest.TestCase):
 
     def test_truncate_slug_keeps_short_slug_unchanged(self) -> None:
         self.assertEqual(truncate_slug("short-slug", 60), "short-slug")
+
+    def test_truncate_title_keeps_short_title_unchanged(self) -> None:
+        self.assertEqual(truncate_title("feat: short title"), "feat: short title")
+
+    def test_truncate_title_fits_github_limit_at_word_boundary(self) -> None:
+        title = truncate_title("feat: " + "word " * 100)
+
+        self.assertLessEqual(len(title), 256)
+        self.assertTrue(title.endswith("..."))
+        self.assertNotIn("  ", title)
+        self.assertTrue(title.endswith(" word..."))
+
+    def test_create_pull_request_sends_title_within_github_limit(self) -> None:
+        from ai_agent import workflow
+
+        long_change = "Long task text " * 60
+        with (
+            patch.object(workflow, "ensure_github_configured"),
+            patch.object(workflow, "active_project") as mock_project,
+            patch.object(workflow, "github_request") as mock_request,
+        ):
+            mock_project.return_value.base_branch = "main"
+            mock_project.return_value.github_repository = "owner/repo"
+            mock_request.return_value = {
+                "number": 1,
+                "html_url": "https://example.test/pull/1",
+                "head": {"sha": "abc"},
+            }
+
+            workflow.create_pull_request("feature/x", long_change, "body")
+
+        payload = mock_request.call_args.args[2]
+        self.assertLessEqual(len(payload["title"]), 256)
+        self.assertTrue(payload["title"].startswith("feat: Long task text"))
 
     def test_validate_branch_name_rejects_invalid_names(self) -> None:
         invalid_names = [
