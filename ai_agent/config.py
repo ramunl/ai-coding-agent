@@ -1,8 +1,30 @@
 """Load agent settings and validate required environment values."""
 
 import os
+import re
 import shlex
 from pathlib import Path
+
+_SIZE_UNITS = {
+    "": 1,
+    "b": 1,
+    "kb": 1_000,
+    "mb": 1_000_000,
+    "gb": 1_000_000_000,
+    "kib": 1_024,
+    "mib": 1_024**2,
+    "gib": 1_024**3,
+}
+_SIZE = re.compile(r"([0-9]+)\s*([a-z]*)")
+
+
+def parse_size(text: str) -> int:
+    """Return a byte count from plain digits or a unit such as 5GB or 500MiB."""
+    match = _SIZE.fullmatch(text.strip().lower())
+    if not match or match.group(2) not in _SIZE_UNITS:
+        raise ValueError(f"Invalid size {text!r}; use bytes or a unit like 5GB.")
+    return int(match.group(1)) * _SIZE_UNITS[match.group(2)]
+
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 CHAT_ID = int(os.environ.get("YOUR_CHAT_ID", "0"))
@@ -64,8 +86,9 @@ INBOX_DIR = Path(
 IMAGE_DIR = Path(
     os.environ.get("IMAGE_DIR", "/var/lib/ai-coding-agent/images")
 ).expanduser()
-IMAGE_STORAGE_CAP_BYTES = int(os.environ.get("IMAGE_STORAGE_CAP_BYTES", "5000000000"))
-IMAGE_MAX_BYTES = int(os.environ.get("IMAGE_MAX_BYTES", "10000000"))
+# Sizes accept plain bytes or units (e.g. 5GB, 500MiB); see parse_size.
+IMAGE_STORAGE_CAP_BYTES = parse_size(os.environ.get("IMAGE_STORAGE_CAP_BYTES", "5GB"))
+IMAGE_MAX_BYTES = parse_size(os.environ.get("IMAGE_MAX_BYTES", "10MB"))
 IMAGE_MAX_PER_TASK = int(os.environ.get("IMAGE_MAX_PER_TASK", "5"))
 
 

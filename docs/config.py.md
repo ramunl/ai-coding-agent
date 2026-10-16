@@ -47,6 +47,12 @@ Defines all configuration constants for the AI agent, reading from environment v
 - **`CI_POLL_INTERVAL_SECONDS`** (default: 30): Seconds between CI status polls
 - **`CI_TIMEOUT_SECONDS`** (default: 1800): Max seconds to wait for CI (30 minutes)
 
+### Image Configuration
+- **`IMAGE_STORAGE_CAP_BYTES`** (default: 5GB): Total task image storage; oldest images are evicted first
+- **`IMAGE_MAX_BYTES`** (default: 10MB): Per-image byte limit (Telegram downloads stop near 20 MB)
+- **`parse_size(text)`**: Reads plain bytes or units (`KB`, `MB`, `GB` decimal; `KiB`, `MiB`, `GiB` binary); invalid values fail at import
+- Settings are read once at import; see `docs/task_images.md` for the full contract
+
 ### Message Configuration
 - **`MAX_TELEGRAM_MESSAGE_LENGTH`**: 3900 characters (Telegram limit is 4096)
 - **`MAX_LOG_LINES`**: 120 lines of logs to display
