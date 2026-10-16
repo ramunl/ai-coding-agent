@@ -172,7 +172,9 @@ def implement(
     base_branch = active_project().base_branch
     run(["git", "checkout", base_branch])
     run(["git", "pull", "origin", base_branch])
-    run(["git", "checkout", "-b", branch_name])
+    # -B, not -b: a run that failed (a usage limit, a crash) leaves its branch
+    # behind, and a retry must start again from the fresh base, not fail.
+    run(["git", "checkout", "-B", branch_name])
     return _run_and_capture_changes(plan, agent)
 
 

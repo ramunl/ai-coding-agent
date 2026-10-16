@@ -107,8 +107,11 @@ class SplitTests(unittest.TestCase):
         self.assertIs(tasks.waiting_for(second, self.data), first)
         self.assertEqual(tasks.view(second, self.data)["waiting_for"], first["title"])
         self.assertEqual(tasks.view(second, self.data)["part"], 2)
+        self.assertTrue(tasks.view(first, self.data)["blocks"])
+        self.assertFalse(tasks.view(second, self.data)["blocks"])
         tasks.set_stage(first, "pr")
         self.assertIsNone(tasks.waiting_for(second, self.data))
+        self.assertFalse(tasks.view(first, self.data)["blocks"])
         tasks.tasks_of(self.data).remove(first)
         self.assertIsNone(tasks.waiting_for(second, self.data))
 

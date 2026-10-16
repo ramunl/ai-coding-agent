@@ -44,6 +44,19 @@ ENDED_NOTE = "run finished; checking GitHub for a pull request"
 # Saved by an earlier version, which wrongly called such a task "PR open".
 _OLD_UNKNOWN_NOTE = "run finished; pull request not recorded"
 FINISHED = ("pr", "done", "stopped")
+# What a task keeps of its run, so a run that failed can be retried with the
+# same approved plan (and another tool) instead of planning it again.
+RUN_KEYS = (
+    "change",
+    "images",
+    "codex_prompt",
+    "branch_name",
+    "commit_type",
+    "pr_body_label",
+    "confirmation_label",
+)
+RUN_PROMPT_LIMIT = 20000
+RETRYABLE = ("stopped", "ended", "blocked", "ops_required")
 MAX_TASKS = 50
 TITLE_LENGTH = 300
 
@@ -149,6 +162,29 @@ def _advance(
             set_stage(task, "stopped", "the run ended without a pull request")
 
 
+def remember_run(data: MutableMapping, item: dict) -> None:
+    """Keep a queued run on the task of its branch, for a later retry."""
+    task = next(
+        (
+            task
+            for task in tasks_of(data)
+            if task.get("branch") == item.get("branch_name")
+            and task.get("stage") in ("planned", "implementing")
+        ),
+        None,
+    )
+    if task is None:
+        return
+    run = {key: item.get(key) for key in RUN_KEYS}
+    run["codex_prompt"] = str(run.get("codex_prompt") or "")[:RUN_PROMPT_LIMIT]
+    task["run"] = run
+
+
+def can_retry(task: dict) -> bool:
+    """True when the task's run failed and its approved plan is kept."""
+    return task.get("stage") in RETRYABLE and isinstance(task.get("run"), dict)
+
+
 def waiting_for(task: dict, data: MutableMapping) -> dict | None:
     """The earlier part of a split plan this task waits for, or None.
 
@@ -189,6 +225,12 @@ def view(task: dict, data: MutableMapping) -> dict:
         "part": task.get("part"),
         "parts": task.get("parts"),
         "waiting_for": (waiting_for(task, data) or {}).get("title"),
+        "can_retry": can_retry(task),
+        "blocks": any(
+            other.get("after") == task.get("id") and other.get("stage") == "todo"
+            for other in tasks_of(data)
+        )
+        and task.get("stage") not in ("pr", "done"),
         "plan_revision": getattr(pending, "revision", None) if is_own_plan else None,
         "plan_approved": bool(getattr(pending, "approved", False))
         if is_own_plan

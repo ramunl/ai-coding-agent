@@ -15,13 +15,20 @@ from typing import Any
 from telegram.ext import CallbackContext
 
 from ai_agent import log_scan
-from ai_agent.actions import ActionError, use_project
+from ai_agent.actions import ActionError, busy_reason, use_project
 from ai_agent.bot import work_actions
 from ai_agent.bot.planning import plan
 from ai_agent.plan_state import parse_plan_document
 from ai_agent.projects import ProjectError, active_project, get_project
 from ai_agent.task_split import SplitError, split_pending
-from ai_agent.tasks import add_task, find_task, remove_task, set_stage, waiting_for
+from ai_agent.tasks import (
+    add_task,
+    can_retry,
+    find_task,
+    remove_task,
+    set_stage,
+    waiting_for,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +39,7 @@ TASK_ACTIONS = (
     "accept_task",
     "dismiss_task",
     "split_plan",
+    "retry_task",
 )
 REMOVABLE = ("todo", "stopped", "pr", "done", "blocked", "ops_required")
 
@@ -115,6 +123,27 @@ async def start(
     )
 
 
+async def retry(ptb_app: Any, owner_id: int, task: dict, tool: str) -> str:
+    """Run a task's approved plan again, with tool; raise ActionError if it can't."""
+    data = ptb_app.user_data[owner_id]
+    if not can_retry(task):
+        raise ActionError("This task has no failed run to retry; start planning it.")
+    reason = start_refusal(data) or busy_reason(data)
+    if reason:
+        raise ActionError(f"Not retried: {reason}.")
+    await _switch_to(ptb_app, data, task["repo"])
+    data["pending_implementation"] = {**task["run"], "implementation_agent": tool}
+    task.pop("worker_failed", None)
+    set_stage(task, "implementing", f"retrying with {tool}")
+    try:
+        await work_actions.run_work_action(ptb_app, owner_id, "confirm_work", {})
+    except Exception:
+        data.pop("pending_implementation", None)
+        set_stage(task, "stopped", f"retry with {tool} could not start")
+        raise
+    return f"Retrying “{task['title'][:80]}” with {tool}; progress is in the bot chat."
+
+
 async def run_task_action(
     ptb_app: Any, owner_id: int, action: str, args: dict[str, Any]
 ) -> str:
@@ -153,6 +182,8 @@ async def run_task_action(
         log_scan.dismiss(data, task, time.time())
         remove_task(data, task)
         return "Dismissed; that error will not be proposed again for 30 days."
+    if action == "retry_task":
+        return await retry(ptb_app, owner_id, task, args["tool"])
     if action == "start_task":
         if task.get("stage") not in ("todo", "stopped", "blocked", "ops_required"):
             raise ActionError(

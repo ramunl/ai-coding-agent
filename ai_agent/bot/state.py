@@ -27,6 +27,7 @@ from ai_agent.plan_state import (
     render_diff_summary,
 )
 from ai_agent.planner import normalize_planning_agent
+from ai_agent.tasks import remember_run
 from ai_agent.tasks import view as task_view
 from ai_agent.worker import view as worker_view
 from ai_agent.workflow import ImplementationResult, normalize_implementation_agent
@@ -126,6 +127,7 @@ def enqueue_pending_implementation(
         or current_implementation_agent(context),
     }
     task_queue(context).append(task)
+    remember_run(_data(context), task)
     return task
 
 

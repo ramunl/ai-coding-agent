@@ -344,6 +344,14 @@ back to To do, and does not count as a failure. A task the
 worker fails is not picked again until you start it; after three failures in
 a row the worker switches itself off and says so in the chat.
 
+### Retrying a failed run
+
+When a task's run stops without a pull request (a tool ran out of its usage
+limit, a crash), the task keeps the approved run: **Retry with Codex** or
+**Retry with Claude** in Tasks runs the same plan again on a fresh branch from
+the base, without planning it again. A run that started before this version
+kept nothing to retry; start planning such a task again.
+
 ### Worker stats
 
 The worker keeps the last 7 days of its finished steps: plans made, runs that

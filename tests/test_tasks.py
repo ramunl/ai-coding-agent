@@ -298,6 +298,71 @@ class TaskActionTests(unittest.IsolatedAsyncioTestCase):
             await self.run_action("split_plan", {})
         self.inbox.validate({"id": "a1b2c3d4", "action": "split_plan", "args": {}})
 
+    async def test_a_failed_run_is_retried_with_another_tool(self) -> None:
+        tasks = importlib.import_module("ai_agent.tasks")
+        task = tasks.add_task(self.data, "upload images", "repo", None)
+        task.update(branch="feature/upload")
+        tasks.set_stage(task, "planned")
+        state = importlib.import_module("ai_agent.bot.state")
+        item = state.enqueue_pending_implementation(
+            self.data,
+            {
+                "change": "upload images",
+                "images": [{"id": "a1b2.png"}],
+                "codex_prompt": "Implement uploads",
+                "branch_name": "feature/upload",
+                "implementation_agent": "codex",
+            },
+        )
+        self.assertEqual(task["run"]["codex_prompt"], "Implement uploads")
+        self.data["task_queue"].remove(item)
+        with self.assertRaisesRegex(self.errors.ActionError, "no failed run"):
+            await self.run_action("retry_task", {"task": task["id"], "tool": "claude"})
+        tasks.set_stage(task, "stopped", "the run ended without a pull request")
+        self.assertTrue(tasks.view(task, self.data)["can_retry"])
+        seen = {}
+
+        async def confirm(app, owner, action, args) -> str:
+            seen["action"] = action
+            seen["pending"] = dict(self.data["pending_implementation"])
+            return "Queued task #2"
+
+        with patch.object(self.work, "run_work_action", confirm):
+            reply = await self.run_action(
+                "retry_task", {"task": task["id"], "tool": "claude"}
+            )
+        self.assertEqual(seen["action"], "confirm_work")
+        self.assertEqual(seen["pending"]["implementation_agent"], "claude")
+        self.assertEqual(seen["pending"]["branch_name"], "feature/upload")
+        self.assertEqual(seen["pending"]["images"], [{"id": "a1b2.png"}])
+        self.assertEqual(task["stage"], "implementing")
+        self.assertIn("Retrying", reply)
+
+    async def test_a_retry_waits_while_other_work_runs(self) -> None:
+        tasks = importlib.import_module("ai_agent.tasks")
+        task = tasks.add_task(self.data, "x", "repo", None)
+        task["run"] = {"branch_name": "feature/x", "codex_prompt": "p"}
+        tasks.set_stage(task, "stopped")
+        self.data["active_execution"] = {"branch": "feature/other"}
+        with self.assertRaisesRegex(self.errors.ActionError, "a task is running"):
+            await self.run_action("retry_task", {"task": task["id"], "tool": "codex"})
+        self.assertEqual(task["stage"], "stopped")
+        self.inbox.validate(
+            {
+                "id": "a1b2c3d4",
+                "action": "retry_task",
+                "args": {"task": task["id"], "tool": "claude"},
+            }
+        )
+        with self.assertRaises(Exception):
+            self.inbox.validate(
+                {
+                    "id": "a1b2c3d4",
+                    "action": "retry_task",
+                    "args": {"task": task["id"], "tool": "gpt"},
+                }
+            )
+
     async def test_unknown_repository_adds_nothing(self) -> None:
         def missing(name: str) -> None:
             raise self.task_actions.ProjectError(f"Unknown project '{name}'.")
