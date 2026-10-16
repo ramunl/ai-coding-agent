@@ -40,6 +40,8 @@ TASK_ACTIONS = (
     "dismiss_task",
     "split_plan",
     "retry_task",
+    "create_autopilot_task",
+    "set_autopilot",
 )
 REMOVABLE = ("todo", "stopped", "pr", "done", "blocked", "ops_required")
 
@@ -156,13 +158,15 @@ async def run_task_action(
             return split_pending(data)
         except SplitError as error:
             raise ActionError(str(error)) from error
-    if action == "create_task":
+    if action in ("create_task", "create_autopilot_task"):
         try:
             get_project(args["repo"])
         except ProjectError as error:
             raise ActionError(str(error)) from error
         todo = None if args["todo"] == "-" else args["todo"]
         task = add_task(data, args["text"], args["repo"], todo, args.get("images"))
+        if action == "create_autopilot_task":
+            task["autopilot"] = True
         try:
             return f"Task added. {await start(ptb_app, owner_id, task)}"
         except ActionError as error:
@@ -182,6 +186,15 @@ async def run_task_action(
         log_scan.dismiss(data, task, time.time())
         remove_task(data, task)
         return "Dismissed; that error will not be proposed again for 30 days."
+    if action == "set_autopilot":
+        task["autopilot"] = args["value"] == "on"
+        task.pop("autopilot_stuck", None)
+        if task["autopilot"]:
+            return (
+                f"Autopilot on: the worker plans, approves and runs “"
+                f"{task['title'][:80]}” to a pull request; you review the PR."
+            )
+        return f"Autopilot off: “{task['title'][:80]}” waits for your approval."
     if action == "retry_task":
         return await retry(ptb_app, owner_id, task, args["tool"])
     if action == "start_task":

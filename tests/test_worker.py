@@ -70,6 +70,17 @@ class DecideTests(unittest.TestCase):
         decision = self.decide()
         self.assertEqual((decision.action, decision.task), ("run", self.task))
 
+    def test_an_autopilot_task_is_approved_by_the_worker(self) -> None:
+        self.task.update(stage="planned", plan_id="p1", autopilot=True)
+        self.data["pending_plan"] = SimpleNamespace(
+            id="p1", approved=False, feature="add login"
+        )
+        decision = self.decide()
+        self.assertEqual((decision.action, decision.task), ("approve", self.task))
+        self.assertEqual(decision.status, "approving add login (autopilot)")
+        self.task["autopilot_stuck"] = True
+        self.assertEqual(self.decide().action, "wait")
+
     def test_never_starts_while_the_agent_is_busy(self) -> None:
         for busy in (
             {"planning_task": "x"},
@@ -319,6 +330,28 @@ class TickTests(unittest.IsolatedAsyncioTestCase):
             [("fix cache", "failed"), ("add login", "pr")],
         )
         self.assertNotIn(old, self.data["worker"]["history"])  # older than 7 days
+
+    async def test_autopilot_approves_or_hands_the_plan_back(self) -> None:
+        self.task.update(stage="planned", plan_id="p1", autopilot=True)
+        plan = SimpleNamespace(id="p1", approved=False, feature="add login")
+        self.data["pending_plan"] = plan
+
+        async def approve(app, owner, action, args) -> str:
+            self.assertEqual(action, "approve_plan")
+            plan.approved = True
+            return "Plan approved."
+
+        with patch.object(self.loop.work_actions, "run_work_action", approve):
+            await self.loop.tick(self.app, OWNER, NOW)
+        self.assertTrue(plan.approved)
+        self.assertIn("approved “add login” (autopilot)", self.said()[-1])
+
+        plan.approved = False
+        refuse = AsyncMock(return_value="This plan does not change repo")
+        with patch.object(self.loop.work_actions, "run_work_action", refuse):
+            await self.loop.tick(self.app, OWNER, NOW)
+        self.assertTrue(self.task["autopilot_stuck"])
+        self.assertIn("waits for you", self.said()[-1])
 
     async def test_a_refused_start_is_shown_as_waiting(self) -> None:
         refusing = AsyncMock(

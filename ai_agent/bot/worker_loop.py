@@ -134,8 +134,31 @@ async def tick(ptb_app: Any, owner_id: int, now: float | None = None) -> str:
                 ptb_app,
                 owner_id,
                 f"planning “{task['title']}” in {task['repo']} with {decision.tool}. "
-                "Approve the plan to let me run it.",
+                + (
+                    "Autopilot: I approve and run it myself; you review the PR."
+                    if task.get("autopilot")
+                    else "Approve the plan to let me run it."
+                ),
             )
+        elif decision.action == "approve":
+            await work_actions.run_work_action(ptb_app, owner_id, "approve_plan", {})
+            plan = data.get("pending_plan")
+            if plan is None or not getattr(plan, "approved", False):
+                # Refused (e.g. the plan is for another repository): leave it to you.
+                task["autopilot_stuck"] = True
+                task["note"] = "autopilot could not approve the plan; see the bot chat"
+                await _tell(
+                    ptb_app,
+                    owner_id,
+                    f"could not approve “{task['title']}” on autopilot; it waits "
+                    "for you.",
+                )
+            else:
+                await _tell(
+                    ptb_app,
+                    owner_id,
+                    f"approved “{task['title']}” (autopilot); it runs next.",
+                )
         else:
             # This run only: the queued task keeps the implementer chosen here.
             pending = data.get("pending_implementation")

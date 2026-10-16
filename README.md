@@ -344,6 +344,16 @@ back to To do, and does not count as a failure. A task the
 worker fails is not picked again until you start it; after three failures in
 a row the worker switches itself off and says so in the chat.
 
+### Autopilot tasks
+
+A task marked **Autopilot** (when you make it, or later in Tasks) doesn't wait
+for you: with the worker on, it is planned, the worker approves its plan and
+runs it to a pull request. The pull request (and CI) is your review; nothing is
+merged or deployed by itself. Unmarked tasks still wait for your approval. If
+autopilot can't approve a plan (for example it belongs to another
+repository), the task waits for you and says so. The daily run cap and the
+limits reserve still apply.
+
 ### Retrying a failed run
 
 When a task's run stops without a pull request (a tool ran out of its usage

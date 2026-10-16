@@ -45,7 +45,7 @@ OUTCOMES = ("planned", "pr", "failed", "limit")
 class Decision:
     """What the worker does on this tick: an action, or why it waits."""
 
-    action: str  # "wait", "plan" or "run"
+    action: str  # "wait", "plan", "approve" (autopilot) or "run"
     status: str
     # Keep the whole persisted task, including images, when selecting/falling back.
     task: dict | None = None
@@ -170,6 +170,18 @@ def limit_reset(text: str, now: float) -> float | None:
     return now + LIMIT_FALLBACK_SECONDS
 
 
+def _plan_task(tasks: list[dict], plan: Any) -> dict | None:
+    """The planned task whose plan this is, if any."""
+    return next(
+        (
+            task
+            for task in tasks
+            if task.get("stage") == "planned" and task.get("plan_id") == plan.id
+        ),
+        None,
+    )
+
+
 def _approved_task(data: MutableMapping, tasks: list[dict]) -> dict | None:
     """The task whose approved plan is waiting to run, if any."""
     plan = data.get("pending_plan")
@@ -214,6 +226,9 @@ def decide(
     plan = data.get("pending_plan")
     if plan is not None:
         title = getattr(plan, "feature", "the plan")
+        own = _plan_task(tasks, plan)
+        if own is not None and own.get("autopilot") and not own.get("autopilot_stuck"):
+            return Decision("approve", f"approving {own['title']} (autopilot)", own)
         return Decision("wait", f"waiting for your approval: {title}")
     if data.get("pending_implementation") or data.get("pending_bugfix_clarification"):
         return Decision("wait", "waiting: other work is pending")

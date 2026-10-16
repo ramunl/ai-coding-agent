@@ -226,6 +226,7 @@ def view(task: dict, data: MutableMapping) -> dict:
         "parts": task.get("parts"),
         "waiting_for": (waiting_for(task, data) or {}).get("title"),
         "can_retry": can_retry(task),
+        "autopilot": bool(task.get("autopilot")),
         "blocks": any(
             other.get("after") == task.get("id") and other.get("stage") == "todo"
             for other in tasks_of(data)

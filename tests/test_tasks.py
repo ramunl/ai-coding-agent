@@ -363,6 +363,28 @@ class TaskActionTests(unittest.IsolatedAsyncioTestCase):
                 }
             )
 
+    async def test_autopilot_is_set_on_create_or_switched_later(self) -> None:
+        self.work._starting.add(object())  # busy: the new task stays To do
+        await self.run_action(
+            "create_autopilot_task", {"repo": "repo", "text": "add login", "todo": "-"}
+        )
+        tasks = importlib.import_module("ai_agent.tasks")
+        task = tasks.tasks_of(self.data)[-1]
+        self.assertTrue(task["autopilot"])
+        self.assertTrue(tasks.view(task, self.data)["autopilot"])
+        task["autopilot_stuck"] = True
+        reply = await self.run_action(
+            "set_autopilot", {"task": task["id"], "value": "off"}
+        )
+        self.assertFalse(task["autopilot"])
+        self.assertNotIn("autopilot_stuck", task)
+        self.assertIn("waits for your approval", reply)
+        for action, args in (
+            ("set_autopilot", {"task": task["id"], "value": "on"}),
+            ("create_autopilot_task", {"repo": "repo", "text": "x", "todo": "-"}),
+        ):
+            self.inbox.validate({"id": "a1b2c3d4", "action": action, "args": args})
+
     async def test_unknown_repository_adds_nothing(self) -> None:
         def missing(name: str) -> None:
             raise self.task_actions.ProjectError(f"Unknown project '{name}'.")
