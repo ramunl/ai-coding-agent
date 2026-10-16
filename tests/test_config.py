@@ -2,7 +2,24 @@ import os
 import unittest
 from unittest.mock import patch
 
-from ai_agent.config import validate_required_config
+from ai_agent.config import parse_size, validate_required_config
+
+
+class ParseSizeTests(unittest.TestCase):
+    def test_plain_bytes_and_decimal_units(self) -> None:
+        self.assertEqual(parse_size("5000000000"), 5_000_000_000)
+        self.assertEqual(parse_size("5GB"), 5_000_000_000)
+        self.assertEqual(parse_size(" 10 mb "), 10_000_000)
+
+    def test_binary_units(self) -> None:
+        self.assertEqual(parse_size("500MiB"), 500 * 1024 * 1024)
+        self.assertEqual(parse_size("2gib"), 2 * 1024**3)
+
+    def test_rejects_unknown_units_negatives_and_fractions(self) -> None:
+        for text in ("", "5 XB", "-1GB", "1.5GB", "five"):
+            with self.subTest(text=text):
+                with self.assertRaisesRegex(ValueError, "Invalid size"):
+                    parse_size(text)
 
 
 class ConfigTests(unittest.TestCase):

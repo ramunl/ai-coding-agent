@@ -5,7 +5,8 @@
 `IMAGE_DIR` defaults to `/var/lib/ai-coding-agent/images`. It must be absolute,
 outside any Git checkout, and owned/writable only by the coding bot (directory
 0700, files 0600). Do not put it under a repository that may later be registered.
-The cap defaults to exactly 5,000,000,000 bytes and must cover the maximum image.
+The cap defaults to exactly 5,000,000,000 bytes (`5GB`) and must cover the maximum
+image. Byte settings accept plain bytes or units (`parse_size` in `config.py`).
 Image intake settings may be lowered but cannot exceed 10,000,000 bytes or five
 images per task. Decoder limits are 16,000,000 pixels, 8000 per side, and one
 frame. The actual decoded format must be PNG, JPEG or WebP; extensions and MIME

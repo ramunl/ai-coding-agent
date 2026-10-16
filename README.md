@@ -382,8 +382,9 @@ bytes each, 16 million pixels, 8000 pixels per side and five images per task.
 Pillow is required for decoding (`requirements.txt`). Defaults:
 
 - `IMAGE_DIR=/var/lib/ai-coding-agent/images` (private, outside git)
-- `IMAGE_STORAGE_CAP_BYTES=5000000000` (decimal 5 GB)
-- `IMAGE_MAX_BYTES=10000000`
+- `IMAGE_STORAGE_CAP_BYTES=5GB` (plain bytes or a unit such as `500MiB`; the
+  default is decimal 5 GB)
+- `IMAGE_MAX_BYTES=10MB`
 - `IMAGE_MAX_PER_TASK=5`
 
 The storage cap is enforced at startup and before every atomic save. Eviction
