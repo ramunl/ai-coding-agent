@@ -19,6 +19,7 @@ from ai_agent.bot.ci_monitor import (
     final_ci_status_message,
     watch_ci,
 )
+from ai_agent.bot.image_intake import report_missing
 from ai_agent.bot.state import (
     active_execution_text,
     current_implementation_agent,
@@ -34,6 +35,7 @@ from ai_agent.bot.transport import reply_chunks, require_authorized
 from ai_agent.ci import CiResult, build_failure_context
 from ai_agent.config import CI_FIX_ATTEMPTS
 from ai_agent.github import PullRequest, ensure_github_configured, github_request
+from ai_agent.image_delivery import invoke
 from ai_agent.plan_state import Verbosity, render_completion
 from ai_agent.projects import active_project
 from ai_agent.run_outcomes import (
@@ -140,7 +142,8 @@ async def run_queued_implementation(
             pull_request=pull_request,
             implementation_agent=implementation_agent,
             prompt=partial(build_ci_repair_prompt, task["codex_prompt"]),
-            run=repair_implementation,
+            run=partial(invoke, task.get("images", []), repair_implementation),
+            images=task.get("images", []),
             commit_message=f"{task['change']} CI repair",
         )
         ci_result, repair_attempt = await _repair_failed_ci(
@@ -195,10 +198,17 @@ async def _publish_queued_implementation(
         update,
         (f"Task #{task['id']} started.\n\nBranch:\n{branch_name}\n\nStatus:\nRUNNING"),
     )
+    await report_missing(update, task.get("images", []))
     implementation_result = await asyncio.to_thread(
-        implement, codex_prompt, branch_name, implementation_agent
+        invoke,
+        task.get("images", []),
+        implement,
+        codex_prompt,
+        branch_name,
+        implementation_agent,
     )
 
+    await report_missing(update, task.get("images", []))
     set_active_execution(context, branch_name, "Committing and pushing branch")
     await reply_chunks(update, "Committing and pushing branch...")
     commit_sha = await asyncio.to_thread(push, branch_name, change, commit_type)
@@ -355,6 +365,7 @@ class _RepairRequest:
     run: Callable[[str, str, str], ImplementationResult]
     commit_message: str
     is_existing_pr: bool = False
+    images: list[dict] | None = None
 
 
 async def _repair_failed_ci(
@@ -380,12 +391,14 @@ async def _repair_failed_ci(
         failure_context = await asyncio.to_thread(
             build_failure_context, request.pull_request.number, ci_result
         )
+        await report_missing(update, request.images or [])
         result = await asyncio.to_thread(
             request.run,
             request.prompt(failure_context),
             request.branch_name,
             request.implementation_agent,
         )
+        await report_missing(update, request.images or [])
         set_active_execution(
             context, request.branch_name, f"Pushing {push_label} (attempt {attempt})"
         )

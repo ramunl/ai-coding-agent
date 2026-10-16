@@ -23,6 +23,7 @@ from collections.abc import Awaitable, Callable, MutableMapping
 from pathlib import Path
 from typing import Any
 
+from ai_agent import image_uploads
 from ai_agent.actions import (
     ActionError,
     add_repository,
@@ -32,6 +33,8 @@ from ai_agent.actions import (
     use_project,
 )
 from ai_agent.bot.atomic_file import write_json_atomic
+from ai_agent.task_images import ImageError
+from ai_agent.task_images import remove as remove_images
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +56,7 @@ _COUNT = re.compile(r"^([0-9]|[1-4][0-9]|50)$")  # runs per day, 0 = no cap
 _PERCENT = re.compile(r"^([0-9]|[1-8][0-9]|90)$")  # reserve, 0-90 %
 # Where a task came from: "<todo project>:<todo id>", or "-" for none.
 _TODO_REF = re.compile(r"^(-|[A-Za-z0-9._-]{1,64}:[A-Za-z0-9]{1,64})$")
-WorkRunner = Callable[[str, dict[str, str]], Awaitable[str]]
+WorkRunner = Callable[[str, dict[str, Any]], Awaitable[str]]
 
 # action -> {argument: allowed pattern or values}
 ACTIONS: dict[str, dict[str, Any]] = {
@@ -101,7 +104,7 @@ WORK_ACTIONS = (
 )
 
 
-def validate(request: dict) -> tuple[str, str, dict[str, str]]:
+def validate(request: dict) -> tuple[str, str, dict[str, Any]]:
     """Return (id, action, args) or raise ActionError; unknown keys are refused."""
     request_id = request.get("id")
     if not isinstance(request_id, str) or not _ID.match(request_id):
@@ -111,7 +114,14 @@ def validate(request: dict) -> tuple[str, str, dict[str, str]]:
     if spec is None:
         raise ActionError(f"Unknown action '{action}'.")
     args = request.get("args")
-    if not isinstance(args, dict) or set(args) != set(spec):
+    expected = set(spec)
+    if action == "create_task" and isinstance(args, dict) and "images" in args:
+        expected.add("images")
+        try:
+            image_uploads.validate_names(args["images"])
+        except ImageError as error:
+            raise ActionError(str(error)) from error
+    if not isinstance(args, dict) or set(args) != expected:
         raise ActionError(f"{action} expects exactly: {', '.join(sorted(spec))}.")
     for key, allowed in spec.items():
         value = args[key]
@@ -125,7 +135,7 @@ def validate(request: dict) -> tuple[str, str, dict[str, str]]:
 
 async def execute(
     action: str,
-    args: dict[str, str],
+    args: dict[str, Any],
     user_data: MutableMapping,
     rename_bot: Callable[[str], Awaitable[None]] | None = None,
     work: WorkRunner | None = None,
@@ -202,6 +212,7 @@ async def process_inbox(
     work: WorkRunner | None = None,
 ) -> int:
     """Handle every waiting request, oldest first; return how many."""
+    image_uploads.expire(inbox, now)
     handled = 0
     for path in sorted(inbox.glob("*.json"), key=lambda item: item.stat().st_mtime):
         working = _claim(path)
@@ -214,6 +225,7 @@ async def process_inbox(
                 raise ValueError("not an object")
         except (OSError, ValueError):
             log.record(working.stem, "unknown", "rejected", "Unreadable request.")
+            image_uploads.cleanup(inbox, working.stem)
             working.unlink(missing_ok=True)
             continue
         try:
@@ -221,27 +233,56 @@ async def process_inbox(
         except ActionError as error:
             safe_id = request.get("id") if isinstance(request.get("id"), str) else ""
             log.record(safe_id[:32] or working.stem, "unknown", "rejected", str(error))
+            image_uploads.cleanup(inbox, working.stem)
             working.unlink(missing_ok=True)
             continue
-        age = (time.time() if now is None else now) - float(
-            request.get("requested_at") or 0
-        )
-        if age > MAX_AGE_SECONDS:
+        if args.get("images") and request_id != working.stem:
+            log.record(
+                request_id, action, "rejected", "Request id must match filename."
+            )
+            image_uploads.cleanup(inbox, request_id)
+            working.unlink(missing_ok=True)
+            continue
+        try:
+            age = (time.time() if now is None else now) - float(
+                request.get("requested_at") or 0
+            )
+        except (TypeError, ValueError):
+            age = float("inf")
+        if not 0 <= age <= MAX_AGE_SECONDS:
             log.record(
                 request_id, action, "expired", "Not run: the request is too old."
             )
+            image_uploads.cleanup(inbox, request_id)
             working.unlink(missing_ok=True)
             continue
         log.record(request_id, action, "running", "Working…")
+        refs = []
         try:
+            if action == "create_task" and args.get("images"):
+                # An exclusive durable marker prevents replay even after result
+                # rotation or restart. Mark before consuming any bytes.
+                try:
+                    image_uploads.mark_request(inbox, request_id)
+                except FileExistsError as error:
+                    raise ActionError("Image request was already consumed.") from error
+                refs = await asyncio.to_thread(
+                    image_uploads.claim, inbox, request_id, args["images"]
+                )
+                args = {**args, "images": refs}
             message = await execute(action, args, user_data, rename_bot, work)
             log.record(request_id, action, "done", message)
-        except ActionError as error:
+        except (ActionError, ImageError) as error:
+            remove_images(refs)
             log.record(request_id, action, "failed", str(error))
         except Exception as error:  # never let one request stop the inbox
-            logger.exception("Inbox action %s failed", action)
-            log.record(request_id, action, "failed", f"Unexpected error: {error}")
+            remove_images(refs)
+            logger.warning("Inbox action %s failed (%s)", action, type(error).__name__)
+            log.record(
+                request_id, action, "failed", "Unexpected error while handling action."
+            )
         finally:
+            image_uploads.cleanup(inbox, request_id)
             working.unlink(missing_ok=True)
     return handled
 
@@ -270,7 +311,7 @@ async def inbox_forever(
         logger.warning("Work actions unavailable: %s", error)
     else:
 
-        async def work(action: str, args: dict[str, str]) -> str:
+        async def work(action: str, args: dict[str, Any]) -> str:
             if action == "worker_scan":
                 from ai_agent.bot.worker_loop import scan_logs
 

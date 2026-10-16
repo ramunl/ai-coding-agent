@@ -7,6 +7,7 @@ import asyncio
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from ai_agent.bot.image_intake import report_missing
 from ai_agent.bot.state import (
     current_planning_agent,
     forget_pending_implementation,
@@ -18,6 +19,7 @@ from ai_agent.bot.transport import (
     reply_chunks,
     require_authorized,
 )
+from ai_agent.image_delivery import invoke
 from ai_agent.plan_state import (
     PlanState,
     new_plan_state,
@@ -36,6 +38,7 @@ from ai_agent.planner import (
 )
 from ai_agent.projects import active_project
 from ai_agent.task_split import SplitError, split_pending
+from ai_agent.tasks import find_task
 from ai_agent.workflow import slugify_branch_name
 
 
@@ -52,8 +55,15 @@ async def plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     provider = current_planning_agent(context)
     await reply_chunks(update, f"Planning with {planning_agent_label(provider)}...")
-    plan_text = await think(context, "plan", feature, plan_feature, feature, provider)
+    task = find_task(context.user_data, context.user_data.get("planning_task", ""))
+    images = (task or {}).get("images", [])
+    await report_missing(update, images)
+    plan_text = await think(
+        context, "plan", feature, invoke, images, plan_feature, feature, provider
+    )
+    await report_missing(update, images)
     plan_state = new_plan_state(feature, plan_text)
+    plan_state.images = list(images)
     context.user_data["pending_plan"] = plan_state
     forget_pending_implementation(context)
     await reply_chunks(update, render_plan(plan_state))
@@ -79,16 +89,20 @@ async def discuss(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await reply_chunks(
         update, f"Revising plan with {planning_agent_label(provider)}..."
     )
+    await report_missing(update, plan_state.images)
     plan_text = await think(
         context,
         "revise",
         plan_state.feature,
+        invoke,
+        plan_state.images,
         revise_feature_plan,
         plan_state.feature,
         plan_state.plan_text,
         feedback,
         provider,
     )
+    await report_missing(update, plan_state.images)
     revised = revise_plan_state(plan_state, plan_text)
     context.user_data["pending_plan"] = revised
     forget_pending_implementation(context)

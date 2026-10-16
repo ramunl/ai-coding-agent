@@ -29,3 +29,7 @@ dashboard should not see, and it deliberately never stores the running task
 Carries `"format": 1`. Changing the shape incompatibly means bumping it and
 updating the dashboard first, which reports unknown formats instead of
 misreading them. Full field list: the ai-dashboard README.
+
+Image usage is published as `image_storage: {used_bytes, cap_bytes, count}`.
+Task views include `image_count`; references, bytes and local paths are excluded.
+See [task image contract](task_images.md).

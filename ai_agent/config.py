@@ -60,6 +60,30 @@ SNAPSHOT_FILE = Path(
 INBOX_DIR = Path(
     os.environ.get("AGENT_INBOX_DIR", "/var/lib/ai-coding-agent/inbox")
 ).expanduser()
+# Private attachments must never be stored in a repository.
+IMAGE_DIR = Path(
+    os.environ.get("IMAGE_DIR", "/var/lib/ai-coding-agent/images")
+).expanduser()
+IMAGE_STORAGE_CAP_BYTES = int(os.environ.get("IMAGE_STORAGE_CAP_BYTES", "5000000000"))
+IMAGE_MAX_BYTES = int(os.environ.get("IMAGE_MAX_BYTES", "10000000"))
+IMAGE_MAX_PER_TASK = int(os.environ.get("IMAGE_MAX_PER_TASK", "5"))
+
+
+def validate_image_config() -> None:
+    """Reject unsafe directories and unbounded image intake settings."""
+    if not IMAGE_DIR.is_absolute():
+        raise RuntimeError("IMAGE_DIR must be absolute and outside git")
+    resolved = IMAGE_DIR.resolve()
+    if any((parent / ".git").exists() for parent in (resolved, *resolved.parents)):
+        raise RuntimeError("IMAGE_DIR must be outside git")
+    if not 0 < IMAGE_MAX_BYTES <= 10_000_000:
+        raise RuntimeError("IMAGE_MAX_BYTES must be between 1 and 10000000")
+    if not 0 < IMAGE_MAX_PER_TASK <= 5:
+        raise RuntimeError("IMAGE_MAX_PER_TASK must be between 1 and 5")
+    if IMAGE_STORAGE_CAP_BYTES < IMAGE_MAX_BYTES:
+        raise RuntimeError("IMAGE_STORAGE_CAP_BYTES must cover IMAGE_MAX_BYTES")
+
+
 ACTION_RESULTS_FILE = Path(
     os.environ.get(
         "AGENT_ACTION_RESULTS_FILE", "/var/lib/ai-coding-agent/action-results.json"
@@ -101,6 +125,7 @@ LINK_ALLOWED_DOMAINS = tuple(
 
 def validate_required_config() -> None:
     """Reject missing settings needed to start the bot."""
+    validate_image_config()
     missing = [
         name
         for name in ("TELEGRAM_BOT_TOKEN", "YOUR_CHAT_ID")

@@ -21,7 +21,7 @@ from ai_agent.bot.planning import plan
 from ai_agent.plan_state import parse_plan_document
 from ai_agent.projects import ProjectError, active_project, get_project
 from ai_agent.task_split import SplitError, split_pending
-from ai_agent.tasks import add_task, find_task, set_stage, tasks_of, waiting_for
+from ai_agent.tasks import add_task, find_task, remove_task, set_stage, waiting_for
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +116,7 @@ async def start(
 
 
 async def run_task_action(
-    ptb_app: Any, owner_id: int, action: str, args: dict[str, str]
+    ptb_app: Any, owner_id: int, action: str, args: dict[str, Any]
 ) -> str:
     """Run one validated task action for the owner; return a one-line result."""
     data = ptb_app.user_data[owner_id]
@@ -133,7 +133,7 @@ async def run_task_action(
         except ProjectError as error:
             raise ActionError(str(error)) from error
         todo = None if args["todo"] == "-" else args["todo"]
-        task = add_task(data, args["text"], args["repo"], todo)
+        task = add_task(data, args["text"], args["repo"], todo, args.get("images"))
         try:
             return f"Task added. {await start(ptb_app, owner_id, task)}"
         except ActionError as error:
@@ -151,7 +151,7 @@ async def run_task_action(
             set_stage(task, "todo")
             return f"Accepted as To do: {task['title']}"
         log_scan.dismiss(data, task, time.time())
-        tasks_of(data).remove(task)
+        remove_task(data, task)
         return "Dismissed; that error will not be proposed again for 30 days."
     if action == "start_task":
         if task.get("stage") not in ("todo", "stopped", "blocked", "ops_required"):
@@ -166,5 +166,5 @@ async def run_task_action(
         return await start(ptb_app, owner_id, task)
     if task.get("stage") not in REMOVABLE:
         raise ActionError("A task can be removed only when it is not in progress.")
-    tasks_of(data).remove(task)
+    remove_task(data, task)
     return f"Task removed: {task['title']}"

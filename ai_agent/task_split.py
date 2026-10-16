@@ -81,7 +81,11 @@ def split_plan(
     for index, repository in enumerate(parts, 1):
         is_last = index == len(parts)
         task = add_task(
-            data, plan.feature, repository["name"], todo if is_last else None
+            data,
+            plan.feature,
+            repository["name"],
+            todo if is_last else None,
+            plan.images,
         )
         suffix = f", part {index}/{len(parts)}" if len(parts) > 1 else ""
         task["title"] = f"{task['title']} ({repository['name']}{suffix})"

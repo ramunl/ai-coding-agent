@@ -47,6 +47,7 @@ class Decision:
 
     action: str  # "wait", "plan" or "run"
     status: str
+    # Keep the whole persisted task, including images, when selecting/falling back.
     task: dict | None = None
     tool: str | None = None
 

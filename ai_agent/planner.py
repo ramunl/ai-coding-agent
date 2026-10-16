@@ -8,6 +8,7 @@ from ai_agent.bugfix_questions import (
 )
 from ai_agent.ecosystem import ecosystem_block
 from ai_agent.github_links import enrich_feature_description
+from ai_agent.image_delivery import invoke
 from ai_agent.planning_provider import (
     SCHEMAS_DIR,
     SUPPORTED_PLANNING_AGENTS,
@@ -43,8 +44,14 @@ __all__ = [
 ]
 
 
-def plan_feature(feature_description: str, provider: str | None = None) -> str:
+def plan_feature(
+    feature_description: str,
+    provider: str | None = None,
+    images: list[dict] | None = None,
+) -> str:
     """Request a structured implementation plan with project rules and context."""
+    if images is not None:
+        return invoke(images, plan_feature, feature_description, provider)
     context = repo_file_sample()
     enriched_feature_description = enrich_feature_description(feature_description)
     rules_block = project_brief_block() + ecosystem_block() + rules_prompt_block()
@@ -85,8 +92,18 @@ def revise_feature_plan(
     current_plan: str,
     feedback: str,
     provider: str | None = None,
+    images: list[dict] | None = None,
 ) -> str:
     """Request a revised plan using the existing plan and user feedback."""
+    if images is not None:
+        return invoke(
+            images,
+            revise_feature_plan,
+            feature_description,
+            current_plan,
+            feedback,
+            provider,
+        )
     enriched_feature_description = enrich_feature_description(feature_description)
     rules_block = project_brief_block() + ecosystem_block() + rules_prompt_block()
     repository = active_project().github_repository

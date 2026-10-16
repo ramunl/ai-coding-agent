@@ -12,6 +12,7 @@ from ai_agent.config import (
     IMPLEMENTATION_AGENT,
 )
 from ai_agent.github import PullRequest, ensure_github_configured, github_request
+from ai_agent.image_delivery import run_with_images
 from ai_agent.model_errors import codex_capacity_explained
 from ai_agent.ops_context import OUTCOME_INSTRUCTIONS, diagnostic_context
 from ai_agent.projects import active_project
@@ -103,10 +104,11 @@ def implementation_command(prompt: str, agent: str | None = None) -> list[str]:
 def run_implementation_agent(prompt: str, agent: str | None = None) -> CommandResult:
     """Run a provider command and explain capacity failures."""
     with codex_capacity_explained():
-        return run(
+        return run_with_images(
             implementation_command(
                 prompt + diagnostic_context() + OUTCOME_INSTRUCTIONS, agent
             ),
+            run,
             timeout=CODEX_TIMEOUT_SECONDS,
         )
 
