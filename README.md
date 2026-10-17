@@ -354,6 +354,18 @@ autopilot can't approve a plan (for example it belongs to another
 repository), the task waits for you and says so. The daily run cap and the
 limits reserve still apply.
 
+### Todos tagged #auto
+
+With the worker on, every 10 minutes it reads the PM todo lists (read-only,
+through the PM agent's bridge `/usr/local/sbin/ai-pm-todos`, the one the
+dashboard uses) and turns each open todo whose text has `#auto` into an
+Autopilot task, once (a task you remove is not made again). Add
+`#<repository>` (for example `#ai-dashboard`) to say where it is planned;
+otherwise a repository named like the todo list, else the active project.
+If the plan belongs to other repositories, autopilot moves or splits it
+(`/split`) instead of waiting for you. The todo is closed when the task is
+deployed, as for any task made from a todo.
+
 ### Retrying a failed run
 
 When a task's run stops without a pull request (a tool ran out of its usage

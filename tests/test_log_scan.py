@@ -116,8 +116,13 @@ class ProposalActionTests(unittest.IsolatedAsyncioTestCase):
             bot=SimpleNamespace(send_message=AsyncMock()),
             mark_data_for_update_persistence=MagicMock(),
         )
+        self.no_todos = patch.object(
+            self.loop.auto_todos, "is_due", lambda data, now: False
+        )
+        self.no_todos.start()
 
     def tearDown(self) -> None:
+        self.no_todos.stop()
         os.environ.clear()
         os.environ.update(self.previous_env)
 

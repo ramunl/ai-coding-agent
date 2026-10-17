@@ -26,7 +26,9 @@ from collections.abc import MutableMapping
 from dataclasses import dataclass
 from typing import Any
 
+from ai_agent.plan_state import parse_plan_document
 from ai_agent.planner import normalize_planning_agent
+from ai_agent.projects import active_project
 from ai_agent.tasks import waiting_for
 from ai_agent.workflow import normalize_implementation_agent
 
@@ -45,7 +47,7 @@ OUTCOMES = ("planned", "pr", "failed", "limit")
 class Decision:
     """What the worker does on this tick: an action, or why it waits."""
 
-    action: str  # "wait", "plan", "approve" (autopilot) or "run"
+    action: str  # "wait", "plan", "approve"/"split" (autopilot) or "run"
     status: str
     # Keep the whole persisted task, including images, when selecting/falling back.
     task: dict | None = None
@@ -170,6 +172,23 @@ def limit_reset(text: str, now: float) -> float | None:
     return now + LIMIT_FALLBACK_SECONDS
 
 
+def _needs_split(plan: Any) -> bool:
+    """True when the plan is for other repositories than the active one."""
+    names = [
+        item["name"]
+        for item in parse_plan_document(
+            getattr(plan, "plan_text", ""), getattr(plan, "feature", "")
+        ).repositories
+    ]
+    if not names:
+        return False
+    try:
+        active = active_project().name
+    except Exception:  # no registry: leave the plan to the owner
+        return False
+    return len(names) > 1 or names != [active]
+
+
 def _plan_task(tasks: list[dict], plan: Any) -> dict | None:
     """The planned task whose plan this is, if any."""
     return next(
@@ -228,6 +247,8 @@ def decide(
         title = getattr(plan, "feature", "the plan")
         own = _plan_task(tasks, plan)
         if own is not None and own.get("autopilot") and not own.get("autopilot_stuck"):
+            if _needs_split(plan):
+                return Decision("split", f"splitting {own['title']} (autopilot)", own)
             return Decision("approve", f"approving {own['title']} (autopilot)", own)
         return Decision("wait", f"waiting for your approval: {title}")
     if data.get("pending_implementation") or data.get("pending_bugfix_clarification"):

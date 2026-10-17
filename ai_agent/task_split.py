@@ -90,6 +90,8 @@ def split_plan(
         suffix = f", part {index}/{len(parts)}" if len(parts) > 1 else ""
         task["title"] = f"{task['title']} ({repository['name']}{suffix})"
         task["text"] = part_text(plan.feature, document, index, repository)
+        if source is not None and source.get("autopilot"):
+            task["autopilot"] = True  # an Autopilot task's parts stay on autopilot
         task.update(
             group=plan.id,
             part=index,

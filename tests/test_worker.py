@@ -189,9 +189,15 @@ class TickTests(unittest.IsolatedAsyncioTestCase):
         )
         self.limits = patch.object(self.loop, "limits_snapshot", lambda: {})
         self.limits.start()
+        # No PM bridge in tests: the #auto todo scan is tested on its own.
+        self.no_todos = patch.object(
+            self.loop.auto_todos, "is_due", lambda data, now: False
+        )
+        self.no_todos.start()
 
     def tearDown(self) -> None:
         self.limits.stop()
+        self.no_todos.stop()
         os.environ.clear()
         os.environ.update(self.previous_env)
 

@@ -49,6 +49,7 @@ PERSISTENT_KEYS = frozenset(
         "tasks",
         "worker",
         "log_scan",
+        "auto_todos",
     }
 )
 

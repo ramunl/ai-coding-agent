@@ -56,10 +56,12 @@ class SplitTests(unittest.TestCase):
     ) -> None:
         source = tasks.add_task(self.data, "drag todos", "ai-pm-agent", "3:abc")
         tasks.set_stage(source, "planned")
+        source["autopilot"] = True
         source["plan_id"] = "p1"
         first, second = self.split()
         self.assertNotIn(source, tasks.tasks_of(self.data))
         self.assertEqual((first["todo"], second["todo"]), (None, "3:abc"))
+        self.assertTrue(first["autopilot"] and second["autopilot"])
 
     def test_unknown_or_single_repositories_are_refused(self) -> None:
         data = json.loads(PLAN)

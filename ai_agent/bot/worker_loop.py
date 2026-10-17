@@ -13,11 +13,12 @@ import logging
 import time
 from typing import Any
 
-from ai_agent import log_scan
+from ai_agent import auto_todos, log_scan
 from ai_agent.actions import ActionError
 from ai_agent.bot import task_actions, work_actions
-from ai_agent.projects import list_projects
+from ai_agent.projects import active_project, list_projects
 from ai_agent.provider_limits import limits_snapshot
+from ai_agent.task_split import SplitError, split_pending
 from ai_agent.tasks import find_task, set_stage, tasks_of
 from ai_agent.worker import (
     MAX_FAILURES,
@@ -115,6 +116,8 @@ async def tick(ptb_app: Any, owner_id: int, now: float | None = None) -> str:
         return decision_status
     decision = decide(data, tasks_of(data), limits_snapshot(), now)
     data["worker_status"] = decision.status
+    if worker["enabled"] and auto_todos.is_due(data, now):
+        await take_auto_todos(ptb_app, owner_id, now)
     is_idle = worker["enabled"] and decision.status.startswith("idle")
     if is_idle and log_scan.is_due(data, now):
         await scan_logs(ptb_app, owner_id, now)
@@ -140,6 +143,14 @@ async def tick(ptb_app: Any, owner_id: int, now: float | None = None) -> str:
                     else "Approve the plan to let me run it."
                 ),
             )
+        elif decision.action == "split":
+            try:
+                reply = split_pending(data)
+            except SplitError as error:
+                task["autopilot_stuck"] = True
+                task["note"] = f"autopilot could not split the plan: {error}"
+                reply = f"could not split “{task['title']}”: {error} It waits for you."
+            await _tell(ptb_app, owner_id, f"autopilot: {reply}")
         elif decision.action == "approve":
             await work_actions.run_work_action(ptb_app, owner_id, "approve_plan", {})
             plan = data.get("pending_plan")
@@ -181,6 +192,30 @@ async def tick(ptb_app: Any, owner_id: int, now: float | None = None) -> str:
         data["worker_status"] = f"waiting: {error}"
     ptb_app.mark_data_for_update_persistence(user_ids=owner_id)
     return data["worker_status"]
+
+
+async def take_auto_todos(
+    ptb_app: Any, owner_id: int, now: float | None = None
+) -> list[dict]:
+    """Make Autopilot tasks from new #auto todos and say so in the chat."""
+    now = time.time() if now is None else now
+    data = ptb_app.user_data[owner_id]
+    todos = await asyncio.to_thread(auto_todos.tagged_todos)
+    projects = await asyncio.to_thread(list_projects)
+    registered = [project.name for project in projects]
+    active = await asyncio.to_thread(lambda: active_project().name)
+    created = auto_todos.make_tasks(data, todos, registered, active, now)
+    ptb_app.mark_data_for_update_persistence(user_ids=owner_id)
+    if created:
+        titles = "\n".join(
+            f"• {task['title'][:120]} ({task['repo']})" for task in created
+        )
+        await _tell(
+            ptb_app,
+            owner_id,
+            f"took {len(created)} #auto todo(s) as Autopilot tasks:\n{titles}",
+        )
+    return created
 
 
 async def scan_logs(
