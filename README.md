@@ -354,6 +354,18 @@ autopilot can't approve a plan (for example it belongs to another
 repository), the task waits for you and says so. The daily run cap and the
 limits reserve still apply.
 
+### Code reviews by the worker
+
+When the worker is idle it reviews one registered repository a day, in turn,
+read-only (Codex in a read-only sandbox, or Claude Code in plan mode, run in
+that repository), with its `AGENTS.md` and the coding rules. It asks for at
+most N proposals (Worker card **Review proposals**, or `/worker reviews <0-10>`;
+0 switches reviews off; default 3), each a bug, an improvement or a feature
+with its files. They arrive as Proposed tasks you accept or dismiss; one
+already proposed or dismissed is not proposed again for 30 days. It uses the
+planner tool, keeps the limits reserve and switches tools like other worker
+runs. `/worker review` (or **Review a repo now**) reviews the next one at once.
+
 ### Todos tagged #auto
 
 With the worker on, every 10 minutes it reads the PM todo lists (read-only,

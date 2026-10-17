@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["proposals"],
+  "properties": {
+    "proposals": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "title", "detail", "files"],
+        "properties": {
+          "kind": {"type": "string", "enum": ["bug", "improvement", "feature"]},
+          "title": {"type": "string"},
+          "detail": {"type": "string"},
+          "files": {"type": "array", "maxItems": 5, "items": {"type": "string"}}
+        }
+      }
+    }
+  }
+}

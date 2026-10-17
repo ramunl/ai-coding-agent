@@ -15,8 +15,18 @@ from telegram.ext import ContextTypes
 from ai_agent.bot.transport import reply_chunks, require_authorized
 from ai_agent.worker import settings, view
 
-WORKER_ACTIONS = ("worker_switch", "worker_settings", "worker_tools", "worker_scan")
-USAGE = "Usage: /worker [on|off|budget <runs per day> <reserve %>|tools auto|fixed]"
+WORKER_ACTIONS = (
+    "worker_switch",
+    "worker_settings",
+    "worker_tools",
+    "worker_scan",
+    "worker_reviews",
+    "worker_review",
+)
+USAGE = (
+    "Usage: /worker [on|off|budget <runs per day> <reserve %>|tools auto|fixed"
+    "|reviews <0-10>|review]"
+)
 
 
 def run_worker_action(data: Any, action: str, args: dict[str, str]) -> str:
@@ -28,6 +38,14 @@ def run_worker_action(data: Any, action: str, args: dict[str, str]) -> str:
             worker["failures"] = 0
         data["worker_status"] = "starting" if worker["enabled"] else "off"
         return f"Worker {'on' if worker['enabled'] else 'off'}."
+    if action == "worker_reviews":
+        worker["review_proposals"] = int(args["value"])
+        if worker["review_proposals"]:
+            return (
+                f"Daily code review: up to {worker['review_proposals']} proposals, "
+                "one repository a day."
+            )
+        return "Daily code reviews are off."
     if action == "worker_tools":
         worker["auto_tool"] = args["value"] == "auto"
         if worker["auto_tool"]:
@@ -49,11 +67,15 @@ def status_text(data: Any) -> str:
         f"Runs today: {shown['runs_today']} (cap {cap})\n"
         f"Reserve: {shown['reserve']}% of Codex limits\n"
         f"Tools: {'switch by limits' if shown['auto_tool'] else 'chosen ones only'}\n"
+        f"Code review: "
+        f"{shown['review_proposals'] or 'off'}"
+        f"{' proposals a day' if shown['review_proposals'] else ''}\n"
         + "".join(
             f"{tool} out until {time.strftime('%H:%M', time.localtime(until))}\n"
             for tool, until in shown["out_until"].items()
         )
-        + "\n/worker on · off · scan · budget <runs> <reserve%> · tools auto|fixed"
+        + "\n/worker on · off · scan · review · reviews <0-10> · budget <runs> "
+        "<reserve%> · tools auto|fixed"
     )
 
 
@@ -69,7 +91,19 @@ async def worker_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         if not proposed:
             await reply_chunks(update, "No new recurring errors in the last 24 hours.")
         return
-    if len(args) == 2 and args[0] == "tools" and args[1] in ("auto", "fixed"):
+    if args == ["review"]:
+        from ai_agent.bot.worker_loop import review_next  # needs the whole bot
+
+        await reply_chunks(
+            update, await review_next(context.application, update.effective_chat.id)
+        )
+        return
+    if len(args) == 2 and args[0] == "reviews" and args[1].isdigit():
+        if int(args[1]) > 10:
+            await reply_chunks(update, "Reviews: 0–10 proposals a day (0 = off).")
+            return
+        run_worker_action(context.user_data, "worker_reviews", {"value": args[1]})
+    elif len(args) == 2 and args[0] == "tools" and args[1] in ("auto", "fixed"):
         run_worker_action(context.user_data, "worker_tools", {"value": args[1]})
     elif args in (["on"], ["off"]):
         run_worker_action(context.user_data, "worker_switch", {"value": args[0]})

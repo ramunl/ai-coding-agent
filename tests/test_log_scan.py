@@ -120,9 +120,14 @@ class ProposalActionTests(unittest.IsolatedAsyncioTestCase):
             self.loop.auto_todos, "is_due", lambda data, now: False
         )
         self.no_todos.start()
+        self.no_reviews = patch.object(
+            self.loop.code_review, "is_due", lambda data, now: False
+        )
+        self.no_reviews.start()
 
     def tearDown(self) -> None:
         self.no_todos.stop()
+        self.no_reviews.stop()
         os.environ.clear()
         os.environ.update(self.previous_env)
 

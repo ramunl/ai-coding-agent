@@ -53,6 +53,7 @@ _TEXT = re.compile(r"^(?=.*\S)[^\x00-\x1f\x7f]{1,4000}$")
 _KINDS = ("plan", "implement", "bugfix")
 _TASK_ID = re.compile(r"^[0-9a-f]{8}$")
 _COUNT = re.compile(r"^([0-9]|[1-4][0-9]|50)$")  # runs per day, 0 = no cap
+_REVIEWS = re.compile(r"^([0-9]|10)$")  # proposals per code review, 0 = off
 _PERCENT = re.compile(r"^([0-9]|[1-8][0-9]|90)$")  # reserve, 0-90 %
 # Where a task came from: "<todo project>:<todo id>", or "-" for none.
 _TODO_REF = re.compile(r"^(-|[A-Za-z0-9._-]{1,64}:[A-Za-z0-9]{1,64})$")
@@ -85,6 +86,8 @@ ACTIONS: dict[str, dict[str, Any]] = {
     "worker_switch": {"value": ("on", "off")},
     "worker_settings": {"max_runs": _COUNT, "reserve": _PERCENT},
     "worker_tools": {"value": ("auto", "fixed")},
+    "worker_reviews": {"value": _REVIEWS},
+    "worker_review": {},
 }
 WORK_ACTIONS = (
     "approve_plan",
@@ -107,6 +110,8 @@ WORK_ACTIONS = (
     "worker_settings",
     "worker_tools",
     "worker_scan",
+    "worker_reviews",
+    "worker_review",
 )
 
 
@@ -327,6 +332,10 @@ async def inbox_forever(
                     if found
                     else ("No new recurring errors in the last 24 hours.")
                 )
+            if action == "worker_review":
+                from ai_agent.bot.worker_loop import review_next
+
+                return (await review_next(ptb_app, owner_id))[:300]
             if action in WORKER_ACTIONS:
                 return run_worker_action(ptb_app.user_data[owner_id], action, args)
             if action in TASK_ACTIONS:

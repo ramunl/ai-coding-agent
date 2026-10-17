@@ -14,7 +14,8 @@ bots and the `ai-dashboard` Mini App.
 - Tasks (`tasks.py`) follow work from a todo to Deployed; the worker
   (`worker.py`, `bot/worker_loop.py`) takes To do tasks by itself within a
   budget, proposes tasks from server logs (`log_scan.py`) and takes todos
-  tagged #auto as Autopilot tasks (`auto_todos.py`).
+  tagged #auto as Autopilot tasks (`auto_todos.py`); it also reviews one
+  repository a day for proposals (`code_review.py`).
 - The dashboard never calls the bot directly: it reads `snapshot.json` and
   drops request files into the inbox (`inbox.py`, a fixed allow-list of
   actions with validated arguments).

@@ -194,10 +194,15 @@ class TickTests(unittest.IsolatedAsyncioTestCase):
             self.loop.auto_todos, "is_due", lambda data, now: False
         )
         self.no_todos.start()
+        self.no_reviews = patch.object(
+            self.loop.code_review, "is_due", lambda data, now: False
+        )
+        self.no_reviews.start()
 
     def tearDown(self) -> None:
         self.limits.stop()
         self.no_todos.stop()
+        self.no_reviews.stop()
         os.environ.clear()
         os.environ.update(self.previous_env)
 
@@ -389,6 +394,28 @@ class TickTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             (view["enabled"], view["max_runs"], view["reserve"]), (True, 0, 15)
         )
+
+    def test_review_setting(self) -> None:
+        data: dict = {}
+        message = self.commands.run_worker_action(
+            data, "worker_reviews", {"value": "5"}
+        )
+        self.assertIn("up to 5 proposals", message)
+        view = importlib.import_module("ai_agent.worker").view(data, time.time())
+        self.assertEqual(view["review_proposals"], 5)
+        self.assertIn(
+            "off",
+            self.commands.run_worker_action(data, "worker_reviews", {"value": "0"}),
+        )
+        inbox = importlib.import_module("ai_agent.inbox")
+        inbox.validate(
+            {"id": "a1b2c3d4", "action": "worker_reviews", "args": {"value": "10"}}
+        )
+        inbox.validate({"id": "a1b2c3d4", "action": "worker_review", "args": {}})
+        with self.assertRaises(importlib.import_module("ai_agent.actions").ActionError):
+            inbox.validate(
+                {"id": "a1b2c3d4", "action": "worker_reviews", "args": {"value": "11"}}
+            )
 
     def test_dashboard_requests_are_validated(self) -> None:
         inbox = importlib.import_module("ai_agent.inbox")

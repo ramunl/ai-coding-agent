@@ -32,7 +32,13 @@ from ai_agent.projects import active_project
 from ai_agent.tasks import waiting_for
 from ai_agent.workflow import normalize_implementation_agent
 
-DEFAULTS = {"enabled": False, "max_runs": 3, "reserve": 30, "auto_tool": True}
+DEFAULTS = {
+    "enabled": False,
+    "max_runs": 3,
+    "reserve": 30,
+    "auto_tool": True,
+    "review_proposals": 3,  # per daily code review; 0 = no reviews
+}
 TOOLS = ("codex", "claude")
 LIMIT_FALLBACK_SECONDS = 3600
 MAX_FAILURES = 3
@@ -351,6 +357,8 @@ def view(data: MutableMapping, now: float) -> dict:
             if isinstance(item, dict)
         ],
         "auto_tool": bool(merged.get("auto_tool", True)),
+        "review_proposals": int(merged.get("review_proposals", 3)),
+        "last_review": (merged.get("review") or {}).get("done"),
         "out_until": {
             tool: until
             for tool, until in (merged.get("out_until") or {}).items()

@@ -13,9 +13,10 @@ import logging
 import time
 from typing import Any
 
-from ai_agent import auto_todos, log_scan
+from ai_agent import auto_todos, code_review, log_scan
 from ai_agent.actions import ActionError
 from ai_agent.bot import task_actions, work_actions
+from ai_agent.planner import normalize_planning_agent
 from ai_agent.projects import active_project, list_projects
 from ai_agent.provider_limits import limits_snapshot
 from ai_agent.task_split import SplitError, split_pending
@@ -26,6 +27,7 @@ from ai_agent.worker import (
     decide,
     follow_up,
     limit_reset,
+    pick_tool,
     record,
     settings,
 )
@@ -121,6 +123,9 @@ async def tick(ptb_app: Any, owner_id: int, now: float | None = None) -> str:
     is_idle = worker["enabled"] and decision.status.startswith("idle")
     if is_idle and log_scan.is_due(data, now):
         await scan_logs(ptb_app, owner_id, now)
+    reviews_on = int(worker.get("review_proposals", 3)) > 0
+    if is_idle and reviews_on and code_review.is_due(data, now):
+        await review_next(ptb_app, owner_id, now)
     if decision.action == "wait" or not worker["enabled"]:
         return decision.status
     task = decision.task
@@ -192,6 +197,53 @@ async def tick(ptb_app: Any, owner_id: int, now: float | None = None) -> str:
         data["worker_status"] = f"waiting: {error}"
     ptb_app.mark_data_for_update_persistence(user_ids=owner_id)
     return data["worker_status"]
+
+
+async def review_next(ptb_app: Any, owner_id: int, now: float | None = None) -> str:
+    """Review the next repository in turn; say what it proposed. Returns that."""
+    now = time.time() if now is None else now
+    data = ptb_app.user_data[owner_id]
+    worker = settings(data)
+    count = int(worker.get("review_proposals", 3)) or code_review.DEFAULT_PROPOSALS
+    projects = {p.name: p for p in await asyncio.to_thread(list_projects)}
+    repo = code_review.next_repository(data, list(projects))
+    if repo is None:
+        return "No registered repositories to review."
+    preferred = normalize_planning_agent(data.get("planning_agent"))
+    tool, note = pick_tool(preferred, limits_snapshot(), worker, now)
+    if tool is None:
+        return f"Code review waits: {note.removeprefix('waiting: ')}."
+    data["worker_status"] = f"reviewing {repo} with {tool}"
+    try:
+        created = await asyncio.to_thread(
+            code_review.review,
+            data,
+            repo,
+            projects[repo].repo_path,
+            tool,
+            min(count, code_review.MAX_PROPOSALS),
+            now,
+        )
+    except Exception as error:  # a failed review must not stop the worker
+        message = work_actions.error_text(error).splitlines()[0][:200]
+        until = limit_reset(message, now)
+        if until is not None:
+            worker["out_until"][tool] = until
+        reply = f"code review of {repo} failed: {message}"
+        await _tell(ptb_app, owner_id, reply)
+        return reply
+    finally:
+        ptb_app.mark_data_for_update_persistence(user_ids=owner_id)
+    if created:
+        titles = "\n".join(f"• {task['title']} ({task['note']})" for task in created)
+        reply = (
+            f"reviewed {repo} with {tool}: {len(created)} proposal(s); accept or "
+            f"dismiss them in Tasks:\n{titles}"
+        )
+    else:
+        reply = f"reviewed {repo} with {tool}: nothing new to propose."
+    await _tell(ptb_app, owner_id, reply)
+    return reply
 
 
 async def take_auto_todos(
