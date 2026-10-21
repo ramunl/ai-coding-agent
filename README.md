@@ -2,6 +2,18 @@
 
 Telegram coding agent that plans and implements features/bugfixes across registered project repositories.
 
+## Claude Code limits
+
+Claude Code reports its subscription limits (5-hour and weekly windows) to
+the status line, which only an interactive session runs, so with the bot using
+`claude -p` the reading went stale. The bot now probes every 30 minutes: one
+tiny `claude -p` turn on the cheapest model with `--output-format
+stream-json`, whose `rate_limit_event` carries the same windows; they are saved
+where the status line writes them, for the dashboard and the worker's limit
+checks. A probe that finds nothing keeps the last reading.
+`CLAUDE_LIMITS_PROBE_MINUTES` (0 = off) and `CLAUDE_LIMITS_PROBE_MODEL`
+(default `haiku`) change it.
+
 ## Project brief
 
 `AGENTS.md` describes this repository for AI agents (Codex reads it, and

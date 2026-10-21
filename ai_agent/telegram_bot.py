@@ -80,6 +80,7 @@ from ai_agent.bot.worker_commands import worker_cmd
 from ai_agent.config import (
     ACTION_RESULTS_FILE,
     CHAT_ID,
+    CLAUDE_CODE_LIMITS_FILE,
     INBOX_DIR,
     SNAPSHOT_FILE,
     STATE_FILE,
@@ -121,6 +122,22 @@ def _start_snapshot_publisher(app: Application) -> None:
     )
     _start_inbox(app)
     _start_worker(app)
+    _start_claude_probe()
+
+
+_probe_task: asyncio.Task | None = None
+
+
+def _start_claude_probe() -> None:
+    """Keep the Claude Code limits reading fresh (see claude_code_probe)."""
+    global _probe_task
+    if _probe_task is not None and not _probe_task.done():
+        return
+    from ai_agent.claude_code_probe import probe_forever
+
+    _probe_task = asyncio.get_running_loop().create_task(
+        probe_forever(CLAUDE_CODE_LIMITS_FILE)
+    )
 
 
 _worker_task: asyncio.Task | None = None
