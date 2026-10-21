@@ -257,9 +257,7 @@ class SnapshotSectionTests(StoreTestCase):
             self.assertNotIn(forbidden, text)
 
     def test_store_with_injected_fields_is_treated_as_unreadable(self) -> None:
-        self._write(
-            {TODAY: {"planner": {"codex": {**_bucket(1), "prompt": "SECRET"}}}}
-        )
+        self._write({TODAY: {"planner": {"codex": {**_bucket(1), "prompt": "SECRET"}}}})
         self.assertIsNone(usage_section(self.path, today=TODAY))
 
 

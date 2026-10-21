@@ -89,9 +89,7 @@ def _codex_message(prompt: str, schema_name: str) -> str:
                 run,
                 timeout=CODEX_TIMEOUT_SECONDS,
             )
-        record_usage(
-            UsageRecord("planner", "codex", codex_total_tokens(result.output))
-        )
+        record_usage(UsageRecord("planner", "codex", codex_total_tokens(result.output)))
         return Path(output.name).read_text(encoding="utf-8").strip()
 
 
