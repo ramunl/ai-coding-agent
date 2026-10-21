@@ -27,6 +27,12 @@ from ai_agent.model_errors import codex_capacity_explained, model_error_message
 from ai_agent.ops_context import diagnostic_context
 from ai_agent.provider_limits import record_claude_response
 from ai_agent.shell import run
+from ai_agent.token_usage import (
+    UsageRecord,
+    claude_total_tokens,
+    codex_total_tokens,
+    record_usage,
+)
 
 SCHEMAS_DIR = Path(__file__).parent / "schemas"
 SUPPORTED_PLANNING_AGENTS = ("codex", "claude")
@@ -66,7 +72,7 @@ def _codex_message(prompt: str, schema_name: str) -> str:
         prefix="ai-agent-codex-", suffix=".json"
     ) as output:
         with codex_capacity_explained():
-            run_with_images(
+            result = run_with_images(
                 [
                     "codex",
                     "exec",
@@ -83,6 +89,9 @@ def _codex_message(prompt: str, schema_name: str) -> str:
                 run,
                 timeout=CODEX_TIMEOUT_SECONDS,
             )
+        record_usage(
+            UsageRecord("planner", "codex", codex_total_tokens(result.output))
+        )
         return Path(output.name).read_text(encoding="utf-8").strip()
 
 
@@ -136,6 +145,11 @@ def planner_message(
         raise RuntimeError(
             "Claude image planning failed; retry or switch planner."
         ) from None
+    record_usage(
+        UsageRecord(
+            "planner", "claude", claude_total_tokens(getattr(response, "usage", None))
+        )
+    )
     text = "\n".join(
         block.text for block in response.content if block.type == "text"
     ).strip()

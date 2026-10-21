@@ -78,6 +78,10 @@ STATE_FILE = Path(
 SNAPSHOT_FILE = Path(
     os.environ.get("AGENT_SNAPSHOT_FILE", "/var/lib/ai-coding-agent/snapshot.json")
 ).expanduser()
+# Daily token counts by role and tool; counts only, 90 days (see token_usage.py).
+TOKEN_USAGE_PATH = Path(
+    os.environ.get("TOKEN_USAGE_PATH", "/var/lib/ai-coding-agent/token-usage.json")
+).expanduser()
 # Setup requests from the dashboard, and their results (see ai_agent/inbox.py).
 INBOX_DIR = Path(
     os.environ.get("AGENT_INBOX_DIR", "/var/lib/ai-coding-agent/inbox")

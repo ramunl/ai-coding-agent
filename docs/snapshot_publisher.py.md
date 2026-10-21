@@ -26,9 +26,14 @@ dashboard should not see, and it deliberately never stores the running task
 
 ## Format
 
-Carries `"format": 1`. Changing the shape incompatibly means bumping it and
+Carries `"format": 2`. Changing the shape incompatibly means bumping it and
 updating the dashboard first, which reports unknown formats instead of
 misreading them. Full field list: the ai-dashboard README.
+
+Format 2 added the optional `token_usage` section (daily call and token counts
+by role and tool, 90 days). It is omitted when the usage store is missing or
+unreadable, and the rest of the snapshot still publishes. See
+[token usage](token_usage.md).
 
 Image usage is published as `image_storage: {used_bytes, cap_bytes, count}`.
 Task views include `image_count`; references, bytes and local paths are excluded.

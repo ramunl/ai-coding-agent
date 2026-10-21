@@ -22,6 +22,8 @@ Defines all configuration constants for the AI agent, reading from environment v
 - **`SNAPSHOT_FILE`** (default: /var/lib/ai-coding-agent/snapshot.json): Secret-free read model
   - Published for the separate `ai-dashboard` service; see `snapshot_publisher.py.md`
   - Both are expanded with `expanduser()` and created by `StateDirectory=` in the unit file
+- **`TOKEN_USAGE_PATH`** (default: /var/lib/ai-coding-agent/token-usage.json): Daily call and token counts by role and tool
+  - Counts only, 90 days; see `token_usage.md`. Read once at import; tests point it at a temp file (`tests/conftest.py`)
 
 ### Anthropic/Claude Configuration
 - **`ANTHROPIC_KEY`** (required): API key for Claude AI
