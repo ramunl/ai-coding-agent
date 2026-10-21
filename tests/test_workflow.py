@@ -306,5 +306,32 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn(["git", "pull", "origin", "main"], calls)
 
 
+class ImplementerUsageTests(unittest.TestCase):
+    def _run(self, agent: str, output: str) -> list:
+        from ai_agent import workflow
+
+        with (
+            patch.object(
+                workflow,
+                "run_with_images",
+                return_value=CommandResult([], 0, output),
+            ),
+            patch.object(workflow, "record_usage") as record,
+        ):
+            workflow.run_implementation_agent("fix", agent)
+        return [
+            (call.args[0].role, call.args[0].tool, call.args[0].tokens)
+            for call in record.call_args_list
+        ]
+
+    def test_codex_run_records_implementer_with_reported_total(self):
+        records = self._run("codex", "work done\ntokens used\n2,048\n")
+        self.assertEqual(records, [("implementer", "codex", 2048)])
+
+    def test_claude_run_records_implementer_as_unknown(self):
+        records = self._run("claude", "tokens used: 999")
+        self.assertEqual(records, [("implementer", "claude", None)])
+
+
 if __name__ == "__main__":
     unittest.main()

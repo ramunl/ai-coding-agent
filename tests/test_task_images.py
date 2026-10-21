@@ -14,6 +14,7 @@ from types import SimpleNamespace
 import pytest
 
 from ai_agent import image_delivery, image_uploads, task_images
+from ai_agent.shell import CommandResult
 
 
 @pytest.fixture
@@ -442,6 +443,7 @@ def test_codex_planner_receives_attachment_flags(store, monkeypatch):
         assert command[command.index("--sandbox") + 1] == "read-only"
         assert Path(command[command.index("--image") + 1]).read_bytes() == b"1234"
         Path(command[command.index("--output-last-message") + 1]).write_text("plan")
+        return CommandResult(command, 0, "")
 
     monkeypatch.setattr(provider, "run", run)
     ref = store.save(b"1234")

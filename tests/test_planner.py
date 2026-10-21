@@ -81,9 +81,12 @@ class PlannerTests(unittest.TestCase):
         ):
 
             def write_output(args, timeout):
+                from ai_agent.shell import CommandResult
+
                 output_path = args[args.index("--output-last-message") + 1]
                 with open(output_path, "w", encoding="utf-8") as output:
                     output.write('{"status":"ready","questions":[]}')
+                return CommandResult(args, 0, "")
 
             run_mock.side_effect = run_side_effect or write_output
             result = provider._codex_message("triage this", schema_name)
@@ -425,6 +428,51 @@ class PlannerTests(unittest.TestCase):
         with patch.object(provider, "_create_message", return_value=response):
             with self.assertRaisesRegex(RuntimeError, "Claude returned no text"):
                 provider.planner_message("prompt", "claude", "plan.json", 4000)
+
+    def test_claude_planner_counts_input_plus_output_tokens(self):
+        _, provider = self._modules()
+        response = types.SimpleNamespace(
+            content=[types.SimpleNamespace(type="text", text="plan")],
+            usage=types.SimpleNamespace(input_tokens=30, output_tokens=12),
+        )
+        with (
+            patch.object(provider, "_create_message", return_value=response),
+            patch.object(provider, "record_usage") as record,
+        ):
+            provider.planner_message("prompt", "claude", "plan.json", 4000)
+        recorded = record.call_args.args[0]
+        self.assertEqual(
+            (recorded.role, recorded.tool, recorded.tokens), ("planner", "claude", 42)
+        )
+
+    def test_claude_planner_without_usage_records_unknown(self):
+        _, provider = self._modules()
+        response = types.SimpleNamespace(
+            content=[types.SimpleNamespace(type="text", text="plan")]
+        )
+        with (
+            patch.object(provider, "_create_message", return_value=response),
+            patch.object(provider, "record_usage") as record,
+        ):
+            provider.planner_message("prompt", "claude", "plan.json", 4000)
+        self.assertIsNone(record.call_args.args[0].tokens)
+
+    def test_codex_planner_counts_the_total_it_reports(self):
+        from ai_agent.shell import CommandResult
+
+        _, provider = self._modules()
+
+        def run_side_effect(args, timeout):
+            output_path = args[args.index("--output-last-message") + 1]
+            Path(output_path).write_text('{"status":"ready","questions":[]}')
+            return CommandResult(args, 0, "tokens used\n77")
+
+        with patch.object(provider, "record_usage") as record:
+            self._codex_args(provider, "bugfix_assessment.json", run_side_effect)
+        recorded = record.call_args.args[0]
+        self.assertEqual(
+            (recorded.role, recorded.tool, recorded.tokens), ("planner", "codex", 77)
+        )
 
     def test_old_planner_import_paths_resolve_to_moved_objects(self) -> None:
         planner, provider = self._modules()

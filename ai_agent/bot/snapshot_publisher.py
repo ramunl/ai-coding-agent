@@ -5,7 +5,8 @@ crashes. It therefore never talks to this process; it reads the file written
 here. The file is the contract between the two.
 
 What it contains is snapshot() (secret-free: no prompts, diffs, or logs) plus
-the active project and versions. It is written when the content changes, and
+the active project, versions, and daily token counts (see token_usage.py). It is
+written when the content changes, and
 at least every HEARTBEAT_SECONDS, so the dashboard can tell "idle" apart from
 "the coding agent stopped publishing".
 """
@@ -28,10 +29,11 @@ from ai_agent.provider_limits import limits_snapshot, poll_limits
 from ai_agent.task_images import usage
 from ai_agent.task_pulls import track_forever as track_pulls
 from ai_agent.tasks import sync as sync_tasks
+from ai_agent.token_usage import usage_section
 
 logger = logging.getLogger(__name__)
 
-SNAPSHOT_FORMAT = 1
+SNAPSHOT_FORMAT = 2
 INTERVAL_SECONDS = 3.0
 HEARTBEAT_SECONDS = 30.0
 
@@ -57,7 +59,11 @@ def _project() -> dict:
 
 
 def build_content(
-    user_data: dict, project: dict, versions: dict, setup: dict | None = None
+    user_data: dict,
+    project: dict,
+    versions: dict,
+    setup: dict | None = None,
+    token_usage: dict | None = None,
 ) -> dict:
     """Everything the Coding window shows, minus the timestamps."""
     content = {
@@ -70,6 +76,8 @@ def build_content(
     }
     if setup is not None:
         content["setup"] = setup
+    if token_usage is not None:
+        content["token_usage"] = token_usage
     return content
 
 
@@ -128,8 +136,15 @@ async def publish_forever(
                 if sync_tasks(user_data):
                     # Not from a Telegram update, so PTB would not save it.
                     ptb_app.mark_data_for_update_persistence(user_ids=owner_id)
+                # None (store missing or unreadable) omits the section; the rest
+                # of the snapshot still publishes.
+                tokens = await asyncio.to_thread(usage_section)
                 content = build_content(
-                    user_data, project, versions, {**files, **state_part(user_data)}
+                    user_data,
+                    project,
+                    versions,
+                    {**files, **state_part(user_data)},
+                    tokens,
                 )
                 publisher.publish(content)
             except Exception as error:

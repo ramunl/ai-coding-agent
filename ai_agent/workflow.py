@@ -18,6 +18,7 @@ from ai_agent.ops_context import OUTCOME_INSTRUCTIONS, diagnostic_context
 from ai_agent.projects import active_project
 from ai_agent.run_outcomes import NoCodeOutcomeError
 from ai_agent.shell import CommandResult, run
+from ai_agent.token_usage import UsageRecord, codex_total_tokens, record_usage
 
 
 @dataclass(frozen=True)
@@ -104,15 +105,20 @@ def implementation_command(prompt: str, agent: str | None = None) -> list[str]:
 
 
 def run_implementation_agent(prompt: str, agent: str | None = None) -> CommandResult:
-    """Run a provider command and explain capacity failures."""
+    """Run a provider command, count its usage, and explain capacity failures."""
     with codex_capacity_explained():
-        return run_with_images(
+        result = run_with_images(
             implementation_command(
                 prompt + diagnostic_context() + OUTCOME_INSTRUCTIONS, agent
             ),
             run,
             timeout=CODEX_TIMEOUT_SECONDS,
         )
+    selected = normalize_implementation_agent(agent)
+    # Claude Code's text output carries no token count, so its calls stay unknown.
+    tokens = codex_total_tokens(result.output) if selected == "codex" else None
+    record_usage(UsageRecord("implementer", selected, tokens))
+    return result
 
 
 def slugify_branch_name(
