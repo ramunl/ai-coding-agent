@@ -62,6 +62,93 @@ def test_concurrent_saves_keep_strict_cap(store):
     assert existing == sorted(ref["id"] for ref in refs)[-2:]
 
 
+@pytest.mark.parametrize("operation", ["usage", "remove"])
+def test_resolve_releases_lock_before_decoding(store, monkeypatch, operation):
+    refs = [store.save(b"1234"), store.save(b"5678")]
+    decoding, resume = threading.Event(), threading.Event()
+
+    def decode(data):
+        decoding.set()
+        assert resume.wait(5), "Decoding was not resumed"
+        return "png", 1, 1
+
+    def concurrent_operation():
+        if operation == "remove":
+            store.remove(refs)
+        return store.usage()["count"]
+
+    monkeypatch.setattr(store, "decode", decode)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        resolved = pool.submit(store.resolve, refs)
+        try:
+            assert decoding.wait(3), "Decoding did not start"
+            changed = pool.submit(concurrent_operation)
+            assert changed.result(timeout=3) == (0 if operation == "remove" else 2)
+        finally:
+            resume.set()
+        assert resolved.result(timeout=3) == (
+            [("image/png", b"1234"), ("image/png", b"5678")],
+            0,
+        )
+
+
+def test_resolve_protects_reads_and_closes_descriptors(store, monkeypatch, tmp_path):
+    ref = store.save(b"1234")
+    link = store.save(b"5678")
+    outside = tmp_path / "outside"
+    outside.write_bytes(b"private")
+    (store.IMAGE_DIR / link["id"]).unlink()
+    (store.IMAGE_DIR / link["id"]).symlink_to(outside)
+    (store.IMAGE_DIR / ref["id"]).write_bytes(b"x" * 100)
+    opened, decoded = [], []
+    original_open = os.open
+
+    def tracked_open(path, flags):
+        assert flags & os.O_NOFOLLOW
+        fd = original_open(path, flags)
+        opened.append(fd)
+        return fd
+
+    def decode(data):
+        decoded.append(data)
+        raise store.ImageError("Image is empty or exceeds the image byte limit.")
+
+    monkeypatch.setattr(store.os, "open", tracked_open)
+    monkeypatch.setattr(store, "decode", decode)
+    assert store.resolve([ref, link, {"id": "../outside"}, {"id": None}]) == ([], 4)
+    assert decoded == [b"x" * (store.IMAGE_MAX_BYTES + 1)]
+    assert len(opened) == 1
+    for fd in opened:
+        with pytest.raises(OSError) as error:
+            os.fstat(fd)
+        assert error.value.errno == errno.EBADF
+
+
+def test_resolve_preserves_order_validation_and_count_limit(tmp_path, monkeypatch):
+    import io
+
+    pil = pytest.importorskip("PIL.Image")
+    monkeypatch.setattr(task_images, "IMAGE_DIR", tmp_path / "images")
+    monkeypatch.setattr(task_images, "IMAGE_MAX_BYTES", 10_000)
+    monkeypatch.setattr(task_images, "IMAGE_STORAGE_CAP_BYTES", 100_000)
+    monkeypatch.setattr(task_images, "IMAGE_MAX_PER_TASK", 4)
+    refs, expected = [], []
+    for fmt in ("PNG", "JPEG"):
+        buffer = io.BytesIO()
+        pil.new("RGB", (2, 2)).save(buffer, format=fmt)
+        data = buffer.getvalue()
+        refs.append(task_images.save(data))
+        expected.append((f"image/{fmt.lower()}", data))
+    invalid = task_images.save(expected[0][1])
+    (task_images.IMAGE_DIR / invalid["id"]).write_bytes(b"invalid")
+    missing = task_images.save(expected[0][1])
+    task_images.remove([missing])
+    assert task_images.resolve([refs[1], invalid, missing, refs[0], refs[1]]) == (
+        expected[::-1],
+        3,
+    )
+
+
 def test_inflight_codex_bytes_survive_eviction_without_disk_copy(store):
     ref = store.save(b"12345678")
     ready, evicted = threading.Event(), threading.Event()

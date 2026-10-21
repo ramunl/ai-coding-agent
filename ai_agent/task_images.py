@@ -171,7 +171,7 @@ def resolve(images: list[dict]) -> tuple[list[tuple[str, bytes]], int]:
     """Read a bounded batch under the eviction lock; bytes outlive eviction."""
     if not images:
         return [], 0
-    found = []
+    captured = []
     with locked():
         for ref in images[:IMAGE_MAX_PER_TASK]:
             name = ref.get("id", "")
@@ -181,10 +181,16 @@ def resolve(images: list[dict]) -> tuple[list[tuple[str, bytes]], int]:
                 fd = os.open(IMAGE_DIR / name, os.O_RDONLY | os.O_NOFOLLOW)
                 with os.fdopen(fd, "rb") as source:
                     data = source.read(IMAGE_MAX_BYTES + 1)
-                fmt, _, _ = decode(data)
-                found.append((f"image/{fmt}", data))
-            except (OSError, ImageError):
+                captured.append(data)
+            except OSError:
                 continue
+    found = []
+    for data in captured:
+        try:
+            fmt, _, _ = decode(data)
+            found.append((f"image/{fmt}", data))
+        except (OSError, ImageError):
+            continue
     missing = len(images) - len(found)
     if missing:
         logger.warning("%d task image(s) evicted or unavailable", missing)
