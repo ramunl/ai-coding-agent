@@ -18,6 +18,7 @@ from ai_agent import log_scan
 from ai_agent.actions import ActionError, busy_reason, use_project
 from ai_agent.bot import work_actions
 from ai_agent.bot.planning import plan
+from ai_agent.config import redact_sensitive
 from ai_agent.plan_state import parse_plan_document
 from ai_agent.projects import ProjectError, active_project, get_project
 from ai_agent.task_split import SplitError, split_pending
@@ -168,12 +169,23 @@ async def run_task_action(
         if action == "create_autopilot_task":
             task["autopilot"] = True
         try:
-            return f"Task added. {await start(ptb_app, owner_id, task)}"
+            message = await start(ptb_app, owner_id, task)
         except ActionError as error:
             set_stage(
                 task, "todo", str(error).removeprefix("Not started: ").rstrip(".")
             )
-            return f"Task added as To do: {task['note']}."
+        except Exception as error:
+            # The saved task owns its images now; inbox failure cleanup must
+            # not remove them just because immediate startup failed.
+            logger.warning(
+                "Task %s startup failed: %s",
+                task["id"],
+                redact_sensitive(str(error) or type(error).__name__),
+            )
+            set_stage(task, "todo", "planning could not start; see the bot logs")
+        else:
+            return f"Task added. {message}"
+        return f"Task added as To do: {task['note']}."
     task = find_task(data, args["task"])
     if task is None:
         raise ActionError("That task no longer exists.")

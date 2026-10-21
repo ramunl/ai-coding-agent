@@ -236,6 +236,79 @@ class ProcessTests(InboxTestCase):
         self.assertEqual(len(reloaded.results), self.inbox.KEEP_RESULTS)
         self.assertEqual(reloaded.results[0]["id"], f"{24:08x}")
 
+    def test_task_images_follow_persistence_boundary(self) -> None:
+        task_actions = importlib.import_module("ai_agent.bot.task_actions")
+        images = importlib.import_module("ai_agent.task_images")
+        for failure in ("startup", "refusal", "creation"):
+            with self.subTest(failure=failure):
+                state = {}
+                app = SimpleNamespace(user_data={123: state})
+                upload = self.dir / "uploads" / "a1b2c3d4"
+                upload.mkdir(parents=True)
+                (upload / "screen.png").write_bytes(b"screenshot")
+                self.drop(
+                    self.request(
+                        "create_task",
+                        {
+                            "repo": "repo",
+                            "todo": "-",
+                            "text": "Fix layout",
+                            "images": [{"name": "screen.png"}],
+                        },
+                    )
+                )
+                claimed = []
+                real_add = task_actions.add_task
+
+                def add(*args):
+                    claimed.extend(args[-1])
+                    if failure == "creation":
+                        raise RuntimeError("could not save")
+                    return real_add(*args)
+
+                async def start(app, owner, task):
+                    task["stage"] = "planning"
+                    if failure == "refusal":
+                        raise task_actions.ActionError("Not started: busy.")
+                    raise RuntimeError("could not start")
+
+                async def work(action, args):
+                    return await task_actions.run_task_action(app, 123, action, args)
+
+                with (
+                    patch.object(images, "IMAGE_DIR", self.tmp / failure),
+                    patch.object(images, "decode", return_value=("png", 1, 1)),
+                    patch.object(task_actions, "get_project"),
+                    patch.object(task_actions, "add_task", side_effect=add),
+                    patch.object(task_actions, "start", side_effect=start),
+                ):
+                    handled = asyncio.run(
+                        self.inbox.process_inbox(
+                            self.dir,
+                            self.log,
+                            state,
+                            work=work,
+                        )
+                    )
+                    self.assertEqual(handled, 1)
+                    self.assertEqual(len(claimed), 1)
+                    image_path = images.IMAGE_DIR / claimed[0]["id"]
+                    result = self.results()["a1b2c3d4"]
+                    if failure == "creation":
+                        self.assertEqual(result["status"], "failed")
+                        self.assertFalse(state.get("tasks"))
+                        self.assertFalse(image_path.exists())
+                    else:
+                        (task,) = state["tasks"]
+                        self.assertEqual(task["stage"], "todo")
+                        self.assertEqual(task["images"], claimed)
+                        self.assertEqual(image_path.read_bytes(), b"screenshot")
+                        self.assertEqual(result["status"], "done")
+                        self.assertIn("Task added as To do:", result["message"])
+                    self.assertFalse(upload.exists())
+                    self.assertEqual(list(self.dir.glob("*.working")), [])
+                (self.dir / ".image-claims" / "a1b2c3d4").unlink()
+
 
 class InboxLoopTests(InboxTestCase):
     def test_handled_requests_are_marked_for_persistence(self) -> None:
