@@ -94,9 +94,12 @@ logger = logging.getLogger(__name__)
 
 async def configure_bot_commands(app: Application) -> None:
     """Register autocomplete commands and check for shared-core drift."""
-    await asyncio.to_thread(
-        initialize, references_in(getattr(app, "user_data", {}).get(CHAT_ID, {}))
-    )
+    persistence = getattr(app, "persistence", None)
+    result = getattr(persistence, "read_result", None)
+    references = None
+    if result is not None and result.references_known:
+        references = references_in(getattr(app, "user_data", {}).get(CHAT_ID, {}))
+    await asyncio.to_thread(initialize, references)
     await app.bot.set_my_commands(BOT_COMMANDS)
     await _notify_core_drift_on_startup(app)
     await _notify_restored_queue(app)

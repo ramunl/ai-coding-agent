@@ -107,7 +107,7 @@ def _evict(reserve: int = 0) -> None:
 
 
 def initialize(references: list[dict] | None = None) -> None:
-    """Remove interrupted writes and enforce the configured cap at startup."""
+    """Clean temporary files and enforce the cap; None skips orphan pruning."""
     with locked():
         for path in IMAGE_DIR.glob("*.part"):
             path.unlink(missing_ok=True)
@@ -212,13 +212,38 @@ def usage() -> dict[str, int]:
 
 def references_in(data: dict) -> list[dict]:
     """Collect live references at startup, including restored pending work."""
-    records = [
-        *(data.get("tasks") or []),
-        *(data.get("task_queue") or []),
-        data.get("pending_implementation") or {},
-    ]
+    records = []
+    for key in ("tasks", "task_queue"):
+        value = data.get(key)
+        if value is not None:
+            if not isinstance(value, list):
+                raise ValueError("invalid image reference collection")
+            records.extend(value)
+    pending = data.get("pending_implementation")
+    if pending is not None:
+        records.append(pending)
     plan = data.get("pending_plan")
-    refs = list(getattr(plan, "images", []))
+    if plan is not None:
+        # Older untagged mappings and plans without images remain supported.
+        if isinstance(plan, dict):
+            records.append(plan)
+        elif hasattr(plan, "images"):
+            records.append({"images": plan.images})
+        else:
+            raise ValueError("invalid pending plan")
+    refs = []
     for record in records:
-        refs.extend(record.get("images") or [])
+        if not isinstance(record, dict):
+            raise ValueError("invalid image reference record")
+        images = record.get("images")
+        if images is None:
+            continue
+        if not isinstance(images, list) or any(
+            not isinstance(ref, dict)
+            or not isinstance(ref.get("id"), str)
+            or not _ID.fullmatch(ref["id"])
+            for ref in images
+        ):
+            raise ValueError("invalid image references")
+        refs.extend(images)
     return refs

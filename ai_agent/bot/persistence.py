@@ -22,7 +22,7 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
-from dataclasses import asdict, fields, is_dataclass
+from dataclasses import asdict, dataclass, fields, is_dataclass
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +31,7 @@ from telegram.ext import BasePersistence, PersistenceInput
 from ai_agent.bot.atomic_file import write_json_atomic
 from ai_agent.bot.state import PERSISTENT_KEYS
 from ai_agent.plan_state import ExecutionState, PlanState
+from ai_agent.task_images import references_in
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +97,7 @@ def deserialize_user_data(raw: dict) -> dict:
             continue  # e.g. a transient flag written by an older version
         try:
             data[key] = decode_value(value)
-        except (KeyError, TypeError) as error:
+        except (KeyError, TypeError, ValueError, AttributeError) as error:
             logger.warning("Dropping unreadable saved state key %s: %s", key, error)
     return data
 
@@ -104,19 +105,70 @@ def deserialize_user_data(raw: dict) -> dict:
 # ---------------------------------------------------------------- file I/O
 
 
-def read_state_file(path: Path) -> dict[int, dict]:
-    """Return {user_id: encoded user data}; an absent or corrupt file yields {}."""
-    if not path.is_file():
-        return {}
+@dataclass(frozen=True)
+class StateReadResult:
+    """Loaded data and its independent suitability for image pruning."""
+
+    users: dict[int, dict]
+    status: str
+    references_known: bool
+
+
+def _validate_references(users: dict[int, dict]) -> None:
+    for data in users.values():
+        reference_data = dict(data)
+        if data.get("pending_plan") is not None:
+            reference_data["pending_plan"] = decode_value(data["pending_plan"])
+        references_in(reference_data)
+
+
+def read_state_result(path: Path) -> StateReadResult:
+    """Read once, retaining failure context even after corrupt-file quarantine.
+
+    .image-recovery and .corrupt block pruning across restarts and routine saves.
+    After restoring complete state, an operator must remove both sidecars to
+    re-enable orphan pruning. The storage cap still applies during recovery.
+    """
+    marker = path.with_name(path.name + ".image-recovery")
+    corrupt = path.with_name(path.name + ".corrupt")
+    users = {}
+    status = "valid"
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-        users = payload["users"]
-        return {int(user_id): dict(data) for user_id, data in users.items()}
-    except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
-        logger.error("State file %s is unreadable (%s); starting empty", path, error)
+        raw_users = payload["users"]
+        if not isinstance(raw_users, dict) or any(
+            not isinstance(data, dict) for data in raw_users.values()
+        ):
+            raise ValueError("invalid users schema")
+        users = {int(user_id): data for user_id, data in raw_users.items()}
+        _validate_references(users)
+    except FileNotFoundError:
+        status = "missing"
+    except (OSError, UnicodeError):
+        status = "read_error"
+    except json.JSONDecodeError:
+        status = "malformed_json"
+    except (ValueError, KeyError, TypeError, AttributeError):
+        status = "invalid_schema"
+    if status not in {"valid", "missing"}:
+        logger.error("State file %s: %s; preserving task images", path, status)
+        try:
+            marker.touch(mode=0o600, exist_ok=True)
+        except OSError:
+            logger.warning("Could not persist image recovery marker for %s", path)
         with contextlib.suppress(OSError):
-            path.replace(path.with_name(path.name + ".corrupt"))
-        return {}
+            path.replace(corrupt)
+    references_known = status in {"valid", "missing"}
+    try:
+        references_known &= not marker.exists() and not corrupt.exists()
+    except OSError:
+        references_known = False
+    return StateReadResult(users, status, references_known)
+
+
+def read_state_file(path: Path) -> dict[int, dict]:
+    """Return encoded user data, preserving the original data-only interface."""
+    return read_state_result(path).users
 
 
 def write_state_file(path: Path, users: dict[int, dict]) -> None:
@@ -146,10 +198,12 @@ class JsonStatePersistence(BasePersistence):
         )
         self.path = Path(path)
         self._users: dict[int, dict] | None = None
+        self.read_result: StateReadResult | None = None
 
     def _encoded_users(self) -> dict[int, dict]:
         if self._users is None:
-            self._users = read_state_file(self.path)
+            self.read_result = read_state_result(self.path)
+            self._users = self.read_result.users
         return self._users
 
     async def get_user_data(self) -> dict[int, dict]:
