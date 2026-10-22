@@ -24,29 +24,19 @@ Workflow file:
 .github/workflows/deploy.yml
 ```
 
-The workflow runs on pushes to `main`. It validates `DEPLOY_WEBHOOK_URL` without printing the secret, then calls the webhook:
+The workflow runs on pushes to `main` and can be dispatched manually. It validates
+HTTPS and sends the token in an Authorization header. HTTP errors and redirects
+fail the job.
 
-```bash
-curl --fail --show-error --silent -X POST "$DEPLOY_WEBHOOK_URL"
-```
-
-Required GitHub Actions secret:
+Required GitHub Actions secrets:
 
 ```text
-DEPLOY_WEBHOOK_URL
+DEPLOY_WEBHOOK_URL    https://<deploy-host>/hooks/ai-coding-agent-update
+DEPLOY_WEBHOOK_TOKEN  <matching webhook token>
 ```
 
-Expected value format:
-
-```text
-http://<deploy-host>:9000/hooks/ai-coding-agent-update?secret=<webhook-secret>
-```
-
-The webhook secret is stored on the server in `/etc/webhook.conf`.
-
-Optional stricter validation: set the repository variables `DEPLOY_WEBHOOK_HOST`
-and `DEPLOY_WEBHOOK_PORT` to have the workflow assert the webhook URL points at the
-expected host and port. When unset, only the scheme, path, and secret are validated.
+Do not put credentials or query parameters in the URL. The server hook must
+validate `Authorization: Bearer <matching webhook token>`.
 
 ## Server Webhook
 
@@ -90,7 +80,7 @@ The update script logs to `/var/log/ai-coding-agent/update.log`.
 Expected listener:
 
 ```text
-*:9000 users:(("webhook",...))
+127.0.0.1:9000 users:(("webhook",...))
 ```
 
 Check with:
@@ -101,26 +91,10 @@ ss -tlnp | grep 9000
 
 ## Firewall
 
-GitHub-hosted runners must be able to connect to TCP port `9000` on the server.
-
-UFW must include:
-
-```text
-9000/tcp ALLOW Anywhere
-9000/tcp (v6) ALLOW Anywhere (v6)
-```
-
-Check with:
-
-```bash
-ufw status
-```
-
-Open the port if needed:
-
-```bash
-ufw allow 9000/tcp
-```
+GitHub-hosted runners connect to the HTTPS reverse proxy on TCP port 443.
+After all deployment hooks have migrated and been verified, bind the webhook to
+loopback and close public access to port 9000. Keep SSH allowed when changing
+firewall rules.
 
 ## State Directory
 
@@ -174,7 +148,7 @@ Check the service:
 systemctl status ai-coding-agent.service --no-pager
 ```
 
-## Current Known-Good State
+## Historical Deployment State (before HTTPS migration)
 
 Verified on 2026-09-18:
 
@@ -191,12 +165,9 @@ If validation fails, the secret value does not match the expected URL components
 
 If `curl` fails with `Could not resolve host`, the secret host is not the expected address.
 
-If `curl` times out connecting to the webhook host on port `9000`, check:
-
-- `webhook.service` is running.
-- `ss -tlnp` shows the webhook listening on `*:9000`.
-- UFW allows `9000/tcp`.
-- Any provider-level cloud firewall also allows inbound TCP `9000`.
+If HTTPS requests time out, check DNS, the reverse proxy, its certificate, and
+public TCP port 443. Check that `webhook.service` is running and reachable by the
+proxy on loopback port 9000. A 401 means the token does not match the hook.
 
 ### Deploy the dashboard from Telegram
 
