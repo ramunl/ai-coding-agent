@@ -148,7 +148,7 @@ class ImageBotTests(TelegramTestCase):
     def test_snapshot_usage_has_only_aggregates(self):
         publisher = importlib.import_module("ai_agent.bot.snapshot_publisher")
         content = publisher.build_content(
-            {}, {}, {}, {"used_bytes": 4, "cap_bytes": 10, "count": 1}
+            {}, {}, {}, image_storage={"used_bytes": 4, "cap_bytes": 10, "count": 1}
         )
         self.assertEqual(
             content["image_storage"], {"used_bytes": 4, "cap_bytes": 10, "count": 1}

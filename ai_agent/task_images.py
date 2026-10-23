@@ -9,6 +9,7 @@ import logging
 import os
 import re
 import secrets
+import stat
 import threading
 import time
 import warnings
@@ -198,20 +199,24 @@ def resolve(images: list[dict]) -> tuple[list[tuple[str, bytes]], int]:
 
 
 def usage() -> dict[str, int]:
-    """Return private aggregate counts, approximate during uploads or deletions."""
+    """Return lock-free counts, approximate during concurrent uploads or deletions."""
     result = {"used_bytes": 0, "cap_bytes": IMAGE_STORAGE_CAP_BYTES, "count": 0}
     try:
-        files = _files()
+        with os.scandir(IMAGE_DIR) as entries:
+            for entry in entries:
+                if not _ID.fullmatch(entry.name):
+                    continue
+                try:
+                    info = entry.stat(follow_symlinks=False)
+                except FileNotFoundError:
+                    # Eviction may remove an image between listing and stat.
+                    continue
+                if stat.S_ISREG(info.st_mode):
+                    result["used_bytes"] += info.st_size
+                    result["count"] += 1
     except FileNotFoundError:
-        return result
-    for path in files:
-        try:
-            size = path.stat().st_size
-        except FileNotFoundError:
-            # Eviction or removal may race this lock-free scan.
-            continue
-        result["used_bytes"] += size
-        result["count"] += 1
+        # An unused store need not exist, and scanning must not create it.
+        pass
     return result
 
 

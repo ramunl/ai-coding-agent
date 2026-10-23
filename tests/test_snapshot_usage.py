@@ -39,11 +39,15 @@ class SnapshotUsageTests(unittest.TestCase):
 
     def test_format_is_two_and_the_section_is_optional(self) -> None:
         self.assertEqual(SNAPSHOT_FORMAT, 2)
-        content = build_content(_user_data(), PROJECT, VERSIONS, IMAGE_USAGE)
+        content = build_content(
+            _user_data(), PROJECT, VERSIONS, image_storage=IMAGE_USAGE
+        )
         self.assertNotIn("token_usage", content)
 
     def test_existing_keys_are_still_published(self) -> None:
-        content = build_content(_user_data(), PROJECT, VERSIONS, IMAGE_USAGE)
+        content = build_content(
+            _user_data(), PROJECT, VERSIONS, image_storage=IMAGE_USAGE
+        )
         for key in ("format", "image_storage", "queue", "running", "project"):
             self.assertIn(key, content)
         self.assertEqual(content["format"], 2)
@@ -52,7 +56,11 @@ class SnapshotUsageTests(unittest.TestCase):
         record_usage(UsageRecord("planner", "codex", 12, TODAY), self.store)
         section = usage_section(self.store, today=TODAY)
         content = build_content(
-            _user_data(), PROJECT, VERSIONS, IMAGE_USAGE, token_usage=section
+            _user_data(),
+            PROJECT,
+            VERSIONS,
+            image_storage=IMAGE_USAGE,
+            token_usage=section,
         )
         self.assertEqual(content["token_usage"], section)
 
@@ -60,7 +68,11 @@ class SnapshotUsageTests(unittest.TestCase):
         with self.assertLogs(token_usage.logger.name, level="INFO"):
             section = usage_section(self.store, today=TODAY)
         content = build_content(
-            _user_data(), PROJECT, VERSIONS, IMAGE_USAGE, token_usage=section
+            _user_data(),
+            PROJECT,
+            VERSIONS,
+            image_storage=IMAGE_USAGE,
+            token_usage=section,
         )
         path = self.dir / "snapshot.json"
         self.assertTrue(SnapshotPublisher(path).publish(content, now=1000.0))
@@ -73,7 +85,11 @@ class SnapshotUsageTests(unittest.TestCase):
         record_usage(UsageRecord("implementer", "claude", None, TODAY), self.store)
         section = usage_section(self.store, today=TODAY)
         content = build_content(
-            _user_data(), PROJECT, VERSIONS, IMAGE_USAGE, token_usage=section
+            _user_data(),
+            PROJECT,
+            VERSIONS,
+            image_storage=IMAGE_USAGE,
+            token_usage=section,
         )
 
         text = json.dumps(content["token_usage"])

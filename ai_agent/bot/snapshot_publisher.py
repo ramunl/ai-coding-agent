@@ -24,7 +24,7 @@ from typing import Any
 from ai_agent.bot.atomic_file import write_json_atomic
 from ai_agent.bot.setup_view import ModelChoices, files_part, state_part
 from ai_agent.bot.state import snapshot
-from ai_agent.config import ACTION_RESULTS_FILE
+from ai_agent.config import ACTION_RESULTS_FILE, IMAGE_STORAGE_CAP_BYTES
 from ai_agent.provider_limits import limits_snapshot, poll_limits
 from ai_agent.task_images import usage
 from ai_agent.task_pulls import track_forever as track_pulls
@@ -62,14 +62,18 @@ def build_content(
     user_data: dict,
     project: dict,
     versions: dict,
-    image_usage: dict[str, int],
     setup: dict | None = None,
     token_usage: dict | None = None,
+    image_storage: dict[str, int] | None = None,
 ) -> dict:
     """Everything the Coding window shows, minus the timestamps."""
     content = {
         "format": SNAPSHOT_FORMAT,
-        "image_storage": image_usage,
+        "image_storage": (
+            image_storage
+            if image_storage is not None
+            else {"used_bytes": 0, "cap_bytes": IMAGE_STORAGE_CAP_BYTES, "count": 0}
+        ),
         **snapshot(user_data),
         "project": project,
         "limits": limits_snapshot(),
@@ -145,9 +149,9 @@ async def publish_forever(
                     user_data,
                     project,
                     versions,
-                    images,
                     {**files, **state_part(user_data)},
                     tokens,
+                    image_storage=images,
                 )
                 publisher.publish(content)
             except Exception as error:

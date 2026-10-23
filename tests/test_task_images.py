@@ -2,6 +2,7 @@
 
 import asyncio
 import base64
+import contextlib
 import errno
 import importlib
 import json
@@ -514,33 +515,34 @@ def test_private_command_failure_omits_paths_bytes_but_preserves_capacity(
     assert "/proc/123/fd/7" not in str(error.value) + caplog.text
 
 
-def test_usage_completes_while_image_lock_is_held(store):
+def test_usage_does_not_wait_for_image_lock(store):
     store.save(b"1234")
     with ThreadPoolExecutor(max_workers=1) as pool:
-        # Release the lock before shutting down the pool, even on failure.
         with store.locked():
-            collected = pool.submit(store.usage)
-            assert collected.result(timeout=3) == {
+            future = pool.submit(store.usage)
+            assert future.result(timeout=2) == {
                 "used_bytes": 4,
                 "cap_bytes": 10,
                 "count": 1,
             }
 
 
-def test_usage_skips_concurrent_unlink(store, monkeypatch):
-    removed = store.save(b"1234")
-    store.save(b"5678")
-    original_files = store._files
-
-    def files_then_unlink():
-        files = original_files()
-        (store.IMAGE_DIR / removed["id"]).unlink()
-        return files
-
-    monkeypatch.setattr(store, "_files", files_then_unlink)
-    assert store.usage() == {"used_bytes": 4, "cap_bytes": 10, "count": 1}
-
-
-def test_usage_missing_store_does_not_create_it(store):
+def test_usage_missing_storage_does_not_create_it(store):
     assert store.usage() == {"used_bytes": 0, "cap_bytes": 10, "count": 0}
     assert not store.IMAGE_DIR.exists()
+
+
+def test_usage_tolerates_unlink_after_listing(store, monkeypatch):
+    removed = store.save(b"1234")
+    store.save(b"5678")
+    scandir = os.scandir
+
+    @contextlib.contextmanager
+    def disappearing_entry(path):
+        with scandir(path) as entries:
+            captured = list(entries)
+        (store.IMAGE_DIR / removed["id"]).unlink()
+        yield iter(captured)
+
+    monkeypatch.setattr(store.os, "scandir", disappearing_entry)
+    assert store.usage() == {"used_bytes": 4, "cap_bytes": 10, "count": 1}
