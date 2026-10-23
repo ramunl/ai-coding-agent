@@ -46,6 +46,7 @@ def test_slow_usage_leaves_event_loop_responsive(tmp_path, monkeypatch):
         def debug():
             for pending in asyncio.all_tasks():
                 pending.print_stack()
+
         asyncio.get_running_loop().call_later(7, debug)
         task = asyncio.create_task(
             publisher.publish_forever(SimpleNamespace(user_data={}), 42, path, 60)
