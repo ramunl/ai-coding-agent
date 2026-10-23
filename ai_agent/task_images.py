@@ -198,16 +198,21 @@ def resolve(images: list[dict]) -> tuple[list[tuple[str, bytes]], int]:
 
 
 def usage() -> dict[str, int]:
-    """Return aggregate usage without identifiers, paths or image content."""
-    if not IMAGE_DIR.exists():
-        return {"used_bytes": 0, "cap_bytes": IMAGE_STORAGE_CAP_BYTES, "count": 0}
-    with locked():
+    """Return private aggregate counts, approximate during uploads or deletions."""
+    result = {"used_bytes": 0, "cap_bytes": IMAGE_STORAGE_CAP_BYTES, "count": 0}
+    try:
         files = _files()
-        return {
-            "used_bytes": sum(p.stat().st_size for p in files),
-            "cap_bytes": IMAGE_STORAGE_CAP_BYTES,
-            "count": len(files),
-        }
+    except FileNotFoundError:
+        return result
+    for path in files:
+        try:
+            size = path.stat().st_size
+        except FileNotFoundError:
+            # Eviction or removal may race this lock-free scan.
+            continue
+        result["used_bytes"] += size
+        result["count"] += 1
+    return result
 
 
 def references_in(data: dict) -> list[dict]:

@@ -62,13 +62,14 @@ def build_content(
     user_data: dict,
     project: dict,
     versions: dict,
+    image_usage: dict[str, int],
     setup: dict | None = None,
     token_usage: dict | None = None,
 ) -> dict:
     """Everything the Coding window shows, minus the timestamps."""
     content = {
         "format": SNAPSHOT_FORMAT,
-        "image_storage": usage(),
+        "image_storage": image_usage,
         **snapshot(user_data),
         "project": project,
         "limits": limits_snapshot(),
@@ -139,10 +140,12 @@ async def publish_forever(
                 # None (store missing or unreadable) omits the section; the rest
                 # of the snapshot still publishes.
                 tokens = await asyncio.to_thread(usage_section)
+                images = await asyncio.to_thread(usage)
                 content = build_content(
                     user_data,
                     project,
                     versions,
+                    images,
                     {**files, **state_part(user_data)},
                     tokens,
                 )

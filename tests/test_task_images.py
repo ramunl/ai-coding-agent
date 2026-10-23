@@ -512,3 +512,35 @@ def test_private_command_failure_omits_paths_bytes_but_preserves_capacity(
         shell.run(["codex", "--image", "/proc/123/fd/7"], cwd=tmp_path, private=True)
     assert "private-payload" not in str(error.value) + caplog.text
     assert "/proc/123/fd/7" not in str(error.value) + caplog.text
+
+
+def test_usage_completes_while_image_lock_is_held(store):
+    store.save(b"1234")
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        # Release the lock before shutting down the pool, even on failure.
+        with store.locked():
+            collected = pool.submit(store.usage)
+            assert collected.result(timeout=3) == {
+                "used_bytes": 4,
+                "cap_bytes": 10,
+                "count": 1,
+            }
+
+
+def test_usage_skips_concurrent_unlink(store, monkeypatch):
+    removed = store.save(b"1234")
+    store.save(b"5678")
+    original_files = store._files
+
+    def files_then_unlink():
+        files = original_files()
+        (store.IMAGE_DIR / removed["id"]).unlink()
+        return files
+
+    monkeypatch.setattr(store, "_files", files_then_unlink)
+    assert store.usage() == {"used_bytes": 4, "cap_bytes": 10, "count": 1}
+
+
+def test_usage_missing_store_does_not_create_it(store):
+    assert store.usage() == {"used_bytes": 0, "cap_bytes": 10, "count": 0}
+    assert not store.IMAGE_DIR.exists()
