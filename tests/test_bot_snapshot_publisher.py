@@ -15,6 +15,7 @@ from ai_agent.bot.snapshot_publisher import SnapshotPublisher, build_content
 
 OWNER = 42
 PROJECT = {"name": "channel-cast", "repository": "ramunl/x", "branch": "main"}
+IMAGE_USAGE = {"used_bytes": 0, "cap_bytes": 10, "count": 0}
 VERSIONS = {"version": "ai-coding-agent v0.3.0", "core": "core: v1.1"}
 
 
@@ -31,7 +32,9 @@ def _user_data() -> dict:
 
 class ContentTests(unittest.TestCase):
     def test_includes_running_task_that_state_json_never_stores(self) -> None:
-        content = build_content(_user_data(), PROJECT, VERSIONS)
+        content = build_content(
+            _user_data(), PROJECT, VERSIONS, image_storage=IMAGE_USAGE
+        )
         self.assertEqual(content["running"]["phase"], "Polling CI")
         self.assertEqual(content["queue"][0]["branch"], "feature/a")
         self.assertEqual(content["project"]["name"], "channel-cast")
@@ -39,7 +42,12 @@ class ContentTests(unittest.TestCase):
 
     def test_is_secret_free(self) -> None:
         self.assertNotIn(
-            "SECRET", json.dumps(build_content(_user_data(), PROJECT, VERSIONS))
+            "SECRET",
+            json.dumps(
+                build_content(
+                    _user_data(), PROJECT, VERSIONS, image_storage=IMAGE_USAGE
+                )
+            ),
         )
 
 
@@ -47,7 +55,9 @@ class PublisherTests(unittest.TestCase):
     def setUp(self) -> None:
         self.path = Path(tempfile.mkdtemp()) / "snapshot.json"
         self.publisher = SnapshotPublisher(self.path, heartbeat=30)
-        self.content = build_content(_user_data(), PROJECT, VERSIONS)
+        self.content = build_content(
+            _user_data(), PROJECT, VERSIONS, image_storage=IMAGE_USAGE
+        )
 
     def _read(self) -> dict:
         return json.loads(self.path.read_text())

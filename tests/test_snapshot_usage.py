@@ -14,6 +14,7 @@ from ai_agent.bot.snapshot_publisher import (
 from ai_agent.token_usage import UsageRecord, record_usage, usage_section
 
 PROJECT = {"name": "channel-cast", "repository": "ramunl/x", "branch": "main"}
+IMAGE_USAGE = {"used_bytes": 0, "cap_bytes": 10, "count": 0}
 VERSIONS = {"version": "ai-coding-agent v0.3.0", "core": "core: v1.1"}
 TODAY = "2026-10-21"
 
@@ -38,11 +39,15 @@ class SnapshotUsageTests(unittest.TestCase):
 
     def test_format_is_two_and_the_section_is_optional(self) -> None:
         self.assertEqual(SNAPSHOT_FORMAT, 2)
-        content = build_content(_user_data(), PROJECT, VERSIONS)
+        content = build_content(
+            _user_data(), PROJECT, VERSIONS, image_storage=IMAGE_USAGE
+        )
         self.assertNotIn("token_usage", content)
 
     def test_existing_keys_are_still_published(self) -> None:
-        content = build_content(_user_data(), PROJECT, VERSIONS)
+        content = build_content(
+            _user_data(), PROJECT, VERSIONS, image_storage=IMAGE_USAGE
+        )
         for key in ("format", "image_storage", "queue", "running", "project"):
             self.assertIn(key, content)
         self.assertEqual(content["format"], 2)
@@ -50,13 +55,25 @@ class SnapshotUsageTests(unittest.TestCase):
     def test_section_is_published_when_the_store_is_readable(self) -> None:
         record_usage(UsageRecord("planner", "codex", 12, TODAY), self.store)
         section = usage_section(self.store, today=TODAY)
-        content = build_content(_user_data(), PROJECT, VERSIONS, token_usage=section)
+        content = build_content(
+            _user_data(),
+            PROJECT,
+            VERSIONS,
+            image_storage=IMAGE_USAGE,
+            token_usage=section,
+        )
         self.assertEqual(content["token_usage"], section)
 
     def test_missing_store_still_publishes_without_the_section(self) -> None:
         with self.assertLogs(token_usage.logger.name, level="INFO"):
             section = usage_section(self.store, today=TODAY)
-        content = build_content(_user_data(), PROJECT, VERSIONS, token_usage=section)
+        content = build_content(
+            _user_data(),
+            PROJECT,
+            VERSIONS,
+            image_storage=IMAGE_USAGE,
+            token_usage=section,
+        )
         path = self.dir / "snapshot.json"
         self.assertTrue(SnapshotPublisher(path).publish(content, now=1000.0))
         written = json.loads(path.read_text())
@@ -67,7 +84,13 @@ class SnapshotUsageTests(unittest.TestCase):
         record_usage(UsageRecord("planner", "codex", 120, TODAY), self.store)
         record_usage(UsageRecord("implementer", "claude", None, TODAY), self.store)
         section = usage_section(self.store, today=TODAY)
-        content = build_content(_user_data(), PROJECT, VERSIONS, token_usage=section)
+        content = build_content(
+            _user_data(),
+            PROJECT,
+            VERSIONS,
+            image_storage=IMAGE_USAGE,
+            token_usage=section,
+        )
 
         text = json.dumps(content["token_usage"])
         for word in ("SECRET", "feature/", "prompt", "diff", "branch", "Polling"):
