@@ -9,7 +9,7 @@ import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 OWNER = 123
 
@@ -33,7 +33,9 @@ class WorkActionTests(unittest.IsolatedAsyncioTestCase):
         )
         self.data: dict = {}
         self.app = SimpleNamespace(
-            user_data={OWNER: self.data}, bot=SimpleNamespace(send_message=AsyncMock())
+            user_data={OWNER: self.data},
+            bot=SimpleNamespace(send_message=AsyncMock()),
+            mark_data_for_update_persistence=MagicMock(),
         )
 
     def tearDown(self) -> None:
@@ -47,6 +49,115 @@ class WorkActionTests(unittest.IsolatedAsyncioTestCase):
         return [
             call.kwargs["text"] for call in self.app.bot.send_message.await_args_list
         ]
+
+    async def test_bug_images_survive_clarification_restart_and_confirmation(self):
+        planning = importlib.import_module("ai_agent.bot.planning")
+        delivery = importlib.import_module("ai_agent.image_delivery")
+        persistence = importlib.import_module("ai_agent.bot.persistence")
+        storage = importlib.import_module("ai_agent.task_images")
+        state = importlib.import_module("ai_agent.bot.state")
+        execution = importlib.import_module("ai_agent.bot.execution")
+        refs = [{"id": "00000000000000000001-" + "a" * 32 + ".png"}]
+        seen = []
+
+        def assess(*args):
+            seen.append(delivery.attachments())
+            return "Which screen?" if len(seen) < 3 else None
+
+        async def finish():
+            await asyncio.gather(*list(self.work._runs))
+            await asyncio.sleep(0)
+
+        with (
+            patch.object(planning, "get_bugfix_questions", side_effect=assess),
+            patch.object(planning, "build_bugfix_prompt", return_value="Fix it"),
+            patch.object(
+                delivery, "resolve", return_value=([("image/png", b"img")], 0)
+            ) as resolve,
+            patch.object(planning, "report_missing", new=AsyncMock()),
+        ):
+            await self.run_action(
+                "start_work", {"kind": "bugfix", "text": "Broken", "images": refs}
+            )
+            await finish()
+            restored = persistence.deserialize_user_data(
+                persistence.serialize_user_data(self.data)
+            )
+            self.assertEqual(storage.references_in(restored), refs)
+            self.data.update(restored)
+            for _ in range(2):
+                await self.run_action("answer_bugfix", {"text": "Home screen"})
+                await finish()
+            self.assertEqual(resolve.call_count, 3)
+            for call in resolve.call_args_list:
+                self.assertEqual(call.args[0], refs)
+            self.assertNotIn("pending_bugfix_clarification", self.data)
+            with patch.object(execution, "run_task_queue", new=AsyncMock()):
+                await self.run_action("confirm_work")
+                await finish()
+            self.assertEqual(state.task_queue(self.data)[0]["images"], refs)
+            self.app.mark_data_for_update_persistence.assert_called_with(user_ids=OWNER)
+
+    async def test_bug_assessment_failure_keeps_images_for_retry_and_cancel(self):
+        planning = importlib.import_module("ai_agent.bot.planning")
+        inspection = importlib.import_module("ai_agent.bot.inspection")
+        refs = [{"id": "00000000000000000001-" + "b" * 32 + ".png"}]
+        with (
+            patch.object(
+                planning, "get_bugfix_questions", side_effect=RuntimeError("down")
+            ),
+            patch.object(planning, "report_missing", new=AsyncMock()),
+            self.assertLogs("ai_agent.bot.work_actions", "ERROR"),
+        ):
+            await self.run_action(
+                "start_work", {"kind": "bugfix", "text": "Broken", "images": refs}
+            )
+            await asyncio.gather(*list(self.work._runs), return_exceptions=True)
+            await asyncio.sleep(0)
+        self.assertEqual(self.data["pending_bugfix_clarification"]["images"], refs)
+        with patch.object(inspection, "remove") as remove:
+            await self.run_action("cancel_pending")
+            remove.assert_called_once_with(refs)
+
+    async def test_missing_bug_images_warn_and_text_only_still_prepares(self):
+        planning = importlib.import_module("ai_agent.bot.planning")
+        intake = importlib.import_module("ai_agent.bot.image_intake")
+        delivery = importlib.import_module("ai_agent.image_delivery")
+        refs = [{"id": "00000000000000000001-" + "c" * 32 + ".png"}]
+        for images in (refs, []):
+            with (
+                patch.object(planning, "get_bugfix_questions", return_value=None),
+                patch.object(planning, "build_bugfix_prompt", return_value="Fix it"),
+                patch.object(intake, "resolve", return_value=([], len(images))),
+            ):
+                self.app.bot.send_message.reset_mock()
+                await self.run_action(
+                    "start_work", {"kind": "bugfix", "text": "Broken", "images": images}
+                )
+                await asyncio.gather(*list(self.work._runs))
+                await asyncio.sleep(0)
+            self.assertEqual(self.data["pending_implementation"]["images"], images)
+            self.assertEqual(delivery.WARNING in self.sent(), bool(images))
+            self.data.clear()
+
+    async def test_cancel_waits_for_image_assessment(self):
+        planning = importlib.import_module("ai_agent.bot.planning")
+        release = asyncio.Event()
+
+        async def assess(*args):
+            await release.wait()
+            return "Which screen?"
+
+        with patch.object(planning, "think", side_effect=assess):
+            await self.run_action("start_work", {"kind": "bugfix", "text": "Broken"})
+            result = await self.run_action("cancel_pending")
+            self.assertIn("wait before cancelling", result)
+            self.assertIn("pending_bugfix_clarification", self.data)
+            release.set()
+            await asyncio.gather(*list(self.work._runs))
+            await asyncio.sleep(0)
+        await self.run_action("cancel_pending")
+        self.assertNotIn("pending_bugfix_clarification", self.data)
 
     async def test_inbox_planning_blocks_switch_until_cancelled(self) -> None:
         planning = importlib.import_module("ai_agent.bot.planning")

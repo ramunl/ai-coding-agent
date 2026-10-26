@@ -149,6 +149,28 @@ class ValidationTests(InboxTestCase):
         ]:
             self.assertEqual(self.inbox.validate(self.request(action, args))[1], action)
 
+    def test_bugfix_accepts_bounded_images_only_for_bugfix(self):
+        images = [{"name": "screen.png"}]
+        args = {"kind": "bugfix", "text": "Broken", "images": images}
+        self.inbox.validate(self.request("start_work", args))
+        for invalid in (
+            [],
+            [{"name": "../screen.png"}],
+            images * 2,
+            [{"id": "abc"}],
+            "screen.png",
+        ):
+            with self.assertRaises(self.actions.ActionError):
+                self.inbox.validate(
+                    self.request("start_work", {**args, "images": invalid})
+                )
+        for kind in ("plan", "implement"):
+            with self.assertRaises(self.actions.ActionError):
+                self.inbox.validate(self.request("start_work", {**args, "kind": kind}))
+        self.inbox.validate(
+            self.request("start_work", {"kind": "bugfix", "text": "Broken"})
+        )
+
     def test_refuses_anything_else(self) -> None:
         bad = [
             self.request("run_shell", {"cmd": "rm -rf /"}),
@@ -235,6 +257,67 @@ class ProcessTests(InboxTestCase):
         reloaded = self.inbox.ResultLog(self.tmp / "results.json")
         self.assertEqual(len(reloaded.results), self.inbox.KEEP_RESULTS)
         self.assertEqual(reloaded.results[0]["id"], f"{24:08x}")
+
+    def test_bugfix_upload_claim_delivery_replay_and_failure_cleanup(self):
+        images = importlib.import_module("ai_agent.task_images")
+        for outcome in ("ok", "refused", "missing"):
+            with self.subTest(outcome=outcome):
+                request_id = {
+                    "ok": "aaaaaaaa",
+                    "refused": "bbbbbbbb",
+                    "missing": "cccccccc",
+                }[outcome]
+                upload = self.dir / "uploads" / request_id
+                upload.mkdir(parents=True)
+                if outcome != "missing":
+                    (upload / "screen.png").write_bytes(b"screenshot")
+                request = self.request(
+                    "start_work",
+                    {
+                        "kind": "bugfix",
+                        "text": "Broken",
+                        "images": [{"name": "screen.png"}],
+                    },
+                    request_id=request_id,
+                )
+                claimed = []
+
+                async def work(action, args):
+                    self.assertEqual(action, "start_work")
+                    claimed.extend(args["images"])
+                    if outcome == "refused":
+                        raise self.actions.ActionError("Busy")
+                    return "Checking"
+
+                with (
+                    patch.object(images, "IMAGE_DIR", self.tmp / "images"),
+                    patch.object(images, "decode", return_value=("png", 1, 1)),
+                ):
+                    self.drop(request)
+                    asyncio.run(
+                        self.inbox.process_inbox(self.dir, self.log, {}, work=work)
+                    )
+                    self.assertEqual(
+                        self.results()[request_id]["status"],
+                        "done" if outcome == "ok" else "failed",
+                    )
+                    self.assertFalse(upload.exists())
+                    if claimed:
+                        self.assertEqual(
+                            (images.IMAGE_DIR / claimed[0]["id"]).exists(),
+                            outcome == "ok",
+                        )
+                    else:
+                        self.assertEqual(outcome, "missing")
+                    if outcome == "ok":
+                        self.drop(request)
+                        asyncio.run(
+                            self.inbox.process_inbox(self.dir, self.log, {}, work=work)
+                        )
+                        self.assertEqual(len(claimed), 1)
+                        self.assertIn(
+                            "already consumed", self.results()[request_id]["message"]
+                        )
 
     def test_task_images_follow_persistence_boundary(self) -> None:
         task_actions = importlib.import_module("ai_agent.bot.task_actions")

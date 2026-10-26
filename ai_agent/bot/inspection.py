@@ -19,6 +19,7 @@ from ai_agent.bot.transport import reply_chunks, require_authorized
 from ai_agent.config import COMMAND_TIMEOUT_SECONDS, MAX_LOG_LINES
 from ai_agent.plan_state import Verbosity, parse_verbosity
 from ai_agent.shell import run
+from ai_agent.task_images import references_in, remove
 from ai_agent_common import choice_keyboard
 
 
@@ -184,6 +185,14 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         for index, task in enumerate(queue):
             if int(task.get("id", 0)) == task_id:
                 removed = queue.pop(index)
+                retained = {ref["id"] for ref in references_in(context.user_data)}
+                remove(
+                    [
+                        ref
+                        for ref in removed.get("images", [])
+                        if ref["id"] not in retained
+                    ]
+                )
                 await reply_chunks(
                     update,
                     (
@@ -197,10 +206,18 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
 
+    if context.user_data.get("planning_active"):
+        await reply_chunks(
+            update, "A plan is still being written; wait before cancelling."
+        )
+        return
+    images = references_in(context.user_data)
     context.user_data.pop("argument_prompt", None)
     context.user_data.pop("pending_implementation", None)
     context.user_data.pop("pending_plan", None)
     context.user_data.pop("pending_bugfix_clarification", None)
+    retained = {ref["id"] for ref in references_in(context.user_data)}
+    remove([ref for ref in images if ref["id"] not in retained])
     await reply_chunks(
         update,
         "Pending request discarded. Use /cancel <task-id> to remove a queued task.",

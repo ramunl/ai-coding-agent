@@ -88,7 +88,7 @@ def chat_update(bot: Any, chat_id: int) -> SimpleNamespace:
     )
 
 
-def refusal(action: str, args: dict[str, str], user_data: MutableMapping) -> str | None:
+def refusal(action: str, args: dict[str, Any], user_data: MutableMapping) -> str | None:
     """Why the request makes no sense in the current state, or None."""
     pending_plan = user_data.get("pending_plan")
     pending = user_data.get("pending_implementation")
@@ -177,6 +177,10 @@ async def _reported(handler: Any, update: SimpleNamespace, context: Any) -> None
         with contextlib.suppress(Exception):  # reporting must not hide the error
             await update.message.reply_text(f"Failed: {error_text(error)}")
         raise
+    finally:
+        context.application.mark_data_for_update_persistence(
+            user_ids=update.effective_user.id
+        )
 
 
 async def _start(handler: Any, update: SimpleNamespace, context: Any) -> asyncio.Task:
@@ -195,7 +199,7 @@ async def _start(handler: Any, update: SimpleNamespace, context: Any) -> asyncio
 
 
 async def run_work_action(
-    ptb_app: Any, owner_id: int, action: str, args: dict[str, str]
+    ptb_app: Any, owner_id: int, action: str, args: dict[str, Any]
 ) -> str:
     """Run one validated work action for the owner; return a one-line result."""
     reason = refusal(action, args, ptb_app.user_data[owner_id])
@@ -212,6 +216,7 @@ async def run_work_action(
     if action == "start_work":
         # Planning takes minutes; the plan itself arrives in the bot chat.
         context.args = args["text"].split()
+        update.message.images = list(args.get("images") or [])
         run = await _start(STARTERS[args["kind"]], update, context)
         if not run.done():
             _starting.add(run)

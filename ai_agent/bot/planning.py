@@ -254,21 +254,35 @@ async def bugfix_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
     with planning_guard(context):
         identity = capture_repository_identity()
+        images = list(getattr(update.message, "images", []) or [])
+        # Own the uploads before yielding; failed assessments remain retryable.
+        context.user_data["pending_bugfix_clarification"] = {
+            "repository_identity": identity,
+            "bug": bug,
+            "branch_source": bug,
+            "questions": "Assessment incomplete. Retry with /answer <details>.",
+            "images": images,
+        }
         await reply_chunks(update, "Checking whether the bug report is actionable...")
+        await report_missing(update, images)
         questions = await think(
             context,
             "bugfix",
             bug,
+            invoke,
+            images,
             get_bugfix_questions,
             bug,
             current_planning_agent(context),
         )
+        await report_missing(update, images)
         if questions:
             context.user_data["pending_bugfix_clarification"] = {
                 "repository_identity": identity,
                 "bug": bug,
                 "branch_source": bug,
                 "questions": questions,
+                "images": images,
             }
             await reply_chunks(
                 update,
@@ -277,7 +291,7 @@ async def bugfix_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             )
             return
 
-        await prepare_bugfix(update, context, bug, bug, identity)
+        await prepare_bugfix(update, context, bug, bug, identity, images)
 
 
 async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -304,6 +318,8 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     with planning_guard(context):
+        images = list(pending.get("images") or [])
+        await report_missing(update, images)
         combined_bug = f"{pending['bug']}\n\nUser clarification:\n{details}"
         branch_source = pending.get("branch_source", pending["bug"])
         await reply_chunks(update, "Checking the updated bug report...")
@@ -311,16 +327,20 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             context,
             "answer",
             branch_source,
+            invoke,
+            images,
             get_bugfix_questions,
             combined_bug,
             current_planning_agent(context),
         )
+        await report_missing(update, images)
         if questions:
             context.user_data["pending_bugfix_clarification"] = {
                 "repository_identity": dict(pending["repository_identity"]),
                 "bug": combined_bug,
                 "branch_source": branch_source,
                 "questions": questions,
+                "images": images,
             }
             await reply_chunks(
                 update,
@@ -329,9 +349,13 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             )
             return
 
-        context.user_data.pop("pending_bugfix_clarification", None)
         await prepare_bugfix(
-            update, context, combined_bug, branch_source, pending["repository_identity"]
+            update,
+            context,
+            combined_bug,
+            branch_source,
+            pending["repository_identity"],
+            images,
         )
 
 
@@ -346,6 +370,7 @@ async def prepare_bugfix(
     bug: str,
     branch_source: str,
     identity: dict[str, str] | None = None,
+    images: list[dict] | None = None,
 ) -> None:
     """Prepare pending implementation data for a bugfix branch."""
     with planning_guard(context):
@@ -358,6 +383,7 @@ async def prepare_bugfix(
         context.user_data["pending_implementation"] = {
             "repository_identity": identity,
             "change": bug,
+            "images": list(images or []),
             "codex_prompt": bugfix_prompt,
             "branch_name": branch_name,
             "commit_type": "fix",
@@ -365,6 +391,7 @@ async def prepare_bugfix(
             "confirmation_label": "bug fix",
         }
 
+        context.user_data.pop("pending_bugfix_clarification", None)
         await reply_chunks(
             update,
             f"Pending bug fix branch: {branch_name}\n"
