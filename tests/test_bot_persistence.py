@@ -13,6 +13,7 @@ from unittest.mock import patch
 from ai_agent.bot import state
 from ai_agent.bot.persistence import (
     JsonStatePersistence,
+    deserialize_user_data,
     read_state_file,
     serialize_user_data,
 )
@@ -53,6 +54,52 @@ class RestartTests(unittest.TestCase):
         """Save through one persistence instance, load through a fresh one."""
         asyncio.run(JsonStatePersistence(self.path).update_user_data(USER, user_data))
         return asyncio.run(JsonStatePersistence(self.path).get_user_data())[USER]
+
+    def test_queue_and_retry_snapshots_keep_original_identity(self) -> None:
+        identity = {
+            "project_name": "A",
+            "repo_path": "/tmp/A",
+            "github_repository": "owner/A",
+        }
+        plan = _plan(repository_identity=identity)
+        data = {
+            "tasks": [
+                {"id": "t1", "stage": "planned", "branch": "feature/genre-filter"}
+            ]
+        }
+        state.set_pending_from_plan(data, plan)
+        pending = data["pending_implementation"]
+        data["tasks"][0]["branch"] = pending["branch_name"]
+        queued = state.enqueue_pending_implementation(data, pending)
+        pending["repository_identity"]["project_name"] = "B"
+        self.assertEqual(queued["repository_identity"], identity)
+        self.assertEqual(data["tasks"][0]["run"]["repository_identity"], identity)
+
+    def test_repository_identity_survives_restart_without_inference(self) -> None:
+        identity = {
+            "project_name": "A",
+            "repo_path": "/tmp/A",
+            "github_repository": "owner/A",
+        }
+        data = {"pending_plan": _plan(repository_identity=identity)}
+        state.set_pending_from_plan(data, data["pending_plan"])
+        state.enqueue_pending_implementation(data, data["pending_implementation"])
+        data["planning_active"] = 1
+        restored = self._restart(data)
+        self.assertEqual(restored["pending_plan"].repository_identity, identity)
+        self.assertEqual(
+            restored["pending_implementation"]["repository_identity"], identity
+        )
+        self.assertEqual(restored["task_queue"][0]["repository_identity"], identity)
+        self.assertNotIn("planning_active", restored)
+        legacy = serialize_user_data(data)
+        del legacy["pending_plan"]["fields"]["repository_identity"]
+        del legacy["pending_implementation"]["repository_identity"]
+        del legacy["task_queue"][0]["repository_identity"]
+        loaded = deserialize_user_data(legacy)
+        self.assertIsNone(loaded["pending_plan"].repository_identity)
+        self.assertNotIn("repository_identity", loaded["task_queue"][0])
+        self.assertNotIn("repository_identity", loaded["pending_implementation"])
 
     def test_queue_plan_and_choices_survive_restart(self) -> None:
         execution = ExecutionState(

@@ -16,6 +16,7 @@ __all__ = [
     "PlanDocument",
     "PlanState",
     "Verbosity",
+    "capture_repository_identity",
     "new_plan_state",
     "parse_plan_document",
     "parse_verbosity",
@@ -24,6 +25,7 @@ __all__ = [
     "render_diff_summary",
     "render_history",
     "render_plan",
+    "repository_mismatch",
     "revise_plan_state",
 ]
 
@@ -47,6 +49,7 @@ class PlanState:
     approved: bool
     history: list[str] = field(default_factory=list)
     images: list[dict] = field(default_factory=list)
+    repository_identity: dict[str, str] | None = None
 
 
 @dataclass(frozen=True)
@@ -62,7 +65,45 @@ class ExecutionState:
     tests: str = "UNKNOWN"
 
 
-def new_plan_state(feature: str, plan_text: str) -> PlanState:
+def capture_repository_identity() -> dict[str, str]:
+    """Snapshot the registered repository before any planning awaits."""
+    project = active_project()
+    return {
+        "project_name": project.name,
+        "repo_path": str(project.repo_path),
+        "github_repository": project.github_repository,
+    }
+
+
+def repository_mismatch(identity: object) -> str | None:
+    """Reject legacy work and any change to its original repository."""
+    keys = ("project_name", "repo_path", "github_repository")
+    if not isinstance(identity, dict) or any(
+        not isinstance(identity.get(key), str) or not identity[key] for key in keys
+    ):
+        return (
+            "This saved work lacks repository identity. "
+            "Recreate it with /plan or /bugfix."
+        )
+    try:
+        current = capture_repository_identity()
+    except (OSError, RuntimeError, ValueError):
+        return (
+            "Cannot verify the original repository. Restore its registration and retry."
+        )
+    if any(identity[key] != current[key] for key in keys):
+        return (
+            f"This work belongs to {identity['project_name']} "
+            f"({identity['github_repository']}, {identity['repo_path']}). "
+            f"Select the original project with /use {identity['project_name']}. "
+            "If its registration changed, recreate the work."
+        )
+    return None
+
+
+def new_plan_state(
+    feature: str, plan_text: str, repository_identity: dict[str, str] | None = None
+) -> PlanState:
     """Create an unapproved first revision for a feature."""
     return PlanState(
         id=str(uuid.uuid4())[:8],
@@ -71,6 +112,7 @@ def new_plan_state(feature: str, plan_text: str) -> PlanState:
         plan_text=plan_text,
         approved=False,
         history=[],
+        repository_identity=dict(repository_identity) if repository_identity else None,
     )
 
 
@@ -84,6 +126,9 @@ def revise_plan_state(plan: PlanState, plan_text: str) -> PlanState:
         approved=False,
         history=[*plan.history, plan.plan_text],
         images=list(plan.images),
+        repository_identity=(
+            dict(plan.repository_identity) if plan.repository_identity else None
+        ),
     )
 
 
@@ -99,13 +144,15 @@ def parse_verbosity(value: str) -> Verbosity | None:
 def render_plan(plan: PlanState) -> str:
     """Render a plan using the requested level of detail."""
     document = parse_plan_document(plan.plan_text, plan.feature)
-    project = active_project()
+    identity = plan.repository_identity or {}
+    project_name = identity.get("project_name", "Unknown (legacy plan; recreate)")
+    github_repository = identity.get("github_repository", "unknown")
     lines = [
         f"Plan #{plan.id}",
         f"Revision: {plan.revision}",
         "",
         "Project:",
-        f"{project.name} ({project.github_repository})",
+        f"{project_name} ({github_repository})",
         "",
         "Branch:",
         document.branch,
@@ -119,7 +166,7 @@ def render_plan(plan: PlanState) -> str:
             f"{index}. {repository['name']}: {repository['changes']}"
             for index, repository in enumerate(document.repositories, 1)
         )
-        note = repository_note(document.repositories, project.name)
+        note = repository_note(document.repositories, project_name)
         if note:
             lines.append(note)
     if document.files:
@@ -166,19 +213,13 @@ def plan_outline(plan: PlanState) -> dict:
             {"name": short(item["name"]), "changes": short(item["changes"])}
             for item in document.repositories
         ],
-        "repository_note": short(_repository_note(document.repositories)),
+        "repository_note": short(
+            repository_note(
+                document.repositories,
+                (plan.repository_identity or {}).get("project_name", ""),
+            )
+        ),
     }
-
-
-def _repository_note(repositories: list[dict[str, str]]) -> str:
-    """The note for the active project; "" if the registry can't be read."""
-    if not repositories:
-        return ""
-    try:
-        active = active_project().name
-    except Exception:  # the snapshot must not fail over the registry
-        return ""
-    return repository_note(repositories, active)
 
 
 def render_history(plan: PlanState) -> str:
