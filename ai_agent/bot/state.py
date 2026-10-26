@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Callable, MutableMapping
+from collections.abc import Callable, Iterator, MutableMapping
+from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -62,6 +63,8 @@ TRANSIENT_KEYS = frozenset(
         "queue_runner_active",
         "argument_prompt",
         "planning_task",
+        "planning_active",
+        "thinking",
         "worker_status",
         "last_work_error",
     }
@@ -71,6 +74,21 @@ TRANSIENT_KEYS = frozenset(
 def _data(source: Any) -> MutableMapping:
     """Return the user-data mapping from a context or from the mapping itself."""
     return source.user_data if hasattr(source, "user_data") else source
+
+
+@contextmanager
+def planning_guard(context: Any) -> Iterator[None]:
+    """Block project switches across the whole planning flow, including replies."""
+    data = _data(context)
+    data["planning_active"] = data.get("planning_active", 0) + 1
+    try:
+        yield
+    finally:
+        remaining = data["planning_active"] - 1
+        if remaining:
+            data["planning_active"] = remaining
+        else:
+            data.pop("planning_active", None)
 
 
 def get_verbosity(context: ContextTypes.DEFAULT_TYPE) -> Verbosity:
@@ -85,6 +103,11 @@ def set_pending_from_plan(
     """Convert an approved plan into pending implementation data."""
     document = parse_plan_document(plan_state.plan_text, plan_state.feature)
     _data(context)["pending_implementation"] = {
+        "repository_identity": (
+            dict(plan_state.repository_identity)
+            if plan_state.repository_identity
+            else None
+        ),
         "change": plan_state.feature,
         "images": list(plan_state.images),
         "codex_prompt": document.codex_prompt,
@@ -117,6 +140,11 @@ def enqueue_pending_implementation(
     """Snapshot pending work and append it to the FIFO queue."""
     task = {
         "id": next_task_id(context),
+        "repository_identity": (
+            dict(pending["repository_identity"])
+            if pending.get("repository_identity")
+            else None
+        ),
         "change": pending["change"],
         "images": list(pending.get("images") or []),
         "codex_prompt": pending["codex_prompt"],

@@ -34,6 +34,10 @@ def busy_reason(user_data: MutableMapping) -> str | None:
 
     Switching mid-task would point running or queued work at another repo.
     """
+    if user_data.get("planning_active") or user_data.get("thinking"):
+        return "planning is in progress"
+    if user_data.get("queue_runner_active"):
+        return "the task queue is draining"
     if user_data.get("active_execution"):
         return "a task is running"
     queued = len(user_data.get("task_queue") or [])

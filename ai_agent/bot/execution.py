@@ -36,7 +36,7 @@ from ai_agent.ci import CiResult, build_failure_context
 from ai_agent.config import CI_FIX_ATTEMPTS
 from ai_agent.github import PullRequest, ensure_github_configured, github_request
 from ai_agent.image_delivery import invoke
-from ai_agent.plan_state import Verbosity, render_completion
+from ai_agent.plan_state import Verbosity, render_completion, repository_mismatch
 from ai_agent.projects import active_project
 from ai_agent.run_outcomes import (
     NoCodeOutcomeError,
@@ -89,6 +89,11 @@ async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
 
+    refusal = repository_mismatch(pending.get("repository_identity"))
+    if refusal:
+        await reply_chunks(update, refusal)
+        return
+
     task = enqueue_pending_implementation(context, pending)
     context.user_data.pop("pending_implementation", None)
     if plan_state:
@@ -111,10 +116,17 @@ async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def run_task_queue(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Drain queued tasks in FIFO order and release the runner flag."""
+    if context.user_data.get("queue_runner_active"):
+        return
     context.user_data["queue_runner_active"] = True
     try:
         while task_queue(context):
-            task = task_queue(context).pop(0)
+            task = task_queue(context)[0]
+            refusal = repository_mismatch(task.get("repository_identity"))
+            if refusal:
+                await reply_chunks(update, refusal)
+                return
+            task_queue(context).pop(0)
             await run_queued_implementation(update, context, task)
     finally:
         context.user_data.pop("queue_runner_active", None)
@@ -124,6 +136,12 @@ async def run_queued_implementation(
     update: Update, context: ContextTypes.DEFAULT_TYPE, task: dict
 ) -> None:
     """Implement one queued task and restore the base branch afterward."""
+    refusal = repository_mismatch(task.get("repository_identity"))
+    if refusal:
+        if task not in task_queue(context):
+            task_queue(context).insert(0, task)
+        await reply_chunks(update, refusal)
+        return
     branch_name = task["branch_name"]
     implementation_agent = normalize_implementation_agent(
         task.get("implementation_agent")
@@ -169,8 +187,14 @@ async def run_queued_implementation(
         )
     finally:
         context.user_data.pop("active_execution", None)
-        await reset_to_base_branch()
-        if no_code:
+        refusal = repository_mismatch(task.get("repository_identity"))
+        if refusal:
+            if task not in task_queue(context):
+                task_queue(context).insert(0, task)
+            await reply_chunks(update, refusal)
+        else:
+            await reset_to_base_branch()
+        if no_code and not refusal:
             try:
                 await asyncio.to_thread(discard_empty_branch, branch_name)
             except RuntimeError:

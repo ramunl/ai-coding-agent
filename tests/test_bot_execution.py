@@ -5,6 +5,7 @@ import importlib
 import types
 from unittest.mock import AsyncMock, patch
 
+from ai_agent.plan_state import capture_repository_identity
 from tests.bot_fixtures import TelegramTestCase
 
 
@@ -26,6 +27,7 @@ class ExecutionTests(TelegramTestCase):
         context = types.SimpleNamespace(
             user_data={
                 "pending_implementation": {
+                    "repository_identity": capture_repository_identity(),
                     "change": "fix build",
                     "codex_prompt": "original prompt",
                     "branch_name": "bugfix/fix-build",
@@ -82,6 +84,7 @@ class ExecutionTests(TelegramTestCase):
         context = types.SimpleNamespace(
             user_data={
                 "pending_implementation": {
+                    "repository_identity": capture_repository_identity(),
                     "change": "fix build",
                     "codex_prompt": "original prompt",
                     "branch_name": "bugfix/fix-build",
@@ -190,6 +193,7 @@ class ExecutionTests(TelegramTestCase):
                 "next_task_id": 2,
                 "task_queue": [
                     {
+                        "repository_identity": capture_repository_identity(),
                         "id": 1,
                         "change": "first task",
                         "codex_prompt": "first prompt",
@@ -200,6 +204,7 @@ class ExecutionTests(TelegramTestCase):
                     }
                 ],
                 "pending_implementation": {
+                    "repository_identity": capture_repository_identity(),
                     "change": "second task",
                     "codex_prompt": "second prompt",
                     "branch_name": "feature/second",
@@ -281,6 +286,7 @@ class ExecutionTests(TelegramTestCase):
         context = types.SimpleNamespace(
             user_data={
                 "pending_implementation": {
+                    "repository_identity": capture_repository_identity(),
                     "change": "fix build",
                     "codex_prompt": "original prompt",
                     "branch_name": "bugfix/fix-build",
@@ -353,6 +359,7 @@ class ExecutionTests(TelegramTestCase):
         context = types.SimpleNamespace(
             user_data={
                 "pending_implementation": {
+                    "repository_identity": capture_repository_identity(),
                     "change": "Add search",
                     "codex_prompt": "Implement search",
                     "branch_name": "feature/search",
@@ -406,8 +413,16 @@ class ResumeRestoredQueueTests(TelegramTestCase):
 
     def test_confirm_resumes_restored_queue_when_nothing_is_pending(self) -> None:
         tasks = [
-            {"id": 4, "branch_name": "feature/a"},
-            {"id": 5, "branch_name": "feature/b"},
+            {
+                "id": 4,
+                "branch_name": "feature/a",
+                "repository_identity": capture_repository_identity(),
+            },
+            {
+                "id": 5,
+                "branch_name": "feature/b",
+                "repository_identity": capture_repository_identity(),
+            },
         ]
         replies, run_one, context = self._run_confirm({"task_queue": list(tasks)})
 
@@ -432,3 +447,230 @@ class ResumeRestoredQueueTests(TelegramTestCase):
         replies, run_one, _ = self._run_confirm({})
         run_one.assert_not_awaited()
         self.assertIn("No pending implementation", replies[0])
+
+
+class RepositoryBindingTests(TelegramTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.planning = importlib.import_module("ai_agent.bot.planning")
+        self.execution = importlib.import_module("ai_agent.bot.execution")
+        self.update = types.SimpleNamespace(
+            effective_chat=types.SimpleNamespace(id=123),
+            message=types.SimpleNamespace(reply_text=AsyncMock()),
+        )
+        self.context = types.SimpleNamespace(user_data={}, args=["Add search"])
+        self.project = types.SimpleNamespace(
+            name="A", repo_path="/tmp/A", github_repository="owner/A"
+        )
+        self.project_patch = patch(
+            "ai_agent.plan_state.active_project", side_effect=lambda: self.project
+        )
+        self.project_patch.start()
+        self.addCleanup(self.project_patch.stop)
+
+    async def make_plan(self):
+        with patch.object(self.planning, "plan_feature", return_value="Add search"):
+            await self.planning.plan(self.update, self.context)
+
+    def test_approve_in_a_switch_to_b_confirm_retains_work(self):
+        async def scenario():
+            await self.make_plan()
+            await self.planning.approve(self.update, self.context)
+            pending = self.context.user_data["pending_implementation"]
+            self.project = types.SimpleNamespace(
+                name="B", repo_path="/tmp/B", github_repository="owner/B"
+            )
+            with patch.object(self.execution, "run_task_queue", AsyncMock()) as run:
+                await self.execution.confirm(self.update, self.context)
+                run.assert_not_awaited()
+            self.assertIs(self.context.user_data["pending_implementation"], pending)
+            self.assertTrue(self.context.user_data["pending_plan"].approved)
+            self.assertIn("/use A", self.update.message.reply_text.call_args.args[0])
+
+        asyncio.run(scenario())
+
+    def test_revision_and_approval_reject_changed_registration(self):
+        async def scenario():
+            await self.make_plan()
+            original = self.context.user_data["pending_plan"]
+            for field, value in (
+                ("repo_path", "/tmp/moved"),
+                ("github_repository", "other/A"),
+            ):
+                old = getattr(self.project, field)
+                setattr(self.project, field, value)
+                with patch.object(self.planning, "revise_feature_plan") as revise:
+                    await self.planning.discuss(self.update, self.context)
+                    await self.planning.approve(self.update, self.context)
+                    revise.assert_not_called()
+                self.assertIs(self.context.user_data["pending_plan"], original)
+                self.assertFalse(original.approved)
+                setattr(self.project, field, old)
+
+        asyncio.run(scenario())
+
+    def test_restored_queue_rejects_legacy_and_mismatched_work_without_cleanup(self):
+        async def scenario():
+            for identity in (
+                None,
+                {
+                    "project_name": "B",
+                    "repo_path": "/tmp/B",
+                    "github_repository": "owner/B",
+                },
+            ):
+                task = {
+                    "id": 1,
+                    "branch_name": "feature/search",
+                    "repository_identity": identity,
+                }
+                self.context.user_data = {"task_queue": [task]}
+                with (
+                    patch.object(
+                        self.execution, "_publish_queued_implementation", AsyncMock()
+                    ) as publish,
+                    patch.object(
+                        self.execution, "reset_to_base_branch", AsyncMock()
+                    ) as cleanup,
+                ):
+                    await self.execution.confirm(self.update, self.context)
+                    await self.execution.run_queued_implementation(
+                        self.update, self.context, task
+                    )
+                    publish.assert_not_awaited()
+                    cleanup.assert_not_awaited()
+                self.assertEqual(self.context.user_data["task_queue"], [task])
+                self.assertNotIn("queue_runner_active", self.context.user_data)
+
+        asyncio.run(scenario())
+
+    def test_planning_blocks_switch_before_first_reply_and_clears_on_failure(self):
+        actions = importlib.import_module("ai_agent.actions")
+
+        async def scenario(error):
+            async def reply(*args):
+                with self.assertRaises(actions.ActionError):
+                    await actions.use_project("B", self.context.user_data)
+                raise error
+
+            with patch.object(self.planning, "reply_chunks", side_effect=reply):
+                with self.assertRaises(type(error)):
+                    await self.planning.plan(self.update, self.context)
+            self.assertNotIn("planning_active", self.context.user_data)
+
+        for error in (RuntimeError("reply failed"), asyncio.CancelledError()):
+            asyncio.run(scenario(error))
+
+    def test_queue_runner_blocks_switch_even_when_queue_is_empty(self):
+        actions = importlib.import_module("ai_agent.actions")
+        self.context.user_data["queue_runner_active"] = True
+        with self.assertRaises(actions.ActionError):
+            asyncio.run(actions.use_project("B", self.context.user_data))
+
+    def test_bugfix_clarification_keeps_identity_and_rejects_other_project(self):
+        async def scenario():
+            with patch.object(
+                self.planning, "get_bugfix_questions", return_value="What fails?"
+            ):
+                await self.planning.bugfix_cmd(self.update, self.context)
+            pending = self.context.user_data["pending_bugfix_clarification"]
+            self.assertEqual(pending["repository_identity"]["project_name"], "A")
+            self.project.name = "B"
+            with patch.object(self.planning, "get_bugfix_questions") as assess:
+                await self.planning.answer(self.update, self.context)
+                assess.assert_not_called()
+            self.assertIs(
+                self.context.user_data["pending_bugfix_clarification"], pending
+            )
+            self.project.name = "A"
+            with (
+                patch.object(self.planning, "get_bugfix_questions", return_value=None),
+                patch.object(self.planning, "build_bugfix_prompt", return_value="Fix"),
+            ):
+                await self.planning.answer(self.update, self.context)
+            self.assertEqual(
+                self.context.user_data["pending_implementation"]["repository_identity"],
+                pending["repository_identity"],
+            )
+
+        asyncio.run(scenario())
+
+    def test_all_planning_flows_guard_provider_calls_and_release_on_errors(self):
+        actions = importlib.import_module("ai_agent.actions")
+
+        async def scenario():
+            await self.make_plan()
+            identity = self.context.user_data["pending_plan"].repository_identity
+            self.context.user_data["pending_bugfix_clarification"] = {
+                "bug": "Broken",
+                "questions": "Details?",
+                "repository_identity": identity,
+            }
+            for handler in (
+                self.planning.plan,
+                self.planning.discuss,
+                self.planning.implement_cmd,
+                self.planning.bugfix_cmd,
+                self.planning.answer,
+            ):
+
+                async def fail(*args):
+                    self.assertTrue(self.context.user_data["planning_active"])
+                    with self.assertRaises(actions.ActionError):
+                        await actions.use_project("B", self.context.user_data)
+                    raise RuntimeError("planner failed")
+
+                with patch.object(self.planning, "think", side_effect=fail):
+                    with self.assertRaisesRegex(RuntimeError, "planner failed"):
+                        await handler(self.update, self.context)
+                self.assertNotIn("planning_active", self.context.user_data)
+
+        asyncio.run(scenario())
+
+    def test_legacy_plan_cannot_be_revised_approved_or_confirmed(self):
+        plans = importlib.import_module("ai_agent.plan_state")
+        legacy = plans.new_plan_state("legacy", "text")
+        self.context.user_data["pending_plan"] = legacy
+
+        async def scenario():
+            with (
+                patch.object(self.planning, "revise_feature_plan") as revise,
+                patch.object(self.execution, "run_task_queue", AsyncMock()) as run,
+            ):
+                await self.planning.discuss(self.update, self.context)
+                await self.planning.approve(self.update, self.context)
+                self.assertFalse(legacy.approved)
+                legacy.approved = True  # an approval loaded from an older release
+                await self.execution.confirm(self.update, self.context)
+                revise.assert_not_called()
+                run.assert_not_awaited()
+            self.assertIs(self.context.user_data["pending_plan"], legacy)
+            self.assertIn("Recreate", self.update.message.reply_text.call_args.args[0])
+
+        asyncio.run(scenario())
+
+    def test_cleanup_rejects_registration_changed_during_execution(self):
+        async def scenario():
+            await self.make_plan()
+            await self.planning.approve(self.update, self.context)
+
+            async def changed(*args):
+                self.project.repo_path = "/tmp/moved"
+                raise RuntimeError("registration changed")
+
+            with (
+                patch.object(
+                    self.execution,
+                    "_publish_queued_implementation",
+                    side_effect=changed,
+                ),
+                patch.object(
+                    self.execution, "reset_to_base_branch", AsyncMock()
+                ) as reset,
+            ):
+                with self.assertRaisesRegex(RuntimeError, "registration changed"):
+                    await self.execution.confirm(self.update, self.context)
+                reset.assert_not_awaited()
+            self.assertEqual(len(self.context.user_data["task_queue"]), 1)
+
+        asyncio.run(scenario())

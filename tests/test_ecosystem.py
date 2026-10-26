@@ -126,7 +126,15 @@ class PlanRepositoriesTests(unittest.TestCase):
         self.active.stop()
 
     def plan(self) -> plan_state.PlanState:
-        return plan_state.new_plan_state("drag todos", self.PLAN)
+        return plan_state.new_plan_state(
+            "drag todos",
+            self.PLAN,
+            {
+                "project_name": "ai-pm-agent",
+                "repo_path": "/tmp/pm",
+                "github_repository": "o/pm",
+            },
+        )
 
     def test_the_plan_shows_its_repositories_and_what_approval_runs(self) -> None:
         text = plan_state.render_plan(self.plan())

@@ -47,6 +47,7 @@ FINISHED = ("pr", "done", "stopped")
 # What a task keeps of its run, so a run that failed can be retried with the
 # same approved plan (and another tool) instead of planning it again.
 RUN_KEYS = (
+    "repository_identity",
     "change",
     "images",
     "codex_prompt",

@@ -36,6 +36,36 @@ def _execution(**overrides) -> ExecutionState:
 
 
 class PlanStateTests(unittest.TestCase):
+    def test_render_uses_saved_repository_even_after_switch(self) -> None:
+        plan = new_plan_state(
+            "feature",
+            "text",
+            {
+                "project_name": "A",
+                "repo_path": "/tmp/A",
+                "github_repository": "owner/A",
+            },
+        )
+        with patch.object(plan_state, "active_project", side_effect=AssertionError):
+            self.assertIn("A (owner/A)", render_plan(plan))
+            self.assertIn(
+                "legacy plan; recreate", render_plan(new_plan_state("old", "text"))
+            )
+
+    def test_identity_is_explicit_and_preserved_by_revision(self) -> None:
+        identity = {
+            "project_name": "A",
+            "repo_path": "/tmp/A",
+            "github_repository": "owner/A",
+        }
+        plan = new_plan_state("feature", "first", identity)
+        revised = revise_plan_state(plan, "second")
+        self.assertEqual(revised.repository_identity, identity)
+        self.assertIsNot(revised.repository_identity, plan.repository_identity)
+        identity["project_name"] = "B"
+        self.assertEqual(plan.repository_identity["project_name"], "A")
+        self.assertIsNone(new_plan_state("legacy", "text").repository_identity)
+
     def test_parse_plan_document_reads_json_and_normalizes_branch(self) -> None:
         plan_text = json.dumps(
             {
@@ -206,6 +236,11 @@ class PlanStateTests(unittest.TestCase):
                 }
             ),
             approved=False,
+            repository_identity={
+                "project_name": "repo",
+                "repo_path": "/tmp/repo",
+                "github_repository": "owner/repo",
+            },
         )
 
         with patch.object(plan_state, "active_project", return_value=PROJECT):

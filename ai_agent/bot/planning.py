@@ -11,6 +11,7 @@ from ai_agent.bot.image_intake import report_missing
 from ai_agent.bot.state import (
     current_planning_agent,
     forget_pending_implementation,
+    planning_guard,
     set_pending_from_plan,
     think,
 )
@@ -22,10 +23,12 @@ from ai_agent.bot.transport import (
 from ai_agent.image_delivery import invoke
 from ai_agent.plan_state import (
     PlanState,
+    capture_repository_identity,
     new_plan_state,
     parse_plan_document,
     render_history,
     render_plan,
+    repository_mismatch,
     revise_plan_state,
 )
 from ai_agent.planner import (
@@ -53,20 +56,22 @@ async def plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
 
-    provider = current_planning_agent(context)
-    await reply_chunks(update, f"Planning with {planning_agent_label(provider)}...")
-    task = find_task(context.user_data, context.user_data.get("planning_task", ""))
-    images = (task or {}).get("images", [])
-    await report_missing(update, images)
-    plan_text = await think(
-        context, "plan", feature, invoke, images, plan_feature, feature, provider
-    )
-    await report_missing(update, images)
-    plan_state = new_plan_state(feature, plan_text)
-    plan_state.images = list(images)
-    context.user_data["pending_plan"] = plan_state
-    forget_pending_implementation(context)
-    await reply_chunks(update, render_plan(plan_state))
+    with planning_guard(context):
+        identity = capture_repository_identity()
+        provider = current_planning_agent(context)
+        await reply_chunks(update, f"Planning with {planning_agent_label(provider)}...")
+        task = find_task(context.user_data, context.user_data.get("planning_task", ""))
+        images = (task or {}).get("images", [])
+        await report_missing(update, images)
+        plan_text = await think(
+            context, "plan", feature, invoke, images, plan_feature, feature, provider
+        )
+        await report_missing(update, images)
+        plan_state = new_plan_state(feature, plan_text, identity)
+        plan_state.images = list(images)
+        context.user_data["pending_plan"] = plan_state
+        forget_pending_implementation(context)
+        await reply_chunks(update, render_plan(plan_state))
 
 
 async def discuss(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -78,6 +83,11 @@ async def discuss(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await reply_chunks(update, "No pending plan. Use /plan <feature> first.")
         return
 
+    refusal = repository_mismatch(plan_state.repository_identity)
+    if refusal:
+        await reply_chunks(update, refusal)
+        return
+
     feedback = " ".join(context.args).strip()
     if not feedback:
         await prompt_for_arguments(
@@ -85,30 +95,32 @@ async def discuss(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
 
-    provider = current_planning_agent(context)
-    await reply_chunks(
-        update, f"Revising plan with {planning_agent_label(provider)}..."
-    )
-    await report_missing(update, plan_state.images)
-    plan_text = await think(
-        context,
-        "revise",
-        plan_state.feature,
-        invoke,
-        plan_state.images,
-        revise_feature_plan,
-        plan_state.feature,
-        plan_state.plan_text,
-        feedback,
-        provider,
-    )
-    await report_missing(update, plan_state.images)
-    revised = revise_plan_state(plan_state, plan_text)
-    context.user_data["pending_plan"] = revised
-    forget_pending_implementation(context)
-    await reply_chunks(
-        update, f"Plan updated (Revision {revised.revision})\n\n{render_plan(revised)}"
-    )
+    with planning_guard(context):
+        provider = current_planning_agent(context)
+        await reply_chunks(
+            update, f"Revising plan with {planning_agent_label(provider)}..."
+        )
+        await report_missing(update, plan_state.images)
+        plan_text = await think(
+            context,
+            "revise",
+            plan_state.feature,
+            invoke,
+            plan_state.images,
+            revise_feature_plan,
+            plan_state.feature,
+            plan_state.plan_text,
+            feedback,
+            provider,
+        )
+        await report_missing(update, plan_state.images)
+        revised = revise_plan_state(plan_state, plan_text)
+        context.user_data["pending_plan"] = revised
+        forget_pending_implementation(context)
+        await reply_chunks(
+            update,
+            f"Plan updated (Revision {revised.revision})\n\n{render_plan(revised)}",
+        )
 
 
 def _not_here(plan_state: PlanState) -> str | None:
@@ -135,7 +147,9 @@ async def approve(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await reply_chunks(update, "No pending plan. Use /plan <feature> first.")
         return
 
-    refusal = _not_here(plan_state)
+    refusal = repository_mismatch(plan_state.repository_identity) or _not_here(
+        plan_state
+    )
     if refusal:
         await reply_chunks(update, refusal)
         return
@@ -197,30 +211,34 @@ async def implement_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         )
         return
 
-    provider = current_planning_agent(context)
-    await reply_chunks(update, f"Planning with {planning_agent_label(provider)}...")
-    plan_text = await think(
-        context, "implement", feature, plan_feature, feature, provider
-    )
-    plan_state = new_plan_state(feature, plan_text)
-    refusal = _not_here(plan_state)
-    if refusal:
-        context.user_data["pending_plan"] = plan_state  # kept for /split
-        await reply_chunks(update, f"{render_plan(plan_state)}\n\n{refusal}")
-        return
+    with planning_guard(context):
+        identity = capture_repository_identity()
+        provider = current_planning_agent(context)
+        await reply_chunks(update, f"Planning with {planning_agent_label(provider)}...")
+        plan_text = await think(
+            context, "implement", feature, plan_feature, feature, provider
+        )
+        plan_state = new_plan_state(feature, plan_text, identity)
+        refusal = repository_mismatch(plan_state.repository_identity) or _not_here(
+            plan_state
+        )
+        if refusal:
+            context.user_data["pending_plan"] = plan_state  # kept for /split
+            await reply_chunks(update, f"{render_plan(plan_state)}\n\n{refusal}")
+            return
 
-    plan_state.approved = True
-    context.user_data["pending_plan"] = plan_state
-    set_pending_from_plan(context, plan_state)
-    document = parse_plan_document(plan_state.plan_text, plan_state.feature)
+        plan_state.approved = True
+        context.user_data["pending_plan"] = plan_state
+        set_pending_from_plan(context, plan_state)
+        document = parse_plan_document(plan_state.plan_text, plan_state.feature)
 
-    await reply_chunks(
-        update,
-        f"{render_plan(plan_state)}\n\n"
-        "Plan approved for the existing /implement flow.\n\n"
-        f"Pending branch: {document.branch}\n"
-        "Send /confirm to enqueue this task, or /cancel to discard this request.",
-    )
+        await reply_chunks(
+            update,
+            f"{render_plan(plan_state)}\n\n"
+            "Plan approved for the existing /implement flow.\n\n"
+            f"Pending branch: {document.branch}\n"
+            "Send /confirm to enqueue this task, or /cancel to discard this request.",
+        )
 
 
 async def bugfix_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -234,29 +252,32 @@ async def bugfix_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         )
         return
 
-    await reply_chunks(update, "Checking whether the bug report is actionable...")
-    questions = await think(
-        context,
-        "bugfix",
-        bug,
-        get_bugfix_questions,
-        bug,
-        current_planning_agent(context),
-    )
-    if questions:
-        context.user_data["pending_bugfix_clarification"] = {
-            "bug": bug,
-            "branch_source": bug,
-            "questions": questions,
-        }
-        await reply_chunks(
-            update,
-            f"I need a bit more detail before running Codex:\n{questions}\n\n"
-            "Reply with /answer <details>, or /cancel to discard this request.",
+    with planning_guard(context):
+        identity = capture_repository_identity()
+        await reply_chunks(update, "Checking whether the bug report is actionable...")
+        questions = await think(
+            context,
+            "bugfix",
+            bug,
+            get_bugfix_questions,
+            bug,
+            current_planning_agent(context),
         )
-        return
+        if questions:
+            context.user_data["pending_bugfix_clarification"] = {
+                "repository_identity": identity,
+                "bug": bug,
+                "branch_source": bug,
+                "questions": questions,
+            }
+            await reply_chunks(
+                update,
+                f"I need a bit more detail before running Codex:\n{questions}\n\n"
+                "Reply with /answer <details>, or /cancel to discard this request.",
+            )
+            return
 
-    await prepare_bugfix(update, context, bug, bug)
+        await prepare_bugfix(update, context, bug, bug, identity)
 
 
 async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -270,6 +291,11 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
 
+    refusal = repository_mismatch(pending.get("repository_identity"))
+    if refusal:
+        await reply_chunks(update, refusal)
+        return
+
     details = " ".join(context.args).strip()
     if not details:
         await prompt_for_arguments(
@@ -277,32 +303,36 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
 
-    combined_bug = f"{pending['bug']}\n\nUser clarification:\n{details}"
-    branch_source = pending.get("branch_source", pending["bug"])
-    await reply_chunks(update, "Checking the updated bug report...")
-    questions = await think(
-        context,
-        "answer",
-        branch_source,
-        get_bugfix_questions,
-        combined_bug,
-        current_planning_agent(context),
-    )
-    if questions:
-        context.user_data["pending_bugfix_clarification"] = {
-            "bug": combined_bug,
-            "branch_source": branch_source,
-            "questions": questions,
-        }
-        await reply_chunks(
-            update,
-            f"I still need more detail:\n{questions}\n\n"
-            "Reply with /answer <details>, or /cancel to discard this request.",
+    with planning_guard(context):
+        combined_bug = f"{pending['bug']}\n\nUser clarification:\n{details}"
+        branch_source = pending.get("branch_source", pending["bug"])
+        await reply_chunks(update, "Checking the updated bug report...")
+        questions = await think(
+            context,
+            "answer",
+            branch_source,
+            get_bugfix_questions,
+            combined_bug,
+            current_planning_agent(context),
         )
-        return
+        if questions:
+            context.user_data["pending_bugfix_clarification"] = {
+                "repository_identity": dict(pending["repository_identity"]),
+                "bug": combined_bug,
+                "branch_source": branch_source,
+                "questions": questions,
+            }
+            await reply_chunks(
+                update,
+                f"I still need more detail:\n{questions}\n\n"
+                "Reply with /answer <details>, or /cancel to discard this request.",
+            )
+            return
 
-    context.user_data.pop("pending_bugfix_clarification", None)
-    await prepare_bugfix(update, context, combined_bug, branch_source)
+        context.user_data.pop("pending_bugfix_clarification", None)
+        await prepare_bugfix(
+            update, context, combined_bug, branch_source, pending["repository_identity"]
+        )
 
 
 def get_bugfix_questions(bug: str, provider: str | None = None) -> str | None:
@@ -311,23 +341,32 @@ def get_bugfix_questions(bug: str, provider: str | None = None) -> str | None:
 
 
 async def prepare_bugfix(
-    update: Update, context: ContextTypes.DEFAULT_TYPE, bug: str, branch_source: str
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    bug: str,
+    branch_source: str,
+    identity: dict[str, str] | None = None,
 ) -> None:
     """Prepare pending implementation data for a bugfix branch."""
-    bugfix_prompt = await asyncio.to_thread(build_bugfix_prompt, bug)
-    branch_name = slugify_branch_name(branch_source, "bugfix")
+    with planning_guard(context):
+        identity = (
+            dict(identity) if identity is not None else capture_repository_identity()
+        )
+        bugfix_prompt = await asyncio.to_thread(build_bugfix_prompt, bug)
+        branch_name = slugify_branch_name(branch_source, "bugfix")
 
-    context.user_data["pending_implementation"] = {
-        "change": bug,
-        "codex_prompt": bugfix_prompt,
-        "branch_name": branch_name,
-        "commit_type": "fix",
-        "pr_body_label": "Bug fix prompt",
-        "confirmation_label": "bug fix",
-    }
+        context.user_data["pending_implementation"] = {
+            "repository_identity": identity,
+            "change": bug,
+            "codex_prompt": bugfix_prompt,
+            "branch_name": branch_name,
+            "commit_type": "fix",
+            "pr_body_label": "Bug fix prompt",
+            "confirmation_label": "bug fix",
+        }
 
-    await reply_chunks(
-        update,
-        f"Pending bug fix branch: {branch_name}\n"
-        "Send /confirm to enqueue this task, or /cancel to discard this request.",
-    )
+        await reply_chunks(
+            update,
+            f"Pending bug fix branch: {branch_name}\n"
+            "Send /confirm to enqueue this task, or /cancel to discard this request.",
+        )

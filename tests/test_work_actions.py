@@ -24,7 +24,12 @@ class WorkActionTests(unittest.IsolatedAsyncioTestCase):
         self.actions = importlib.import_module("ai_agent.actions")
         plan_state = importlib.import_module("ai_agent.plan_state")
         self.plan = plan_state.PlanState(
-            id="p1", feature="add login", revision=1, plan_text="Do it.", approved=False
+            id="p1",
+            feature="add login",
+            revision=1,
+            plan_text="Do it.",
+            approved=False,
+            repository_identity=plan_state.capture_repository_identity(),
         )
         self.data: dict = {}
         self.app = SimpleNamespace(
@@ -42,6 +47,25 @@ class WorkActionTests(unittest.IsolatedAsyncioTestCase):
         return [
             call.kwargs["text"] for call in self.app.bot.send_message.await_args_list
         ]
+
+    async def test_inbox_planning_blocks_switch_until_cancelled(self) -> None:
+        planning = importlib.import_module("ai_agent.bot.planning")
+        release = asyncio.Event()
+
+        async def slow_planner(*args):
+            await release.wait()
+            return "Plan"
+
+        with patch.object(planning, "think", side_effect=slow_planner):
+            await self.run_action("start_work", {"kind": "plan", "text": "Add search"})
+            self.assertTrue(self.data["planning_active"])
+            with self.assertRaises(self.actions.ActionError):
+                await self.inbox.execute("use_project", {"name": "B"}, self.data)
+            running = list(self.work._runs)
+            for task in running:
+                task.cancel()
+            await asyncio.gather(*running, return_exceptions=True)
+        self.assertNotIn("planning_active", self.data)
 
     async def test_approve_runs_the_command_and_answers_in_the_owner_chat(self) -> None:
         self.data["pending_plan"] = self.plan

@@ -49,10 +49,20 @@ def test_queue_reports_no_code_outcome_and_continues_without_ci():
     execution = importlib.import_module("ai_agent.bot.execution")
     outcome = execution.NoCodeOutcomeError('{"outcome":"ops_required","summary":"402"}')
     update = SimpleNamespace(effective_user=SimpleNamespace(id=123))
+    from ai_agent.plan_state import capture_repository_identity
+
     data = {
         "task_queue": [
-            {"id": 1, "branch_name": "bugfix/source"},
-            {"id": 2, "branch_name": "bugfix/second"},
+            {
+                "id": 1,
+                "branch_name": "bugfix/source",
+                "repository_identity": capture_repository_identity(),
+            },
+            {
+                "id": 2,
+                "branch_name": "bugfix/second",
+                "repository_identity": capture_repository_identity(),
+            },
         ]
     }
     context = SimpleNamespace(user_data=data, application=Mock())
