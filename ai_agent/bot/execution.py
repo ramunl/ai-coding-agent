@@ -34,6 +34,11 @@ from ai_agent.bot.state import (
 from ai_agent.bot.transport import reply_chunks, require_authorized
 from ai_agent.ci import CiResult, build_failure_context
 from ai_agent.config import CI_FIX_ATTEMPTS
+from ai_agent.git_recovery import (
+    cleanup_recovery,
+    recovery_details,
+    serialized_execution,
+)
 from ai_agent.github import PullRequest, ensure_github_configured, github_request
 from ai_agent.image_delivery import invoke
 from ai_agent.plan_state import Verbosity, render_completion, repository_mismatch
@@ -132,6 +137,7 @@ async def run_task_queue(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         context.user_data.pop("queue_runner_active", None)
 
 
+@serialized_execution
 async def run_queued_implementation(
     update: Update, context: ContextTypes.DEFAULT_TYPE, task: dict
 ) -> None:
@@ -193,8 +199,8 @@ async def run_queued_implementation(
                 task_queue(context).insert(0, task)
             await reply_chunks(update, refusal)
         else:
-            await reset_to_base_branch()
-        if no_code and not refusal:
+            restored = await reset_to_base_branch(update)
+        if no_code and not refusal and restored:
             try:
                 await asyncio.to_thread(discard_empty_branch, branch_name)
             except RuntimeError:
@@ -265,16 +271,34 @@ async def _publish_queued_implementation(
     return pull_request, commit_sha
 
 
-async def reset_to_base_branch() -> None:
-    """Restore the project base branch and log cleanup failures."""
+async def reset_to_base_branch(update: Update) -> bool:
+    """Report recovery and cleanup failures without replacing the run error."""
+    restored = False
+    messages = []
     try:
-        await asyncio.to_thread(return_to_base_branch)
+        if await asyncio.to_thread(cleanup_recovery):
+            await asyncio.to_thread(return_to_base_branch)
+            restored = True
     except Exception:
-        logger.exception(
-            "Failed to check the repo back out to its base branch after task completion"
+        messages.append(
+            "Cleanup failed; checkout was not safely restored. New runs "
+            "require a clean checkout and resolution of any recovery block. "
+            "Inspect local recovery refs and preserve remaining edits manually."
         )
+    details = recovery_details()
+    if details:
+        messages.append(details)
+    for message in messages:
+        # A Telegram failure during cleanup must not replace the provider error.
+        logger.warning("%s", message)
+        try:
+            await reply_chunks(update, message)
+        except Exception:
+            logger.warning("Could not deliver the repository recovery report")
+    return restored
 
 
+@serialized_execution
 async def fixpr(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Repair failing CI for an open pull request in the active repository."""
     if not require_authorized(update):
@@ -335,7 +359,7 @@ async def fixpr(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             )
     finally:
         context.user_data.pop("active_execution", None)
-        await reset_to_base_branch()
+        await reset_to_base_branch(update)
 
 
 async def _load_pr_repair(

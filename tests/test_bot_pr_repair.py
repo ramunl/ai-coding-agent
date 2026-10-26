@@ -61,6 +61,7 @@ class PullRequestRepairTests(TelegramTestCase):
                     telegram_bot.asyncio, "to_thread", side_effect=fake_to_thread
                 ),
                 patch.object(telegram_bot, "ensure_github_configured"),
+                patch.object(telegram_bot, "cleanup_recovery", return_value=True),
                 patch.object(telegram_bot, "github_request", return_value=pull_data),
                 patch.object(
                     telegram_bot, "build_failure_context", return_value="compile failed"
@@ -136,7 +137,7 @@ class PullRequestRepairTests(TelegramTestCase):
             asyncio.run(bot.fixpr(update, context))
 
         repair.assert_not_called()
-        restore.assert_called_once_with()
+        restore.assert_not_called()
         self.assertIs(context.user_data["last_execution"], previous)
         self.assertIn("already passing", update.message.reply_text.await_args.args[0])
         self.assertNotIn("active_execution", context.user_data)
