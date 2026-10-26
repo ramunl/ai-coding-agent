@@ -17,6 +17,19 @@ from ai_agent.workflow import (
 
 
 class WorkflowTests(unittest.TestCase):
+    def setUp(self):
+        # Command-shape tests isolate real Git recovery (covered in integration).
+        for target in (
+            "ai_agent.git_recovery._lease",
+            "ai_agent.git_recovery.require_clean_checkout",
+            "ai_agent.git_recovery.cleanup_recovery",
+            "ai_agent.workflow.require_clean_checkout",
+            "ai_agent.workflow.retain_branch",
+        ):
+            patcher = patch(target)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
     def test_no_changes_preserves_bounded_redacted_agent_explanation(self):
         from ai_agent import workflow
 
@@ -237,7 +250,9 @@ class WorkflowTests(unittest.TestCase):
         result = repair_implementation("fix compile error", "bugfix/example")
 
         calls = [call.args[0] for call in mock_run.call_args_list]
-        self.assertIn(["git", "checkout", "bugfix/example"], calls)
+        self.assertIn(
+            ["git", "checkout", "--no-overwrite-ignore", "bugfix/example"], calls
+        )
         command = next(command for command in calls if command[0] == "codex")
         self.assertEqual(command[:4], ["codex", "exec", "-s", "workspace-write"])
         self.assertTrue(command[-1].startswith("fix compile error"))
@@ -283,7 +298,15 @@ class WorkflowTests(unittest.TestCase):
         calls = [call.args[0] for call in mock_run.call_args_list]
         self.assertIn(["git", "fetch", "origin", "bugfix/example"], calls)
         self.assertIn(
-            ["git", "checkout", "-B", "bugfix/example", "origin/bugfix/example"], calls
+            [
+                "git",
+                "checkout",
+                "--no-overwrite-ignore",
+                "-B",
+                "bugfix/example",
+                "origin/bugfix/example",
+            ],
+            calls,
         )
         command = next(command for command in calls if command[0] == "codex")
         self.assertEqual(command[:4], ["codex", "exec", "-s", "workspace-write"])
@@ -302,7 +325,7 @@ class WorkflowTests(unittest.TestCase):
         return_to_base_branch()
 
         calls = [call.args[0] for call in mock_run.call_args_list]
-        self.assertIn(["git", "checkout", "main"], calls)
+        self.assertIn(["git", "checkout", "--no-overwrite-ignore", "main"], calls)
         self.assertIn(["git", "pull", "origin", "main"], calls)
 
 

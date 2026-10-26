@@ -11,6 +11,11 @@ from ai_agent.config import (
     CODEX_TIMEOUT_SECONDS,
     IMPLEMENTATION_AGENT,
 )
+from ai_agent.git_recovery import (
+    guarded_run,
+    require_clean_checkout,
+    retain_branch,
+)
 from ai_agent.github import PullRequest, ensure_github_configured, github_request
 from ai_agent.image_delivery import run_with_images
 from ai_agent.model_errors import codex_capacity_explained
@@ -185,37 +190,51 @@ def validate_branch_name(branch_name: str) -> None:
         raise ValueError(f"Invalid branch name: {branch_name}")
 
 
+@guarded_run
 def implement(
     plan: str, branch_name: str, agent: str | None = None
 ) -> ImplementationResult:
     """Create a feature branch and capture the implementation result."""
     validate_branch_name(branch_name)
     base_branch = active_project().base_branch
-    run(["git", "checkout", base_branch])
+    run(["git", "checkout", "--no-overwrite-ignore", base_branch])
     run(["git", "pull", "origin", base_branch])
     # -B, not -b: a run that failed (a usage limit, a crash) leaves its branch
     # behind, and a retry must start again from the fresh base, not fail.
-    run(["git", "checkout", "-B", branch_name])
+    retain_branch(branch_name)
+    run(["git", "checkout", "--no-overwrite-ignore", "-B", branch_name])
     return _run_and_capture_changes(plan, agent)
 
 
+@guarded_run
 def repair_implementation(
     prompt: str, branch_name: str, agent: str | None = None
 ) -> ImplementationResult:
     """Update an existing branch and capture a repair result."""
     validate_branch_name(branch_name)
-    run(["git", "checkout", branch_name])
+    run(["git", "checkout", "--no-overwrite-ignore", branch_name])
     run(["git", "pull", "origin", branch_name])
     return _run_and_capture_changes(prompt, agent)
 
 
+@guarded_run
 def repair_pull_request_branch(
     prompt: str, branch_name: str, agent: str | None = None
 ) -> ImplementationResult:
     """Check out a remote pull-request branch and capture its repair result."""
     validate_branch_name(branch_name)
+    retain_branch(branch_name)
     run(["git", "fetch", "origin", branch_name])
-    run(["git", "checkout", "-B", branch_name, f"origin/{branch_name}"])
+    run(
+        [
+            "git",
+            "checkout",
+            "--no-overwrite-ignore",
+            "-B",
+            branch_name,
+            f"origin/{branch_name}",
+        ]
+    )
     return _run_and_capture_changes(prompt, agent)
 
 
@@ -234,8 +253,9 @@ def _run_and_capture_changes(prompt: str, agent: str | None) -> ImplementationRe
 
 def return_to_base_branch() -> None:
     """Check out and update the active project base branch."""
+    require_clean_checkout()
     base_branch = active_project().base_branch
-    run(["git", "checkout", base_branch])
+    run(["git", "checkout", "--no-overwrite-ignore", base_branch])
     run(["git", "pull", "origin", base_branch])
 
 

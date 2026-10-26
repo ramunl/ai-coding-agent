@@ -10,6 +10,58 @@ from tests.bot_fixtures import TelegramTestCase
 
 
 class ExecutionTests(TelegramTestCase):
+    def setUp(self):
+        super().setUp()
+        bot = importlib.import_module("ai_agent.bot.execution")
+        patcher = patch.object(bot, "cleanup_recovery", return_value=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_cleanup_failure_does_not_replace_provider_error(self):
+        bot = importlib.import_module("ai_agent.bot.execution")
+        update = types.SimpleNamespace(
+            message=types.SimpleNamespace(reply_text=AsyncMock())
+        )
+
+        async def scenario():
+            try:
+                raise RuntimeError("provider failed")
+            finally:
+                await bot.reset_to_base_branch(update)
+
+        with (
+            patch.object(bot, "cleanup_recovery", side_effect=RuntimeError("secret")),
+            patch.object(bot, "return_to_base_branch") as restore,
+            patch.object(
+                bot, "recovery_details", return_value="refs/ai-agent-recovery/test"
+            ),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "provider failed"):
+                asyncio.run(scenario())
+        restore.assert_not_called()
+        replies = str(update.message.reply_text.call_args_list)
+        self.assertIn("Cleanup failed", replies)
+        self.assertIn("refs/ai-agent-recovery/test", replies)
+        self.assertNotIn("secret", replies)
+
+    def test_recovery_report_delivery_cannot_mask_provider_error(self):
+        bot = importlib.import_module("ai_agent.bot.execution")
+
+        async def scenario():
+            try:
+                raise RuntimeError("provider failed")
+            finally:
+                await bot.reset_to_base_branch(object())
+
+        with (
+            patch.object(bot, "cleanup_recovery", side_effect=RuntimeError("cleanup")),
+            patch.object(
+                bot, "reply_chunks", AsyncMock(side_effect=RuntimeError("network"))
+            ),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "provider failed"):
+                asyncio.run(scenario())
+
     def test_confirm_queues_pending_work_when_runner_is_active(self) -> None:
         telegram_bot = importlib.import_module("ai_agent.bot.execution")
 
