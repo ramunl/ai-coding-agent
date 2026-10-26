@@ -35,6 +35,17 @@ Existing `create_task` requests without images remain valid. New example:
 }
 ```
 
+Bug submissions also accept the same optional `images` field on `start_work`
+with `args.kind` set to `bugfix` and `args.text` containing the report. Other
+`start_work` kinds do not accept images. Text-only requests omit the field.
+The upload, request-ID, bounds and replay rules below apply to both actions.
+
+Bug image references are saved before assessment starts and retained through
+`answer_bugfix`, including repeated clarification and assessment failures. A
+failed assessment can be retried with an answer or discarded with cancellation.
+Confirmation passes them into the execution queue. Cancellation waits until
+planning finishes, then removes images no longer referenced by other work.
+
 Part 2 must extend ai-dashboard's `agent_actions.py` validation and implement the
 upload endpoint. The existing action name is unchanged. The dashboard authenticates
 the owner server-side and streams uploads to

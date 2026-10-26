@@ -126,7 +126,12 @@ def validate(request: dict) -> tuple[str, str, dict[str, Any]]:
         raise ActionError(f"Unknown action '{action}'.")
     args = request.get("args")
     expected = set(spec)
-    if action == "create_task" and isinstance(args, dict) and "images" in args:
+    supports_images = action == "create_task" or (
+        action == "start_work"
+        and isinstance(args, dict)
+        and args.get("kind") == "bugfix"
+    )
+    if supports_images and isinstance(args, dict) and "images" in args:
         expected.add("images")
         try:
             image_uploads.validate_names(args["images"])
@@ -270,7 +275,7 @@ async def process_inbox(
         log.record(request_id, action, "running", "Working…")
         refs = []
         try:
-            if action == "create_task" and args.get("images"):
+            if args.get("images"):
                 # An exclusive durable marker prevents replay even after result
                 # rotation or restart. Mark before consuming any bytes.
                 try:

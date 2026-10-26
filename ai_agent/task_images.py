@@ -229,9 +229,10 @@ def references_in(data: dict) -> list[dict]:
             if not isinstance(value, list):
                 raise ValueError("invalid image reference collection")
             records.extend(value)
-    pending = data.get("pending_implementation")
-    if pending is not None:
-        records.append(pending)
+    for key in ("pending_implementation", "pending_bugfix_clarification"):
+        pending = data.get(key)
+        if pending is not None:
+            records.append(pending)
     plan = data.get("pending_plan")
     if plan is not None:
         # Older untagged mappings and plans without images remain supported.
