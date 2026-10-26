@@ -56,7 +56,12 @@ def run(
     except subprocess.TimeoutExpired as exc:
         if private:
             raise RuntimeError("Image provider command timed out.") from None
-        output = (exc.stdout or "") + (exc.stderr or "")
+        output = "".join(
+            stream.decode(errors="replace")
+            if isinstance(stream, bytes)
+            else stream or ""
+            for stream in (exc.stdout, exc.stderr)
+        )
         raise RuntimeError(
             f"Command timed out after {timeout}s: {' '.join(args)}\n{output}"
         ) from exc
