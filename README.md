@@ -237,19 +237,23 @@ core remains pinned as a submodule; initialize it with
 
 ## Deployment
 
-This repo auto-deploys from `main` through GitHub Actions and the server webhook.
+Merges to `main` do not deploy by themselves: a deploy restarts the agent and
+kills a run in progress. Deploy when it is idle, with `/ai_update coding` in the
+Ops bot or **Run workflow** on the "Deploy AI Agent" action.
 
-Flow:
+Flow (Run workflow):
 
 ```text
-git push origin main
+Run workflow on main
 -> GitHub Actions deploy workflow
--> http://<deploy-host>:9000/hooks/ai-coding-agent-update?secret=...
+-> HTTPS deploy webhook (Authorization: Bearer token)
 -> /usr/local/sbin/update-ai-coding-agent
 -> git pull, install requirements, restart ai-coding-agent.service
 ```
 
-The server uses the distro `webhook.service` with `/etc/webhook.conf`. It listens on `*:9000`, and UFW must allow `9000/tcp` for GitHub-hosted runners to reach it.
+The server uses `webhook.service` with `/etc/webhook.conf`, behind the HTTPS
+endpoint configured in `DEPLOY_WEBHOOK_URL`. The workflow authenticates with
+`DEPLOY_WEBHOOK_TOKEN` in an Authorization header.
 
 Details are in [docs/deployment.md](docs/deployment.md).
 

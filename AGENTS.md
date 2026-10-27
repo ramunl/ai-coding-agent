@@ -42,7 +42,8 @@ bots and the `ai-dashboard` Mini App.
   `/etc` or `/var/lib` – use temp dirs and env vars).
 - Lint: `ruff check agent.py ai_agent tests` and `ruff format --check …`
   (ruff 0.16.8, line length 88). Format only the files you touch.
-- CI (`.github/workflows/test.yml`) runs both; merge to main deploys.
+- CI (`.github/workflows/test.yml`) runs both. Merging to main does not deploy:
+  deploys are manual (`/ai_update coding`), since a restart kills a run.
 
 ## Conventions and traps
 

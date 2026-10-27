@@ -1,8 +1,9 @@
 name: Deploy AI Agent
 
+# Manual only: a deploy restarts the agent and kills a run in progress, so
+# merges to main no longer deploy by themselves. Deploy when the agent is idle,
+# with /ai_update coding in the Ops bot or Run workflow on this action.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 jobs:

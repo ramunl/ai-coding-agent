@@ -2,14 +2,17 @@
 
 ## Overview
 
-`ai-coding-agent` deploys automatically when changes are pushed to `main`.
+`ai-coding-agent` deploys only when asked: a deploy restarts the agent and
+kills any run in progress, so merges to `main` do not deploy by themselves.
+Deploy when the agent is idle, with `/ai_update coding` in the Ops bot or
+**Run workflow** on the "Deploy AI Agent" action in GitHub.
 
 The server directory is `/opt/ai-coding-agent`, and the systemd service is `ai-coding-agent.service`
 (renamed 2026-09-18 from `ai-agent.service` to match the repo name; the env file, webhook hook id,
 update script, and log path were renamed to match at the same time).
 
 ```text
-git push origin main
+Run workflow (GitHub Actions, manual)
 -> GitHub Actions
 -> deploy webhook
 -> update script
@@ -24,7 +27,7 @@ Workflow file:
 .github/workflows/deploy.yml
 ```
 
-The workflow runs on pushes to `main` and can be dispatched manually. It validates
+The workflow runs only when dispatched manually. It validates
 HTTPS and sends the token in an Authorization header. HTTP errors and redirects
 fail the job.
 
@@ -121,12 +124,8 @@ ls -l /var/lib/ai-coding-agent
 
 ## Verification
 
-Push an empty commit to `main`:
-
-```bash
-git commit --allow-empty -m "verify deploy webhook"
-git push origin main
-```
+Run the "Deploy AI Agent" workflow on `main` (Actions › Run workflow), or
+`/ai_update coding` in the Ops bot.
 
 Then check the update log:
 
