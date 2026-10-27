@@ -30,6 +30,7 @@ from ai_agent.task_images import usage
 from ai_agent.task_pulls import track_forever as track_pulls
 from ai_agent.tasks import sync as sync_tasks
 from ai_agent.token_usage import usage_section
+from ai_agent.tool_auth import ToolAuth
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +127,8 @@ async def publish_forever(
         versions = {"version": "unknown", "core": "unknown"}
     limits_task = asyncio.create_task(poll_limits())
     pulls_task = asyncio.create_task(track_pulls(ptb_app, owner_id))
+    auth = ToolAuth()
+    auth_task = asyncio.create_task(auth.refresh_forever())
     choices = ModelChoices()
     choices_task = asyncio.create_task(choices.refresh_forever())
     try:
@@ -133,7 +136,7 @@ async def publish_forever(
             try:
                 project = await asyncio.to_thread(_project)
                 files = await asyncio.to_thread(
-                    files_part, choices, ACTION_RESULTS_FILE
+                    files_part, choices, ACTION_RESULTS_FILE, auth.snapshot()
                 )
                 # Read queue state on the event-loop thread, where handlers mutate
                 # it, so the published view is consistent.
@@ -158,7 +161,7 @@ async def publish_forever(
                 logger.warning("Snapshot publish failed (will retry): %s", error)
             await asyncio.sleep(interval)
     finally:
-        for task in (limits_task, choices_task, pulls_task):
+        for task in (auth_task, limits_task, choices_task, pulls_task):
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task

@@ -17,6 +17,7 @@ from ai_agent.actions import busy_reason
 from ai_agent.ai_tools import all_info, get_tool
 from ai_agent.planner import SUPPORTED_PLANNING_AGENTS, normalize_planning_agent
 from ai_agent.projects import active_project, list_projects
+from ai_agent.tool_auth import ToolAuth
 from ai_agent.workflow import (
     SUPPORTED_IMPLEMENTATION_AGENTS,
     normalize_implementation_agent,
@@ -64,8 +65,11 @@ class ModelChoices:
             await asyncio.sleep(interval)
 
 
-def files_part(choices: ModelChoices, results_file: Path) -> dict:
+def files_part(
+    choices: ModelChoices, results_file: Path, auth: dict | None = None
+) -> dict:
     """The file- and config-backed part of the setup (call off the event loop)."""
+    auth = ToolAuth().snapshot() if auth is None else auth
     active = active_project().name
     try:
         results = json.loads(results_file.read_text(encoding="utf-8"))
@@ -83,6 +87,7 @@ def files_part(choices: ModelChoices, results_file: Path) -> dict:
         "models": [
             {
                 "tool": info.tool,
+                "auth": auth[info.tool],
                 "model": info.model,
                 "manageable": info.manageable,
                 "note": info.note,
