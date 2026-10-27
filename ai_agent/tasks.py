@@ -22,6 +22,7 @@ from collections.abc import MutableMapping
 from typing import Any
 
 from ai_agent.task_images import remove
+from ai_agent.task_reopen import attempt_history, can_reopen
 
 # "ended": the run finished but the agent did not see how (another run's result
 # replaced it, or it failed); task_pulls asks GitHub whether a pull request exists.
@@ -112,6 +113,8 @@ def add_task(
 
 def set_stage(task: dict, stage: str, note: str | None = None) -> None:
     """Move a task to a stage, with an optional reason shown next to it."""
+    if stage != task.get("stage") and stage in ("done", "stopped"):
+        task["finished_at"] = time.time()
     task["stage"] = stage
     task["note"] = note
 
@@ -227,6 +230,9 @@ def view(task: dict, data: MutableMapping) -> dict:
         "parts": task.get("parts"),
         "waiting_for": (waiting_for(task, data) or {}).get("title"),
         "can_retry": can_retry(task),
+        "can_reopen": can_reopen(task, data),
+        "attempt": task.get("attempt", 1),
+        "attempt_history": attempt_history(task),
         "autopilot": bool(task.get("autopilot")),
         "blocks": any(
             other.get("after") == task.get("id") and other.get("stage") == "todo"

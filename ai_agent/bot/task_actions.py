@@ -21,6 +21,7 @@ from ai_agent.bot.planning import plan
 from ai_agent.config import redact_sensitive
 from ai_agent.plan_state import parse_plan_document
 from ai_agent.projects import ProjectError, active_project, get_project
+from ai_agent.task_reopen import enforce_attempt_branch, planning_text, reopen_task
 from ai_agent.task_split import SplitError, split_pending
 from ai_agent.tasks import (
     add_task,
@@ -36,6 +37,7 @@ logger = logging.getLogger(__name__)
 TASK_ACTIONS = (
     "create_task",
     "start_task",
+    "reopen_task",
     "remove_task",
     "accept_task",
     "dismiss_task",
@@ -82,6 +84,7 @@ async def _plan_task(
         data.pop("planning_task", None)
         after = data.get("pending_plan")
         if after is not None and after is not before:
+            enforce_attempt_branch(task, after)
             task["plan_id"] = after.id
             task["branch"] = parse_plan_document(after.plan_text, after.feature).branch
             set_stage(task, "planned")
@@ -111,7 +114,7 @@ async def start(
     await _switch_to(ptb_app, data, task["repo"])
     update = work_actions.chat_update(ptb_app.bot, owner_id)
     context = CallbackContext(ptb_app, chat_id=owner_id, user_id=owner_id)
-    context.args = task.get("text", task["title"]).split()
+    context.args = planning_text(task).split()
     data["planning_task"] = task["id"]
     set_stage(task, "planning")
 
@@ -207,6 +210,12 @@ async def run_task_action(
                 f"{task['title'][:80]}” to a pull request; you review the PR."
             )
         return f"Autopilot off: “{task['title'][:80]}” waits for your approval."
+    if action == "reopen_task":
+        try:
+            reopen_task(task, data)
+        except ValueError as error:
+            raise ActionError(str(error)) from error
+        return f"Reopened as To do: {task['title']}. A fresh plan requires approval."
     if action == "retry_task":
         return await retry(ptb_app, owner_id, task, args["tool"])
     if action == "start_task":

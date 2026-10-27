@@ -487,3 +487,26 @@ class SetupViewTests(InboxTestCase):
             choices.refresh()
         self.assertEqual(choices.choices["claude"], ["m1", "m2"])
         self.assertEqual(choices.errors["claude"], "HTTP 401")
+
+
+class ReopenActionTests(InboxTestCase):
+    def test_reopen_validated_and_dispatched(self):
+        args = {"task": "abcd1234"}
+        _, action, validated = self.inbox.validate(self.request("reopen_task", args))
+        work = AsyncMock(return_value="Reopened")
+        assert (
+            asyncio.run(self.inbox.execute(action, validated, {}, work=work))
+            == "Reopened"
+        )
+        work.assert_awaited_once_with("reopen_task", args)
+
+    def test_reopen_rejects_invalid_arguments(self):
+        for args in (
+            {},
+            {"task": "xyz"},
+            {"task": 123},
+            {"task": "abcd1234\n"},
+            {"task": "abcd1234", "force": "yes"},
+        ):
+            with self.assertRaises(self.actions.ActionError):
+                self.inbox.validate(self.request("reopen_task", args))

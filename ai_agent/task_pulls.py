@@ -82,8 +82,8 @@ def apply_pull(task: dict, pull: dict | None) -> bool:
 async def check_once(data: MutableMapping) -> bool:
     """Ask GitHub about every task waiting on its pull request; True if any moved."""
     changed = False
-    for task in [
-        t
+    for task, identity in [
+        (t, (t.get("attempt", 1), t["branch"], t["stage"]))
         for t in tasks_of(data)
         if t.get("stage") in ("pr", "ended") and t.get("branch")
     ]:
@@ -91,11 +91,17 @@ async def check_once(data: MutableMapping) -> bool:
             repository = (
                 await asyncio.to_thread(get_project, task["repo"])
             ).github_repository
-            pull = await asyncio.to_thread(pull_state, repository, task["branch"])
+            pull = await asyncio.to_thread(pull_state, repository, identity[1])
         except Exception as error:  # one repo failing must not stop the others
             logger.warning(
                 "Task %s: pull request check failed: %s", task.get("id"), error
             )
+            continue
+        if not any(t is task for t in tasks_of(data)) or identity != (
+            task.get("attempt", 1),
+            task.get("branch"),
+            task.get("stage"),
+        ):
             continue
         changed |= apply_pull(task, pull)
     return changed

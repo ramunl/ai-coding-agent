@@ -40,6 +40,7 @@ from ai_agent.planner import (
     revise_feature_plan,
 )
 from ai_agent.projects import active_project
+from ai_agent.task_reopen import enforce_attempt_branch
 from ai_agent.task_split import SplitError, split_pending
 from ai_agent.tasks import find_task
 from ai_agent.workflow import slugify_branch_name
@@ -68,6 +69,7 @@ async def plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         await report_missing(update, images)
         plan_state = new_plan_state(feature, plan_text, identity)
+        enforce_attempt_branch(task, plan_state)
         plan_state.images = list(images)
         context.user_data["pending_plan"] = plan_state
         forget_pending_implementation(context)
@@ -115,6 +117,15 @@ async def discuss(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         await report_missing(update, plan_state.images)
         revised = revise_plan_state(plan_state, plan_text)
+        task = next(
+            (
+                t
+                for t in context.user_data.get("tasks", [])
+                if t.get("plan_id") == revised.id
+            ),
+            None,
+        )
+        enforce_attempt_branch(task, revised)
         context.user_data["pending_plan"] = revised
         forget_pending_implementation(context)
         await reply_chunks(
