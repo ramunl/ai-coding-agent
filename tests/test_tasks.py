@@ -47,7 +47,7 @@ class StageTests(unittest.TestCase):
         self.assertEqual(self.task["stage"], "todo")
         self.assertEqual(self.task["note"], "planning was interrupted")
 
-    def test_planned_follows_its_branch_into_the_queue_and_out_with_a_pr(self) -> None:
+    def test_planned_follows_its_branch_into_the_queue_then_checks_github(self) -> None:
         self.tasks.set_stage(self.task, "planned")
         self.data["pending_plan"] = self.plan()
         self.assertFalse(self.tasks.sync(self.data))
@@ -63,8 +63,8 @@ class StageTests(unittest.TestCase):
             branch="feature/login", pr_url="https://github.com/o/r/pull/7"
         )
         self.tasks.sync(self.data)
-        self.assertEqual(self.task["stage"], "pr")
-        self.assertEqual(self.task["pr_url"], "https://github.com/o/r/pull/7")
+        self.assertEqual(self.task["stage"], "ended")
+        self.assertIsNone(self.task["pr_url"])
 
     def test_a_run_that_ends_unseen_is_not_called_pr_open(self) -> None:
         self.tasks.set_stage(self.task, "implementing")
@@ -72,6 +72,19 @@ class StageTests(unittest.TestCase):
         self.tasks.sync(self.data)
         self.assertEqual(self.task["stage"], "ended")
         self.assertEqual(self.task["note"], self.tasks.ENDED_NOTE)
+
+    def test_interrupted_retry_does_not_reuse_an_old_same_branch_result(self) -> None:
+        self.task.update(stage="implementing", attempt=2)
+        self.data["last_execution"] = SimpleNamespace(
+            branch="feature/login", pr_url="https://github.com/o/r/pull/7"
+        )
+        self.assertTrue(self.tasks.sync(self.data))
+        self.assertEqual(self.task["stage"], "ended")
+        self.assertIsNone(self.task["pr_url"])
+        pulls = importlib.import_module("ai_agent.task_pulls")
+        self.assertTrue(pulls.apply_pull(self.task, None))
+        self.assertFalse(self.tasks.sync(self.data))
+        self.assertEqual(self.task["stage"], "stopped")
 
     def test_tasks_saved_as_pr_open_by_the_old_guess_are_moved_to_ended(self) -> None:
         self.tasks.set_stage(self.task, "pr", "run finished; pull request not recorded")
@@ -84,14 +97,14 @@ class StageTests(unittest.TestCase):
         self.tasks.sync(self.data)
         self.assertEqual(self.task["stage"], "stopped")
 
-    def test_run_without_a_pull_request_stops_the_task(self) -> None:
+    def test_run_without_a_recorded_pull_request_checks_github(self) -> None:
         self.tasks.set_stage(self.task, "implementing")
         self.data["last_execution"] = SimpleNamespace(
             branch="feature/login", pr_url=None
         )
         self.tasks.sync(self.data)
-        self.assertEqual(self.task["stage"], "stopped")
-        self.assertIn("without a pull request", self.task["note"])
+        self.assertEqual(self.task["stage"], "ended")
+        self.assertEqual(self.task["note"], self.tasks.ENDED_NOTE)
 
     def test_view_shows_the_plan_only_for_the_tasks_own_plan(self) -> None:
         self.tasks.set_stage(self.task, "planned")

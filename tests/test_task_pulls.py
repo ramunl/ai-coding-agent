@@ -124,7 +124,8 @@ class TaskPullTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("without a pull request", self.task["note"])
         pr_task = self.tasks.add_task(self.data, "y", "repo", None)
         pr_task.update(stage="pr", branch="b")
-        self.assertFalse(self.pulls.apply_pull(pr_task, None))  # PR open stays
+        self.assertTrue(self.pulls.apply_pull(pr_task, None))
+        self.assertEqual(pr_task["stage"], "stopped")
 
     async def test_ended_tasks_are_checked_again_soon(self) -> None:
         self.task.update(stage="ended")
@@ -151,3 +152,59 @@ class TaskPullTests(unittest.IsolatedAsyncioTestCase):
         # Both settled on the first pass; no waiting for the 60-second interval.
         self.assertEqual(calls, ["feature/login", "feature/z"])
         self.assertEqual((self.task["stage"], other["stage"]), ("stopped", "pr"))
+
+    async def test_empty_lookup_clears_stale_metadata_for_pr_and_ended(self) -> None:
+        for stage in ("pr", "ended"):
+            with self.subTest(stage=stage):
+                self.task.update(
+                    stage=stage, pr_url="old", merged_at=1, merge_commit="s"
+                )
+                with patch.object(self.pulls, "github_request", return_value=[]):
+                    self.assertTrue(await self.pulls.check_once(self.data))
+                self.assertEqual(self.task["stage"], "stopped")
+                self.assertIn("GitHub confirmed none", self.task["note"])
+                for key in ("pr_url", "merged_at", "merge_commit"):
+                    self.assertIsNone(self.task.get(key))
+                self.assertIn("finished_at", self.task)
+                self.assertFalse(self.tasks.sync(self.data))
+
+    async def test_invalid_responses_and_errors_preserve_status(self) -> None:
+        invalid = [
+            None,
+            {},
+            "",
+            [None],
+            [{}],
+            [{"state": "unknown"}],
+            [{"state": "open"}],
+            [{"state": "closed", "html_url": "u", "merged_at": "bad"}],
+        ]
+        for stage in ("pr", "ended"):
+            for response in invalid:
+                with self.subTest(stage=stage, response=response):
+                    self.task.update(stage=stage, pr_url="old", note="unchanged")
+                    before = dict(self.task)
+                    with (
+                        patch.object(
+                            self.pulls, "github_request", return_value=response
+                        ),
+                        self.assertLogs("ai_agent.task_pulls", "WARNING"),
+                    ):
+                        self.assertFalse(await self.pulls.check_once(self.data))
+                    self.assertEqual(self.task, before)
+            with (
+                patch.object(
+                    self.pulls, "github_request", side_effect=RuntimeError("offline")
+                ),
+                self.assertLogs("ai_agent.task_pulls", "WARNING"),
+            ):
+                self.assertFalse(await self.pulls.check_once(self.data))
+            self.assertEqual(self.task, before)
+
+    def test_unknown_state_cannot_promote_ended_task(self) -> None:
+        self.task.update(stage="ended")
+        before = dict(self.task)
+        for state in (None, "unknown", ""):
+            with self.assertRaises(ValueError):
+                self.pulls.apply_pull(self.task, {"state": state, "url": "u"})
+            self.assertEqual(self.task, before)
