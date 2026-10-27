@@ -10,8 +10,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
-from ai_agent.bot import snapshot_publisher
+from ai_agent.bot import setup_view, snapshot_publisher
 from ai_agent.bot.snapshot_publisher import SnapshotPublisher, build_content
+from ai_agent.tool_auth import ToolAuth
+from ai_agent.tool_auth_providers import parse_claude
 
 OWNER = 42
 PROJECT = {"name": "channel-cast", "repository": "ramunl/x", "branch": "main"}
@@ -39,6 +41,56 @@ class ContentTests(unittest.TestCase):
         self.assertEqual(content["queue"][0]["branch"], "feature/a")
         self.assertEqual(content["project"]["name"], "channel-cast")
         self.assertEqual(content["core"], "core: v1.1")
+
+    def test_cached_auth_is_published_without_provider_secrets(self) -> None:
+        cache = ToolAuth()
+        reading = parse_claude(
+            0,
+            json.dumps(
+                {
+                    "loggedIn": True,
+                    "authMethod": "claude.ai",
+                    "email": "SECRET",
+                    "accessToken": "SECRET",
+                    "configDirectory": "/SECRET",
+                    "expiresAt": 123,
+                }
+            ),
+        )
+        cache._readings["claude-code"] = (reading, 100, False)
+        with (
+            patch.object(
+                setup_view,
+                "active_project",
+                return_value=types.SimpleNamespace(name="test"),
+            ),
+            patch.object(setup_view, "list_projects", return_value=[]),
+            patch.object(
+                setup_view,
+                "all_info",
+                return_value=[
+                    types.SimpleNamespace(
+                        tool=tool, model="test", manageable=False, note=""
+                    )
+                    for tool in ("codex", "claude-code", "claude")
+                ],
+            ),
+        ):
+            setup = setup_view.files_part(
+                setup_view.ModelChoices(),
+                Path(tempfile.mkdtemp()) / "missing",
+                cache.snapshot(),
+            )
+        content = build_content({}, PROJECT, VERSIONS, setup)
+        self.assertEqual(
+            [row["tool"] for row in content["setup"]["models"]],
+            ["codex", "claude-code", "claude"],
+        )
+        record = content["setup"]["models"][1]["auth"]
+        self.assertEqual(record["status"], "authenticated")
+        self.assertTrue(record["stale"])
+        self.assertIsNone(record["relogin_at"])
+        self.assertNotIn("SECRET", json.dumps(content))
 
     def test_is_secret_free(self) -> None:
         self.assertNotIn(
@@ -103,6 +155,15 @@ class LoopTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch.object(snapshot_publisher, "poll_limits", AsyncMock()),
+            patch.object(snapshot_publisher, "track_pulls", AsyncMock()),
+            patch.object(
+                snapshot_publisher.ModelChoices, "refresh_forever", AsyncMock()
+            ),
+            patch.object(snapshot_publisher, "files_part", return_value={}),
+            patch.object(snapshot_publisher, "usage_section", return_value=None),
+            patch.object(snapshot_publisher, "usage", return_value=IMAGE_USAGE),
+            patch.object(snapshot_publisher, "sync_tasks", return_value=False),
+            patch.object(snapshot_publisher.ToolAuth, "refresh_forever", AsyncMock()),
             patch.object(snapshot_publisher, "_versions", return_value=VERSIONS),
             patch.object(snapshot_publisher, "_project", side_effect=flaky_project),
         ):

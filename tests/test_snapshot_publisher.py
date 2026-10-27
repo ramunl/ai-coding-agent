@@ -43,6 +43,7 @@ def test_image_usage_keeps_event_loop_responsive(tmp_path, monkeypatch):
     for name in ("poll_limits", "track_pulls"):
         monkeypatch.setattr(publisher, name, AsyncMock())
     monkeypatch.setattr(publisher.ModelChoices, "refresh_forever", AsyncMock())
+    monkeypatch.setattr(publisher.ToolAuth, "refresh_forever", AsyncMock())
     path = tmp_path / "snapshot.json"
 
     async def run():

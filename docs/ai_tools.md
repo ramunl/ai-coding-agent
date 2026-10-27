@@ -57,3 +57,35 @@ Switching a manageable tool verifies the candidate against the live API before
 writing it to the env file, then restarts — a bad model never reaches the boot
 file. Read-only tools reject `set` with a message naming where their model is
 configured.
+
+## Read-only authentication observations
+
+`tool_auth_providers.py` checks the bot process's runtime environment (same
+user, HOME, PATH and provider configuration as its CLIs). No credentials are
+copied from Ops evidence or another user's home. `claude` remains the API tool;
+`claude-code` remains the CLI tool.
+
+- Codex: verify `codex login --help` advertises `status`, then run
+  `codex login status`. Only recognized login lines count; stored API keys are
+  `configured_unverified`, not validated credentials.
+- Claude Code: verify `claude auth --help` advertises `status`, and its status
+  help advertises `--json`, then run `claude auth status --json`. OAuth login
+  reported by the CLI is `authenticated`; keys, helpers and third-party
+  backends are `configured_unverified`.
+- Claude API: inspect the import-time `ANTHROPIC_KEY` setting used by the bot.
+  Present means `configured_unverified`; absent means `logged_out` for this
+  API integration. No validation request is sent.
+
+These are local status observations, not guarantees of server acceptance,
+quota, or future access. Unknown output and unsupported interfaces never mean
+logged out. CLI probes use only the documented status/help interfaces; they do
+not invoke login, refresh, inference, logout, or credential helpers directly.
+No credential files or JWTs are parsed. Probe output and exceptions are never
+logged; diagnostics contain only a fixed message and a known tool ID.
+
+Interface references: [Codex CLI](https://developers.openai.com/codex/cli/reference)
+and [Claude Code CLI](https://code.claude.com/docs/en/cli-reference).
+Neither status interface supplies a documented mandatory relogin deadline.
+All currently implemented providers therefore publish null countdowns, even
+when other output includes token expiry. See the
+[snapshot contract](snapshot_publisher.py.md#authentication-contract).
