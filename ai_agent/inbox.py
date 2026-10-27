@@ -77,6 +77,7 @@ ACTIONS: dict[str, dict[str, Any]] = {
     "create_autopilot_task": {"repo": _NAME, "text": _TEXT, "todo": _TODO_REF},
     "set_autopilot": {"task": _TASK_ID, "value": ("on", "off")},
     "start_task": {"task": _TASK_ID},
+    "reopen_task": {"task": _TASK_ID},
     "remove_task": {"task": _TASK_ID},
     "accept_task": {"task": _TASK_ID},
     "dismiss_task": {"task": _TASK_ID},
@@ -99,6 +100,7 @@ WORK_ACTIONS = (
     "answer_bugfix",
     "create_task",
     "start_task",
+    "reopen_task",
     "remove_task",
     "accept_task",
     "dismiss_task",
@@ -142,7 +144,7 @@ def validate(request: dict) -> tuple[str, str, dict[str, Any]]:
     for key, allowed in spec.items():
         value = args[key]
         valid = isinstance(value, str) and (
-            value in allowed if isinstance(allowed, tuple) else allowed.match(value)
+            value in allowed if isinstance(allowed, tuple) else allowed.fullmatch(value)
         )
         if not valid:
             raise ActionError(f"Invalid {key} for {action}.")
