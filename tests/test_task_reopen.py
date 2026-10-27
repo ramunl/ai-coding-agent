@@ -124,7 +124,8 @@ def test_persistence_and_safe_snapshot(modules, monkeypatch):
 
 
 @pytest.mark.parametrize("change", ["attempt", "branch", "stage", "removed"])
-def test_stale_poll_does_not_apply(modules, monkeypatch, change):
+@pytest.mark.parametrize("absent", [False, True])
+def test_stale_poll_does_not_apply(modules, monkeypatch, change, absent):
     tasks, _ = modules
     pulls = importlib.import_module("ai_agent.task_pulls")
     data = {}
@@ -142,6 +143,8 @@ def test_stale_poll_does_not_apply(modules, monkeypatch, change):
                 return fn(*args)
             entered.set()
             await release.wait()
+            if absent:
+                return None
             return {
                 "state": "merged",
                 "url": "old-pr",
@@ -162,3 +165,30 @@ def test_stale_poll_does_not_apply(modules, monkeypatch, change):
         assert task == before
 
     asyncio.run(run())
+
+
+def test_corrected_task_survives_restart_and_can_reopen(modules, monkeypatch):
+    tasks, reopen = modules
+    pulls = importlib.import_module("ai_agent.task_pulls")
+    persistence = importlib.import_module("ai_agent.bot.persistence")
+    state = importlib.import_module("ai_agent.bot.state")
+    data = {}
+    task = tasks.add_task(data, "fix", "repo", None)
+    task.update(stage="pr", branch="old", pr_url="stale", run={"codex_prompt": "p"})
+    monkeypatch.setattr(
+        pulls, "get_project", lambda _: SimpleNamespace(github_repository="o/r")
+    )
+    monkeypatch.setattr(pulls, "github_request", lambda *args, **kwargs: [])
+    assert asyncio.run(pulls.check_once(data))
+    saved = persistence.serialize_user_data(data)
+    restored = persistence.deserialize_user_data(json.loads(json.dumps(saved)))
+    restored["last_execution"] = SimpleNamespace(branch="old", pr_url="stale")
+    assert not tasks.sync(restored)
+    snapshot = state.snapshot(restored)["tasks"][0]
+    assert snapshot["can_retry"] and snapshot["can_reopen"]
+    assert snapshot["stage"] == "stopped" and snapshot["pr_url"] is None
+    task = restored["tasks"][0]
+    reopen.reopen_task(task, restored)
+    assert task["stage"] == "todo"
+    assert task["attempt_history"][0]["stage"] == "stopped"
+    assert task["attempt_history"][0]["pr_url"] is None

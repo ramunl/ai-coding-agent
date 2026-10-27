@@ -1,10 +1,8 @@
 """Follow each task's pull request on GitHub: open, merged or closed.
 
-The agent records a pull request when a task's run finishes; what happens to
-it afterwards (review, merge) happens on GitHub. Every few minutes this asks
-GitHub about the branch of each task in the "pr" stage and moves the task:
-merged -> "done", closed without merging -> "stopped". A task whose run ended
-unseen ("ended") becomes "pr" if a pull request exists, otherwise "stopped".
+Every few minutes this asks GitHub about the branch of each task in the "pr"
+or "ended" stage: merged -> "done", closed or confirmed absent -> "stopped",
+open -> "pr". Failed or malformed lookups leave the task unchanged.
 Read-only requests.
 """
 
@@ -44,15 +42,23 @@ def pull_state(repository: str, branch: str) -> dict | None:
         f"/repos/{repository}/pulls",
         query={"head": f"{owner}:{branch}", "state": "all", "per_page": "5"},
     )
-    if not isinstance(pulls, list) or not pulls:
+    if not isinstance(pulls, list):
+        raise ValueError("Invalid GitHub pull request list")
+    if not pulls:
         return None
     pull = pulls[0]  # GitHub lists the newest first
+    if not isinstance(pull, dict) or pull.get("state") not in ("open", "closed"):
+        raise ValueError("Invalid GitHub pull request state")
+    if not isinstance(pull.get("html_url"), str) or not pull["html_url"]:
+        raise ValueError("Invalid GitHub pull request URL")
     merged_at = _epoch(pull.get("merged_at"))
+    if pull.get("merged_at") is not None and merged_at is None:
+        raise ValueError("Invalid GitHub pull request merge timestamp")
     return {
         "url": pull.get("html_url"),
-        "state": "merged" if merged_at else pull.get("state"),
+        "state": "merged" if merged_at is not None else pull.get("state"),
         "merged_at": merged_at,
-        "merge_commit": pull.get("merge_commit_sha") if merged_at else None,
+        "merge_commit": pull.get("merge_commit_sha") if merged_at is not None else None,
     }
 
 
@@ -60,12 +66,22 @@ def apply_pull(task: dict, pull: dict | None) -> bool:
     """Move a task by its pull request's state; True if anything changed."""
     before = dict(task)
     if pull is None:
-        if task.get("stage") != "ended":
+        if task.get("stage") not in ("pr", "ended"):
             return False
+        for key in ("pr_url", "merged_at", "merge_commit"):
+            task.pop(key, None)
         set_stage(
-            task, "stopped", "the run ended without a pull request; see the bot chat"
+            task,
+            "stopped",
+            "the run ended without a pull request; GitHub confirmed none",
         )
         return True
+    if not isinstance(pull, dict) or pull.get("state") not in (
+        "open",
+        "closed",
+        "merged",
+    ):
+        raise ValueError("Invalid pull request state")
     if pull.get("url"):
         task["pr_url"] = pull["url"]
     if pull["state"] == "merged":
@@ -74,7 +90,7 @@ def apply_pull(task: dict, pull: dict | None) -> bool:
         set_stage(task, "done")
     elif pull["state"] == "closed":
         set_stage(task, "stopped", "the pull request was closed without merging")
-    elif task.get("stage") == "ended":
+    elif pull["state"] == "open" and task.get("stage") == "ended":
         set_stage(task, "pr")
     return task != before
 

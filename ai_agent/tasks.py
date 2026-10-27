@@ -24,8 +24,8 @@ from typing import Any
 from ai_agent.task_images import remove
 from ai_agent.task_reopen import attempt_history, can_reopen
 
-# "ended": the run finished but the agent did not see how (another run's result
-# replaced it, or it failed); task_pulls asks GitHub whether a pull request exists.
+# "ended": the run is no longer active; task_pulls checks its outcome on GitHub
+# because cached execution results cannot reliably identify the latest run.
 # "proposed": drafted by the worker from the server logs; the owner accepts it
 # (it becomes "todo") or dismisses it. The worker never starts a proposal.
 STAGES = (
@@ -132,18 +132,15 @@ def sync(data: MutableMapping) -> bool:
     pending = data.get("pending_plan")
     pending_id = getattr(pending, "id", None)
     busy = _queued_branches(data)
-    last = data.get("last_execution")
     changed = False
     for task in tasks_of(data):
         before = (task.get("stage"), task.get("pr_url"), task.get("note"))
-        _advance(task, data, pending_id, busy, last)
+        _advance(task, data, pending_id, busy)
         changed |= before != (task.get("stage"), task.get("pr_url"), task.get("note"))
     return changed
 
 
-def _advance(
-    task: dict, data: MutableMapping, pending_id: Any, busy: set, last: Any
-) -> None:
+def _advance(task: dict, data: MutableMapping, pending_id: Any, busy: set) -> None:
     stage = task.get("stage")
     if stage == "pr" and task.get("note") == _OLD_UNKNOWN_NOTE:
         set_stage(task, "ended", ENDED_NOTE)
@@ -155,15 +152,9 @@ def _advance(
         elif pending_id != task.get("plan_id"):
             set_stage(task, "stopped", "the plan was cancelled or replaced")
     elif stage == "implementing" and task.get("branch") not in busy:
-        if getattr(last, "branch", None) != task.get("branch"):
-            # Most often a failed run (failures do not replace last_execution):
-            # never claim a pull request without seeing one.
-            set_stage(task, "ended", ENDED_NOTE)
-        elif getattr(last, "pr_url", None):
-            task["pr_url"] = last.pr_url
-            set_stage(task, "pr")
-        else:
-            set_stage(task, "stopped", "the run ended without a pull request")
+        # last_execution can belong to an earlier run on the same branch (and
+        # survives restarts). Only GitHub can confirm this branch's outcome.
+        set_stage(task, "ended", ENDED_NOTE)
 
 
 def remember_run(data: MutableMapping, item: dict) -> None:
