@@ -38,6 +38,7 @@ from ai_agent.git_recovery import (
     cleanup_recovery,
     recovery_details,
     serialized_execution,
+    set_aside_notice,
 )
 from ai_agent.github import PullRequest, ensure_github_configured, github_request
 from ai_agent.image_delivery import invoke
@@ -237,6 +238,9 @@ async def _publish_queued_implementation(
         branch_name,
         implementation_agent,
     )
+    notice = set_aside_notice()
+    if notice:
+        await reply_chunks(update, notice)
 
     await report_missing(update, task.get("images", []))
     set_active_execution(context, branch_name, "Committing and pushing branch")

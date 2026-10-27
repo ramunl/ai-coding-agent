@@ -35,20 +35,48 @@ def repository(tmp_path, monkeypatch):
     "entry", ["implement", "repair_implementation", "repair_pull_request_branch"]
 )
 @pytest.mark.parametrize("kind", ["unstaged", "staged", "untracked", "intent"])
-def test_dirty_preflight(repository, monkeypatch, entry, kind):
+def test_leftovers_are_set_aside_before_a_run(repository, monkeypatch, entry, kind):
     path, git = repository
+    if entry != "implement":  # these check out an existing branch
+        git("branch", "feature/test")
+        git("push", "origin", "feature/test")
     target = "new" if kind in ("untracked", "intent") else "tracked"
     (path / target).write_text("owner content")
     if kind in ("staged", "intent"):
         git("add", *(["-N"] if kind == "intent" else []), target)
-    before = git("status", "--porcelain")
-    monkeypatch.setattr(
-        workflow, "run_implementation_agent", lambda *a: pytest.fail("provider called")
+    seen = {}
+
+    def provider(*args):
+        seen["status"] = git("status", "--porcelain")
+        seen["notice"] = recovery.set_aside_notice()
+        (path / "made").write_text("run output\n")
+        return CommandResult([], 0, "done")
+
+    monkeypatch.setattr(workflow, "run_implementation_agent", provider)
+    with recovery.recovery_session():
+        result = getattr(workflow, entry)("task", "feature/test")
+    assert seen["status"] == ""  # the run started from a clean checkout
+    assert result.files_changed == ["made"]
+    assert (
+        f"leftovers from an earlier run (or a restart mid-run): {target}"
+        in (seen["notice"])
     )
-    with pytest.raises(RuntimeError, match="dirty"):
-        getattr(workflow, entry)("task", "feature/test")
-    assert git("status", "--porcelain") == before
-    assert git("branch", "--show-current") == "main"
+    stash = seen["notice"].rsplit("git stash apply ", 1)[1]
+    # Untracked (and intent-to-add) files are kept in the stash's third parent.
+    kept = f"{stash}^3:new" if target == "new" else f"{stash}:{target}"
+    assert git("show", kept) == "owner content"
+
+
+def test_a_clean_checkout_sets_nothing_aside(repository, monkeypatch):
+    path, git = repository
+    monkeypatch.setattr(
+        workflow,
+        "run_implementation_agent",
+        lambda *a: (path / "made").write_text("x") and CommandResult([], 0, ""),
+    )
+    with recovery.recovery_session():
+        workflow.implement("task", "feature/test")
+        assert recovery.set_aside_notice() == ""
     assert not git("stash", "list")
 
 
@@ -126,6 +154,8 @@ def test_submodule_blocks_preflight_and_cleanup(repository, tmp_path):
     git("config", "submodule.child.ignore", "all")
     with pytest.raises(RuntimeError, match="dirty"):
         recovery.require_clean_checkout()
+    with pytest.raises(RuntimeError, match="submodule has edits of its own: child"):
+        recovery.set_aside_leftovers()
     with pytest.raises(RuntimeError, match="Dirty submodule"):
         recovery.preserve_changes()
     assert (path / "child" / "untracked").read_text() == "owner"
@@ -265,3 +295,13 @@ def test_execution_lease_covers_publication_and_cancellation(repository):
         implementation()
 
     asyncio.run(scenario())
+
+
+def test_a_session_closed_in_another_context_does_not_crash():
+    # A run killed by a restart is finalized outside the context it started in.
+    import contextvars
+
+    session = recovery.recovery_session()
+    contextvars.copy_context().run(session.__enter__)
+    session.__exit__(None, None, None)
+    assert recovery._session.get() is None

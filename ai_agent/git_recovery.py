@@ -26,6 +26,9 @@ class RecoverySession:
     lock: TextIO | None = None
     blocked: Path | None = None
     references: list[str] = field(default_factory=list)
+    # Leftovers found before this run started and saved aside (set_aside).
+    set_aside: list[str] = field(default_factory=list)
+    set_aside_refs: list[str] = field(default_factory=list)
 
 
 _session = ContextVar("git_recovery_session", default=None)
@@ -41,7 +44,12 @@ def recovery_session() -> Iterator[RecoverySession]:
     finally:
         if state.lock is not None:
             state.lock.close()
-        _session.reset(token)
+        try:
+            _session.reset(token)
+        except ValueError:
+            # Closed in another context (the coroutine is finalized while the
+            # process shuts down mid-run): clear it instead of crashing here.
+            _session.set(None)
 
 
 def serialized_execution(
@@ -88,9 +96,11 @@ def _lease(state: RecoverySession) -> None:
         )
 
 
-def require_clean_checkout() -> None:
-    """Include untracked paths and submodules regardless of Git ignore settings."""
-    status = run(
+SHOWN_PATHS = 10
+
+
+def _status() -> str:
+    return run(
         [
             "git",
             "status",
@@ -99,11 +109,95 @@ def require_clean_checkout() -> None:
             "--ignore-submodules=none",
         ]
     ).output
+
+
+def dirty_paths(status: str | None = None) -> list[str]:
+    """The paths git status reports, as written (renames keep both names)."""
+    text = _status() if status is None else status
+    return [line[3:].strip() for line in text.splitlines() if len(line) > 3]
+
+
+def _listed(paths: list[str]) -> str:
+    shown = ", ".join(paths[:SHOWN_PATHS])
+    more = len(paths) - SHOWN_PATHS
+    return shown + (f" and {more} more" if more > 0 else "")
+
+
+def require_clean_checkout() -> None:
+    """Include untracked paths and submodules regardless of Git ignore settings."""
+    status = _status()
     if status.strip():
         raise RuntimeError(
-            "Repository checkout is dirty. Commit or preserve owner edits and "
-            "clean submodules before retrying; no branch was changed."
+            "Repository checkout is dirty: "
+            + _listed(dirty_paths(status))
+            + ". Commit or preserve owner edits and clean submodules before "
+            "retrying; no branch was changed."
         )
+
+
+def _submodules_dirty_inside() -> list[str]:
+    """Submodules with their own uncommitted edits (never touched here)."""
+    output = run(
+        [
+            "git",
+            "submodule",
+            "foreach",
+            "--quiet",
+            "--recursive",
+            'test -z "$(git status --porcelain --untracked-files=all)" '
+            '|| echo "$displaypath"',
+        ]
+    ).output
+    return [line.strip() for line in output.splitlines() if line.strip()]
+
+
+def set_aside_leftovers() -> None:
+    """Save what an earlier run (or a restart mid-run) left in the checkout.
+
+    A run that was killed (a deploy restarts the agent) never cleans up, and
+    then every later run would refuse the dirty checkout. The leftovers are
+    saved to a recovery ref exactly as a failed run's are (never reapplied,
+    never published), so this run starts clean and the owner can restore them.
+    A submodule only pointing at another commit is checked out again; one with
+    edits of its own stops the run, since those cannot be saved here.
+    """
+    status = _status()
+    if not status.strip():
+        return
+    paths = dirty_paths(status)
+    inside = _submodules_dirty_inside()
+    if inside:
+        raise RuntimeError(
+            "Repository checkout is dirty and a submodule has edits of its own: "
+            + _listed(inside)
+            + ". Save or discard them on the server, then retry; no branch was "
+            "changed."
+        )
+    run(["git", "submodule", "update", "--init", "--recursive"])
+    state = _session.get()
+    before = list(state.references) if state else []
+    if _status().strip():
+        preserve_changes()
+    if state:
+        state.set_aside = paths
+        state.set_aside_refs = [ref for ref in state.references if ref not in before]
+
+
+def set_aside_notice() -> str:
+    """What was set aside before this run started, for the owner; or ''."""
+    state = _session.get()
+    if not state or not state.set_aside:
+        return ""
+    stash = next((ref for ref in state.set_aside_refs if ref.endswith("/stash")), "")
+    restore = (
+        f"\nTo get them back on the server: git stash apply {stash}" if stash else ""
+    )
+    return (
+        "The checkout had leftovers from an earlier run (or a restart mid-run): "
+        + _listed(state.set_aside)
+        + ". They were saved aside, not included in this run."
+        + restore
+    )
 
 
 def retain_branch(branch: str) -> None:
@@ -212,6 +306,7 @@ def guarded_run(function: Callable[P, R]) -> Callable[P, R]:
                     raise
         state = _session.get()
         _lease(state)
+        set_aside_leftovers()
         require_clean_checkout()
         state.preflight = True
         return function(*args, **kwargs)

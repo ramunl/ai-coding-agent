@@ -21,6 +21,7 @@ class WorkflowTests(unittest.TestCase):
         # Command-shape tests isolate real Git recovery (covered in integration).
         for target in (
             "ai_agent.git_recovery._lease",
+            "ai_agent.git_recovery.set_aside_leftovers",
             "ai_agent.git_recovery.require_clean_checkout",
             "ai_agent.git_recovery.cleanup_recovery",
             "ai_agent.workflow.require_clean_checkout",
