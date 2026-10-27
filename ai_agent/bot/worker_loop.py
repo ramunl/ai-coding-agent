@@ -116,6 +116,14 @@ async def tick(ptb_app: Any, owner_id: int, now: float | None = None) -> str:
         decision_status = "waiting: the agent is planning"
         data["worker_status"] = decision_status
         return decision_status
+    # Tasks the owner asked to start go first, whether the worker is on or not.
+    started = await task_actions.start_queued(ptb_app, owner_id)
+    if started is not None:
+        status = f"started your queued task “{started['title'][:80]}”"
+        data["worker_status"] = status
+        await _tell(ptb_app, owner_id, f"{status} in {started['repo']}.")
+        ptb_app.mark_data_for_update_persistence(user_ids=owner_id)
+        return status
     decision = decide(data, tasks_of(data), limits_snapshot(), now)
     data["worker_status"] = decision.status
     if worker["enabled"] and auto_todos.is_due(data, now):

@@ -37,7 +37,7 @@ def busy_reason(user_data: MutableMapping) -> str | None:
     if user_data.get("planning_active") or user_data.get("thinking"):
         return "planning is in progress"
     if user_data.get("queue_runner_active"):
-        return "the task queue is draining"
+        return "queued runs are still going"
     if user_data.get("active_execution"):
         return "a task is running"
     queued = len(user_data.get("task_queue") or [])

@@ -2,8 +2,9 @@
 
 Planning a task runs the same /plan handler as the chat (through the owner
 chat stand-in in work_actions), in the task's repository. The agent plans one
-thing at a time, so a task that cannot start yet waits as "todo" with the
-reason, and is started later from the Tasks window.
+thing at a time, so a task asked to start while the agent is busy is queued
+(``start_next``): it stays To do with the reason, and start_queued() starts it
+as soon as the agent is free, ahead of the worker's own picks.
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ from ai_agent.tasks import (
     find_task,
     remove_task,
     set_stage,
+    tasks_of,
     waiting_for,
 )
 
@@ -45,8 +47,10 @@ TASK_ACTIONS = (
     "retry_task",
     "create_autopilot_task",
     "set_autopilot",
+    "cancel_start",
 )
 REMOVABLE = ("todo", "stopped", "pr", "done", "blocked", "ops_required")
+STARTABLE = ("todo", "stopped", "blocked", "ops_required")
 
 
 def start_refusal(data: Any) -> str | None:
@@ -57,6 +61,64 @@ def start_refusal(data: Any) -> str | None:
         return "a plan is waiting for approval or confirmation"
     if data.get("pending_bugfix_clarification"):
         return "a bug report is waiting for answers"
+    return None
+
+
+def wait_reason(data: Any, task: dict) -> str | None:
+    """Why the task cannot start planning right now, or None if it can."""
+    reason = start_refusal(data)
+    if reason:
+        return reason
+    busy = busy_reason(data)  # only matters when the repository must change
+    if busy is None:
+        return None
+    try:
+        active = active_project().name
+    except ProjectError:
+        active = None
+    return busy if active != task["repo"] else None
+
+
+def queue_start(task: dict, reason: str) -> str:
+    """Mark the task to start once the agent is free; return the reply."""
+    task.setdefault("start_next", time.time())
+    task["note"] = f"starts when the agent is free; now {reason}"
+    return (
+        f"Queued: “{task['title'][:80]}” starts when the agent is free (now {reason})."
+    )
+
+
+def queued(data: Any) -> list[dict]:
+    """Tasks waiting to start, oldest request first."""
+    return sorted(
+        (
+            task
+            for task in tasks_of(data)
+            if task.get("start_next") and task.get("stage") in STARTABLE
+        ),
+        key=lambda task: task["start_next"],
+    )
+
+
+async def start_queued(ptb_app: Any, owner_id: int) -> dict | None:
+    """Start the oldest queued task if the agent is free; return it, or None."""
+    data = ptb_app.user_data[owner_id]
+    for task in queued(data):
+        if waiting_for(task, data) is not None:
+            continue  # a later part: its previous part has no pull request yet
+        reason = wait_reason(data, task)
+        if reason:
+            task["note"] = f"starts when the agent is free; now {reason}"
+            return None
+        try:
+            await start(ptb_app, owner_id, task)
+        except ActionError as error:
+            task.pop("start_next", None)
+            set_stage(
+                task, "todo", str(error).removeprefix("Not started: ").rstrip(".")
+            )
+            return None
+        return task
     return None
 
 
@@ -112,6 +174,7 @@ async def start(
     if reason:
         raise ActionError(f"Not started: {reason}.")
     await _switch_to(ptb_app, data, task["repo"])
+    task.pop("start_next", None)
     update = work_actions.chat_update(ptb_app.bot, owner_id)
     context = CallbackContext(ptb_app, chat_id=owner_id, user_id=owner_id)
     context.args = planning_text(task).split()
@@ -171,6 +234,9 @@ async def run_task_action(
         task = add_task(data, args["text"], args["repo"], todo, args.get("images"))
         if action == "create_autopilot_task":
             task["autopilot"] = True
+        reason = wait_reason(data, task)
+        if reason:
+            return f"Task added. {queue_start(task, reason)}"
         try:
             message = await start(ptb_app, owner_id, task)
         except ActionError as error:
@@ -228,7 +294,15 @@ async def run_task_action(
             raise ActionError(
                 f"This part waits for “{previous['title']}” to have a pull request."
             )
+        reason = wait_reason(data, task)
+        if reason:
+            return queue_start(task, reason)
         return await start(ptb_app, owner_id, task)
+    if action == "cancel_start":
+        if not task.pop("start_next", None):
+            raise ActionError("That task is not queued.")
+        task["note"] = None
+        return f"Not queued any more: “{task['title'][:80]}” stays To do."
     if task.get("stage") not in REMOVABLE:
         raise ActionError("A task can be removed only when it is not in progress.")
     remove_task(data, task)

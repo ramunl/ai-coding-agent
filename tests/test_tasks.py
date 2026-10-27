@@ -236,7 +236,7 @@ class TaskActionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(seen["planner"], "codex")
         self.assertEqual(self.data["planning_agent"], "claude")
 
-    async def test_a_busy_agent_keeps_the_new_task_as_todo(self) -> None:
+    async def test_a_busy_agent_queues_the_new_task(self) -> None:
         self.data["pending_plan"] = self.PlanState(
             id="p1", feature="other", revision=1, plan_text="{}", approved=False
         )
@@ -245,12 +245,18 @@ class TaskActionTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             result,
-            "Task added as To do: a plan is waiting for approval or confirmation.",
+            "Task added. Queued: “add login” starts when the agent is free "
+            "(now a plan is waiting for approval or confirmation).",
         )
-        self.assertEqual(self.data["tasks"][0]["stage"], "todo")
+        task = self.data["tasks"][0]
+        self.assertEqual(task["stage"], "todo")
+        self.assertTrue(task["start_next"])
+        self.assertTrue(
+            importlib.import_module("ai_agent.tasks").view(task, self.data)["queued"]
+        )
         self.app.bot.send_message.assert_not_awaited()
 
-    async def test_another_repo_is_switched_to_first_unless_work_is_queued(
+    async def test_another_repo_is_switched_to_once_queued_work_is_done(
         self,
     ) -> None:
         self.data["task_queue"] = [{"branch_name": "b"}]
@@ -258,18 +264,47 @@ class TaskActionTests(unittest.IsolatedAsyncioTestCase):
             "create_task", {"repo": "other", "text": "x", "todo": "-"}
         )
         self.assertIn(
-            "To do: Cannot switch projects while 1 task(s) are queued", result
+            "starts when the agent is free (now 1 task(s) are queued)", result
         )
+        task = self.data["tasks"][0]
+        # Asking again while busy keeps it queued, with its first place in line.
+        first = task["start_next"]
+        self.assertIn(
+            "Queued", await self.run_action("start_task", {"task": task["id"]})
+        )
+        self.assertEqual(task["start_next"], first)
+        self.assertIsNone(await self.task_actions.start_queued(self.app, OWNER))
+        self.assertEqual(task["stage"], "todo")
         self.data["task_queue"] = []
         use = AsyncMock(return_value=SimpleNamespace(name="other"))
         with (
             patch.object(self.task_actions, "use_project", use),
             patch.object(self.task_actions, "plan", self.fake_plan()),
         ):
-            await self.run_action("start_task", {"task": self.data["tasks"][0]["id"]})
+            started = await self.task_actions.start_queued(self.app, OWNER)
             await asyncio.sleep(0.02)
+        self.assertIs(started, task)
+        self.assertNotIn("start_next", task)
         use.assert_awaited_once_with("other", self.data)
         self.app.bot.set_my_name.assert_awaited()
+
+    async def test_a_queued_start_can_be_cancelled(self) -> None:
+        self.data["pending_plan"] = self.PlanState(
+            id="p1", feature="other", revision=1, plan_text="{}", approved=False
+        )
+        await self.run_action("create_task", {"repo": "repo", "text": "x", "todo": "-"})
+        task = self.data["tasks"][0]
+        self.assertEqual(
+            await self.run_action("cancel_start", {"task": task["id"]}),
+            "Not queued any more: “x” stays To do.",
+        )
+        self.assertNotIn("start_next", task)
+        self.assertIsNone(task["note"])
+        with self.assertRaisesRegex(self.errors.ActionError, "not queued"):
+            await self.run_action("cancel_start", {"task": task["id"]})
+        self.inbox.validate(
+            {"id": "a1b2c3d4", "action": "cancel_start", "args": {"task": task["id"]}}
+        )
 
     async def test_start_and_remove_respect_the_stage(self) -> None:
         tasks = importlib.import_module("ai_agent.tasks")

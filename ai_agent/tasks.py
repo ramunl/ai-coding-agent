@@ -234,6 +234,7 @@ def view(task: dict, data: MutableMapping) -> dict:
         "attempt": task.get("attempt", 1),
         "attempt_history": attempt_history(task),
         "autopilot": bool(task.get("autopilot")),
+        "queued": bool(task.get("start_next")),
         "blocks": any(
             other.get("after") == task.get("id") and other.get("stage") == "todo"
             for other in tasks_of(data)

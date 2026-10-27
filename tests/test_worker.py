@@ -224,6 +224,17 @@ class TickTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn("Approve the plan to let me run it", self.said()[0])
 
+    async def test_a_queued_task_starts_first_even_with_the_worker_off(self) -> None:
+        self.data["worker"]["enabled"] = False
+        other = self.tasks.add_task(self.data, "fix popup", "repo", None)
+        other["start_next"] = NOW
+        start = AsyncMock(return_value="Planning...")
+        with patch.object(self.loop.task_actions, "start", start):
+            status = await self.loop.tick(self.app, OWNER, NOW)
+        start.assert_awaited_once_with(self.app, OWNER, other)
+        self.assertEqual(status, "started your queued task “fix popup”")
+        self.assertIn("started your queued task “fix popup” in repo", self.said()[0])
+
     async def test_runs_an_approved_plan_and_counts_it(self) -> None:
         self.task.update(stage="planned", plan_id="p1")
         self.data["pending_plan"] = SimpleNamespace(
