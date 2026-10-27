@@ -21,6 +21,24 @@ class CommandResult:
     output: str
 
 
+ARGUMENT_LENGTH = 60
+
+
+def command_text(args: list[str]) -> str:
+    """The command for an error message, each long or multi-line argument cut.
+
+    Implementers get the whole plan as one argument; printed in full it pushed
+    the tool's own error (a usage limit, a login problem) out of the chat.
+    """
+    shown = []
+    for argument in args:
+        first = argument.split("\n", 1)[0]
+        if first != argument or len(first) > ARGUMENT_LENGTH:
+            first = first[:ARGUMENT_LENGTH].rstrip() + "…"
+        shown.append(first)
+    return " ".join(shown)
+
+
 def run(
     args: list[str],
     cwd: Path | None = None,
@@ -63,7 +81,7 @@ def run(
             for stream in (exc.stdout, exc.stderr)
         )
         raise RuntimeError(
-            f"Command timed out after {timeout}s: {' '.join(args)}\n{output}"
+            f"Command timed out after {timeout}s: {command_text(args)}\n{output}"
         ) from exc
 
     output = (result.stdout or "") + (result.stderr or "") if not interactive else ""
@@ -71,7 +89,7 @@ def run(
         if private:
             raise RuntimeError(private_failure(output))
         raise RuntimeError(
-            f"Command failed ({result.returncode}): {' '.join(args)}\n{output}"
+            f"Command failed ({result.returncode}): {command_text(args)}\n{output}"
         )
     if private:
         for argument in args:

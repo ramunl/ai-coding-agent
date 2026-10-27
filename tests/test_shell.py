@@ -64,3 +64,19 @@ def test_private_timeout_hides_command_and_output(
     assert caught.value.__cause__ is None
     assert caught.value.__suppress_context__
     assert "secret" not in caplog.text
+
+
+def test_a_failure_shows_the_tool_error_not_the_whole_prompt(monkeypatch, tmp_path):
+    shell = importlib.import_module("ai_agent.shell")
+    prompt = "Implement the following change in this repository.\n" + "plan\n" * 200
+    failed = subprocess.CompletedProcess(
+        [], 1, stdout="", stderr="ERROR: You've hit your usage limit.\n"
+    )
+    monkeypatch.setattr(shell.subprocess, "run", lambda *a, **k: failed)
+    with pytest.raises(RuntimeError) as caught:
+        shell.run(["codex", "exec", "-s", "workspace-write", prompt], cwd=tmp_path)
+    assert str(caught.value) == (
+        "Command failed (1): codex exec -s workspace-write "
+        "Implement the following change in this repository.…\n"
+        "ERROR: You've hit your usage limit.\n"
+    )

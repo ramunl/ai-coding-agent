@@ -155,9 +155,15 @@ ERROR_LINES = 20
 
 
 def error_text(error: BaseException) -> str:
-    """A failure as the chat shows it: secrets removed, at most ERROR_LINES lines."""
+    """A failure as the chat shows it: secrets removed, at most ERROR_LINES lines.
+
+    A long failure keeps its first line (what failed) and its last lines: a
+    tool prints its own error (a usage limit, a login problem) at the end.
+    """
     lines = redact_sensitive(str(error) or type(error).__name__).splitlines()
-    return "\n".join(lines[:ERROR_LINES])
+    if len(lines) <= ERROR_LINES:
+        return "\n".join(lines)
+    return "\n".join([lines[0], "…", *lines[-(ERROR_LINES - 2) :]])
 
 
 async def _reported(handler: Any, update: SimpleNamespace, context: Any) -> None:

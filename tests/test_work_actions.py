@@ -366,7 +366,9 @@ class WorkActionTests(unittest.IsolatedAsyncioTestCase):
     async def test_a_failing_background_run_is_reported_in_the_chat(self) -> None:
         async def failing_plan(update, context) -> None:
             await update.message.reply_text("Planning with Claude...")
-            raise RuntimeError("Anthropic API error 529: overloaded\n" + "x\n" * 40)
+            raise RuntimeError(
+                "Anthropic API error 529: overloaded\n" + "x\n" * 40 + "the real cause"
+            )
 
         with (
             patch.dict(self.work.STARTERS, {"plan": failing_plan}),
@@ -379,6 +381,9 @@ class WorkActionTests(unittest.IsolatedAsyncioTestCase):
             failure.startswith("Failed: Anthropic API error 529: overloaded")
         )
         self.assertEqual(len(failure.splitlines()), self.work.ERROR_LINES)
+        # The first line says what failed; the last lines say why.
+        self.assertEqual(failure.splitlines()[1], "…")
+        self.assertTrue(failure.endswith("the real cause"))
         self.assertEqual(self.work._starting, set())  # a new request may start
 
     async def test_start_is_refused_while_other_work_is_pending(self) -> None:
