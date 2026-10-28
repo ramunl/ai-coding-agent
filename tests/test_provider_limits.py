@@ -168,3 +168,46 @@ class CacheTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(
                 provider_limits.limits_snapshot()["claude"]["status"], "not_configured"
             )
+
+    def test_api_failure_without_headers_preserves_reading_but_not_availability(self):
+        provider_limits.cache_claude_limits(
+            200,
+            {
+                "anthropic-ratelimit-requests-limit": "100",
+                "anthropic-ratelimit-requests-remaining": "100",
+            },
+        )
+        before = provider_limits.limits_snapshot()["claude"]
+        provider_limits.cache_claude_limits(400, {})
+        after = provider_limits.limits_snapshot()["claude"]
+        self.assertEqual(after["status"], "unavailable")
+        self.assertEqual(after["checked_at"], before["checked_at"])
+        self.assertEqual(after["windows"], before["windows"])
+        self.assertEqual(after["spending_status"], "unknown")
+        self.assertEqual(after["collection_error"], "http_400")
+
+    def test_snapshot_exposes_subscription_attempt_separately_from_reading(self):
+        from ai_agent.claude_code_limits import capture_limits, record_attempt
+
+        path = provider_limits.CLAUDE_CACHE_FILE.with_name("subscription.json")
+        capture_limits(
+            {
+                "rate_limits": {
+                    "five_hour": {
+                        "used_percentage": 30,
+                        "resets_at": 9999999999,
+                    }
+                }
+            },
+            path,
+            1000,
+        )
+        record_attempt(path, 2000, "probe", "api_spending_limit", auth_conflict=True)
+        with patch.object(provider_limits, "CLAUDE_CODE_LIMITS_FILE", path):
+            snapshot = provider_limits.limits_snapshot()["claude_code"]
+        self.assertEqual(snapshot["checked_at"], 1000)
+        self.assertEqual(snapshot["attempted_at"], 2000)
+        self.assertEqual(snapshot["source"], "status_line")
+        self.assertEqual(snapshot["attempt_source"], "probe")
+        self.assertEqual(snapshot["collection_error"], "api_spending_limit")
+        self.assertTrue(snapshot["auth_conflict"])

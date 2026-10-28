@@ -33,7 +33,7 @@ from ai_agent.actions import (
     use_project,
 )
 from ai_agent.bot.atomic_file import write_json_atomic
-from ai_agent.task_images import ImageError
+from ai_agent.task_images import ImageError, references_in
 from ai_agent.task_images import remove as remove_images
 
 logger = logging.getLogger(__name__)
@@ -223,6 +223,16 @@ def _claim(path: Path) -> Path | None:
     return working
 
 
+def _remove_unowned(refs: list[dict], user_data: MutableMapping) -> None:
+    """Rejected dispatch must not delete images already owned by retryable work."""
+    try:
+        retained = references_in(user_data)
+    except ValueError:
+        # Uncertain ownership: let the storage retention sweep handle these.
+        return
+    remove_images([ref for ref in refs if ref not in retained])
+
+
 async def process_inbox(
     inbox: Path,
     log: ResultLog,
@@ -260,7 +270,7 @@ async def process_inbox(
             log.record(
                 request_id, action, "rejected", "Request id must match filename."
             )
-            image_uploads.cleanup(inbox, request_id)
+            image_uploads.cleanup(inbox, working.stem)
             working.unlink(missing_ok=True)
             continue
         try:
@@ -293,10 +303,10 @@ async def process_inbox(
             message = await execute(action, args, user_data, rename_bot, work)
             log.record(request_id, action, "done", message)
         except (ActionError, ImageError) as error:
-            remove_images(refs)
+            _remove_unowned(refs, user_data)
             log.record(request_id, action, "failed", str(error))
         except Exception as error:  # never let one request stop the inbox
-            remove_images(refs)
+            _remove_unowned(refs, user_data)
             logger.warning("Inbox action %s failed (%s)", action, type(error).__name__)
             log.record(
                 request_id, action, "failed", "Unexpected error while handling action."

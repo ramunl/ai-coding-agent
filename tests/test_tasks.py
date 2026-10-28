@@ -5,7 +5,7 @@ import importlib
 import os
 import unittest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 OWNER = 123
 
@@ -144,6 +144,7 @@ class TaskActionTests(unittest.IsolatedAsyncioTestCase):
         self.app = SimpleNamespace(
             user_data={OWNER: self.data},
             bot=SimpleNamespace(send_message=AsyncMock(), set_my_name=AsyncMock()),
+            mark_data_for_update_persistence=MagicMock(),
         )
         self.active = SimpleNamespace(name="repo")
         self.patches = [
@@ -213,9 +214,7 @@ class TaskActionTests(unittest.IsolatedAsyncioTestCase):
         task = self.data["tasks"][0]
         self.assertEqual(task["stage"], "todo")
         self.assertIsNone(task["todo"])
-        self.assertEqual(
-            task["note"], "planning failed: planner down; see the bot chat"
-        )
+        self.assertEqual(task["note"], "planner down")
         sent = [c.kwargs["text"] for c in self.app.bot.send_message.await_args_list]
         self.assertEqual(sent, ["Planning with Claude...", "Failed: planner down"])
 

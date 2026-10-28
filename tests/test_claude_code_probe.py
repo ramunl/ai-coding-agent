@@ -1,5 +1,6 @@
 import asyncio
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -65,9 +66,97 @@ class ProbeTests(unittest.TestCase):
 
     def test_no_event_keeps_the_last_reading(self) -> None:
         claude_code_probe.probe(self.path, lambda argv: stream(EVENT), NOW)
-        before = self.path.read_text()
+        before = json.loads(self.path.read_text())
         self.assertFalse(claude_code_probe.probe(self.path, lambda argv: "", NOW + 1))
-        self.assertEqual(self.path.read_text(), before)
+        after = json.loads(self.path.read_text())
+        self.assertEqual(after["windows"], before["windows"])
+        self.assertEqual(after["checked_at"], NOW)
+        self.assertEqual(after["attempted_at"], NOW + 1)
+        self.assertEqual(after["collection_error"], "no_valid_windows")
+
+    def test_empty_malformed_and_expired_collection_preserves_success(self):
+        claude_code_probe.probe(self.path, lambda argv: stream(EVENT), NOW)
+        for data in (
+            None,
+            [],
+            {},
+            {"five_hour": {}},
+            {
+                "five_hour": {
+                    "used_percentage": 0,
+                    "resets_at": NOW - 1,
+                }
+            },
+        ):
+            self.assertFalse(
+                claude_code_limits.capture_limits(
+                    {"rate_limits": data}, self.path, NOW + 1
+                )
+            )
+            reading = claude_code_limits.read_limits(self.path, NOW + 2)
+            self.assertEqual(reading["checked_at"], NOW)
+            self.assertEqual(len(reading["windows"]), 2)
+            self.assertEqual(reading["collection_error"], "no_valid_windows")
+
+    def test_cli_failures_are_sanitized_and_do_not_refresh_readings(self):
+        claude_code_probe.probe(self.path, lambda argv: stream(EVENT), NOW)
+        fixtures = [
+            (
+                1,
+                "API Error: 400 You have reached your specified API usage limits.",
+                "ANTHROPIC_API_KEY takes precedence over your claude.ai login SECRET",
+                "api_spending_limit",
+                True,
+            ),
+            (
+                0,
+                stream({"type": "result", "is_error": True}),
+                "SECRET",
+                "cli_failed",
+                False,
+            ),
+            (1, "", "auth conflict SECRET", "authentication_conflict", True),
+            (1, "", "Not logged in SECRET", "authentication_failed", False),
+        ]
+        for code, stdout, stderr, error, conflict in fixtures:
+            result = subprocess.CompletedProcess([], code, stdout, stderr)
+            self.assertFalse(
+                claude_code_probe.probe(self.path, lambda argv: result, NOW + 1)
+            )
+            reading = claude_code_limits.read_limits(self.path, NOW + 2)
+            self.assertEqual(reading["checked_at"], NOW)
+            self.assertEqual(reading["collection_error"], error)
+            self.assertEqual(reading["auth_conflict"], conflict)
+            self.assertEqual(reading["status"], "unavailable")
+            self.assertNotIn("SECRET", self.path.read_text())
+        self.assertTrue(
+            claude_code_probe.probe(self.path, lambda argv: stream(EVENT), NOW + 3)
+        )
+        self.assertIsNone(
+            claude_code_limits.read_limits(self.path, NOW + 3)["collection_error"]
+        )
+
+    def test_timeout_and_missing_cli_record_attempt_without_success(self):
+        for error, code in (
+            (FileNotFoundError("SECRET"), "cli_unavailable"),
+            (subprocess.TimeoutExpired("SECRET", 1), "timeout"),
+        ):
+            with patch.object(claude_code_probe, "run", side_effect=error) as runner:
+                self.assertFalse(claude_code_probe.probe(self.path, runner, NOW))
+            reading = claude_code_limits.read_limits(self.path, NOW)
+            self.assertNotIn("checked_at", reading)
+            self.assertEqual(reading["collection_error"], code)
+            self.assertNotIn("SECRET", self.path.read_text())
+
+    def test_stale_and_expired_readings_never_imply_restored_capacity(self):
+        claude_code_probe.probe(self.path, lambda argv: stream(EVENT), NOW)
+        stale = claude_code_limits.read_limits(self.path, NOW + 3601)
+        self.assertEqual(stale["freshness"], "stale")
+        self.assertEqual(stale["status"], "unavailable")
+        self.assertEqual(len(stale["windows"]), 1)
+        expired = claude_code_limits.read_limits(self.path, NOW + 86400)
+        self.assertEqual(expired["windows"], [])
+        self.assertIsNone(expired["collection_error"])
 
     def test_zero_minutes_switches_it_off(self) -> None:
         with patch.object(claude_code_probe, "probe") as probe:

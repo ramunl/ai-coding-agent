@@ -39,7 +39,11 @@ def test_response_without_headers_preserves_previous_reading(tmp_path, monkeypat
         )
         original = provider_limits.limits_snapshot()["claude"]
         provider_limits.cache_claude_limits(500, {})
-        assert provider_limits.limits_snapshot()["claude"] == original
+        failed = provider_limits.limits_snapshot()["claude"]
+        assert failed["windows"] == original["windows"]
+        assert failed["checked_at"] == original["checked_at"]
+        assert failed["status"] == "unavailable"
+        assert failed["collection_error"] == "http_500"
 
 
 def test_real_sdk_response_hook_records_usage_without_an_extra_request(

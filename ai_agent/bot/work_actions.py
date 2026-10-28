@@ -147,7 +147,7 @@ def _finished(task: asyncio.Task) -> None:
     _starting.discard(task)
     if not task.cancelled() and task.exception():
         logger.error(
-            "Work started from the dashboard failed", exc_info=task.exception()
+            "Work started from the dashboard failed: %s", error_text(task.exception())
         )
 
 
@@ -201,6 +201,8 @@ async def _start(handler: Any, update: SimpleNamespace, context: Any) -> asyncio
         return_when=asyncio.FIRST_COMPLETED,
     )
     replied.cancel()
+    if run.done() and not run.cancelled() and run.exception():
+        raise ActionError(error_text(run.exception())) from run.exception()
     return run
 
 

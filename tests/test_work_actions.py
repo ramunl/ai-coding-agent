@@ -50,6 +50,94 @@ class WorkActionTests(unittest.IsolatedAsyncioTestCase):
             call.kwargs["text"] for call in self.app.bot.send_message.await_args_list
         ]
 
+    async def test_mismatched_image_request_cannot_delete_another_upload(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for request_id in ("a1b2c3d4", "deadbeef"):
+                upload = root / "uploads" / request_id
+                upload.mkdir(parents=True)
+                (upload / "screen.png").write_bytes(b"unclaimed")
+            (root / "a1b2c3d4.json").write_text(
+                json.dumps(
+                    {
+                        "id": "deadbeef",
+                        "action": "start_work",
+                        "requested_at": time.time(),
+                        "args": {
+                            "kind": "bugfix",
+                            "text": "Broken",
+                            "images": [{"name": "screen.png"}],
+                        },
+                    }
+                )
+            )
+            log = self.inbox.ResultLog(root.parent / (root.name + "-results.json"))
+            dispatch = AsyncMock()
+            await self.inbox.process_inbox(root, log, self.data, work=dispatch)
+            self.assertEqual(log.results[0]["status"], "rejected")
+            dispatch.assert_not_awaited()
+            self.assertFalse((root / "uploads" / "a1b2c3d4").exists())
+            self.assertTrue((root / "uploads" / "deadbeef" / "screen.png").exists())
+            log.path.unlink()
+
+    async def test_image_inbox_dispatch_failure_cleans_only_unowned_images(self):
+        import io
+
+        from PIL import Image
+
+        from ai_agent import task_images
+
+        for retained in (False, True):
+            self.data.clear()
+            with tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                inbox = root / "inbox"
+                upload = inbox / "uploads" / "a1b2c3d4"
+                upload.mkdir(parents=True)
+                image = io.BytesIO()
+                Image.new("RGB", (2, 2)).save(image, format="PNG")
+                (upload / "screen.png").write_bytes(image.getvalue())
+                (inbox / "a1b2c3d4.json").write_text(
+                    json.dumps(
+                        {
+                            "id": "a1b2c3d4",
+                            "action": "start_work",
+                            "requested_at": time.time(),
+                            "args": {
+                                "kind": "bugfix",
+                                "text": "Broken",
+                                "images": [{"name": "screen.png"}],
+                            },
+                        }
+                    )
+                )
+                seen = []
+
+                async def fail(update, context):
+                    seen.extend(update.message.images)
+                    if retained:
+                        context.user_data["pending_bugfix_clarification"] = {
+                            "images": seen,
+                            "bug": "Broken",
+                        }
+                    raise RuntimeError("dispatch failed")
+
+                async def dispatch(action, args):
+                    return await self.run_action(action, args)
+
+                log = self.inbox.ResultLog(root / "results.json")
+                with (
+                    patch.object(task_images, "IMAGE_DIR", root / "images"),
+                    patch.dict(self.work.STARTERS, {"bugfix": fail}),
+                    self.assertLogs("ai_agent.bot.work_actions", "ERROR"),
+                ):
+                    await self.inbox.process_inbox(inbox, log, self.data, work=dispatch)
+                self.assertEqual(log.results[0]["status"], "failed")
+                self.assertIn("dispatch failed", log.results[0]["message"])
+                self.assertEqual(len(seen), 1)
+                self.assertEqual((root / "images" / seen[0]["id"]).exists(), retained)
+                self.assertFalse(upload.exists())
+
     async def test_bug_images_survive_clarification_restart_and_confirmation(self):
         planning = importlib.import_module("ai_agent.bot.planning")
         delivery = importlib.import_module("ai_agent.image_delivery")
@@ -102,16 +190,21 @@ class WorkActionTests(unittest.IsolatedAsyncioTestCase):
         planning = importlib.import_module("ai_agent.bot.planning")
         inspection = importlib.import_module("ai_agent.bot.inspection")
         refs = [{"id": "00000000000000000001-" + "b" * 32 + ".png"}]
+        release = asyncio.Event()
+
+        async def fail(*args):
+            await release.wait()
+            raise RuntimeError("down")
+
         with (
-            patch.object(
-                planning, "get_bugfix_questions", side_effect=RuntimeError("down")
-            ),
+            patch.object(planning, "think", side_effect=fail),
             patch.object(planning, "report_missing", new=AsyncMock()),
             self.assertLogs("ai_agent.bot.work_actions", "ERROR"),
         ):
             await self.run_action(
                 "start_work", {"kind": "bugfix", "text": "Broken", "images": refs}
             )
+            release.set()
             await asyncio.gather(*list(self.work._runs), return_exceptions=True)
             await asyncio.sleep(0)
         self.assertEqual(self.data["pending_bugfix_clarification"]["images"], refs)
@@ -374,7 +467,10 @@ class WorkActionTests(unittest.IsolatedAsyncioTestCase):
             patch.dict(self.work.STARTERS, {"plan": failing_plan}),
             self.assertLogs("ai_agent.bot.work_actions", "ERROR"),
         ):
-            await self.run_action("start_work", {"kind": "plan", "text": "add login"})
+            with self.assertRaises(self.actions.ActionError):
+                await self.run_action(
+                    "start_work", {"kind": "plan", "text": "add login"}
+                )
             await asyncio.sleep(0.02)
         failure = self.sent()[-1]
         self.assertTrue(
