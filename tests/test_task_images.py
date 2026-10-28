@@ -293,6 +293,7 @@ def test_api_receives_bytes_not_paths(store, monkeypatch):
     monkeypatch.setattr(provider, "attachments", image_delivery.attachments)
     monkeypatch.setattr(provider, "diagnostic_context", lambda: "")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+    monkeypatch.setattr(provider, "CLAUDE_PLANNER_VIA", "api")
     received = []
     monkeypatch.setattr(
         provider,

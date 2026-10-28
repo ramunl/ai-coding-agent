@@ -30,6 +30,10 @@ class PlannerTests(unittest.TestCase):
         os.environ["TELEGRAM_BOT_TOKEN"] = "telegram-secret"
         os.environ["YOUR_CHAT_ID"] = "123"
         os.environ["ANTHROPIC_API_KEY"] = "anthropic-secret"
+        # These tests cover the API path; Claude Code planning has its own tests.
+        via = patch("ai_agent.config.CLAUDE_PLANNER_VIA", "api")
+        via.start()
+        self.addCleanup(via.stop)
 
         self.previous_anthropic = sys.modules.get("anthropic")
         sys.modules.pop("anthropic", None)

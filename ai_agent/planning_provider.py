@@ -1,5 +1,9 @@
 """Send planning prompts to the selected provider and return its text output.
 
+Codex plans through ``codex exec`` and Claude through Claude Code
+(claude_code_planner), each on the owner's subscription. CLAUDE_PLANNER_VIA=api
+plans with the Anthropic API and ANTHROPIC_API_KEY instead.
+
 The Anthropic client is created on first use. Configuration is read once, at
 import, like the rest of the agent: importing ai_agent.config lazily from here
 let a test import it without the bot's environment and leak an empty owner
@@ -15,10 +19,12 @@ from pathlib import Path
 
 import anthropic
 
+from ai_agent.claude_code_planner import claude_code_message
 from ai_agent.codex_models import model_args
 from ai_agent.config import (
     ANTHROPIC_KEY,
     ANTHROPIC_MODEL,
+    CLAUDE_PLANNER_VIA,
     CODEX_TIMEOUT_SECONDS,
     PLANNING_AGENT,
 )
@@ -114,11 +120,13 @@ def planner_message(
     selected = normalize_planning_agent(provider)
     if selected == "codex":
         return _codex_message(prompt, schema_name)
+    if CLAUDE_PLANNER_VIA != "api":
+        return claude_code_message(prompt, schema_path(schema_name))
     if not os.environ.get("ANTHROPIC_API_KEY"):
         raise RuntimeError(
-            "Claude planning is unavailable because "
-            "ANTHROPIC_API_KEY is not configured. "
-            "Use /planner codex or configure the key."
+            "Claude planning through the API is unavailable because "
+            "ANTHROPIC_API_KEY is not configured. Unset CLAUDE_PLANNER_VIA to "
+            "plan with Claude Code, or use /planner codex."
         )
     images, missing = attachments()
     if missing:

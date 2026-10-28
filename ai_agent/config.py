@@ -32,6 +32,11 @@ REPO_PATH = Path(os.environ.get("REPO_PATH", "~/your-android-repo")).expanduser(
 ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
 PLANNING_AGENT = os.environ.get("PLANNING_AGENT", "codex").strip().lower()
+# How the Claude planner runs: "code" = Claude Code on the Claude subscription
+# (no API key needed), "api" = the Anthropic API with ANTHROPIC_API_KEY.
+CLAUDE_PLANNER_VIA = os.environ.get("CLAUDE_PLANNER_VIA", "code").strip().lower()
+# Claude Code's model for planning; empty = Claude Code's own default.
+CLAUDE_PLANNER_MODEL = os.environ.get("CLAUDE_PLANNER_MODEL", "").strip()
 IMPLEMENTATION_AGENT = os.environ.get("IMPLEMENTATION_AGENT", "codex").strip().lower()
 CLAUDE_CODE_ARGS = tuple(
     shlex.split(os.environ.get("CLAUDE_CODE_ARGS", "--permission-mode acceptEdits"))

@@ -54,7 +54,9 @@ Set these values in the systemd `EnvironmentFile`:
 Optional values:
 
 - `PLANNING_AGENT`, `codex` or `claude`, defaults to `codex`
-- `ANTHROPIC_API_KEY`, required only when Claude is selected for planning
+- `CLAUDE_PLANNER_VIA`, `code` (default: Claude Code on the Claude subscription, no API key) or `api`
+- `CLAUDE_PLANNER_MODEL`, optional Claude Code model for planning (default: Claude Code's own)
+- `ANTHROPIC_API_KEY`, required only with `CLAUDE_PLANNER_VIA=api`
 - `CODEX_MODEL`: optional model override for all Codex planning and implementation runs.
   Set it in **Coding → Setup → AI tools**, or `/model codex set <id>`;
   `/model codex list` lists the installed CLI catalog. `default` restores CLI
@@ -81,7 +83,8 @@ and the dashboard Limits card shows cached ChatGPT account quota from the app-se
 `/agent codex|claude` chooses whether queued implementations and CI repairs run through Codex or
 Claude Code. `/planner codex|claude` independently chooses the provider used by `/plan`, `/discuss`,
 `/implement`, and bug triage. Codex planning uses the local ChatGPT-authenticated CLI in read-only mode;
-Claude remains available when `ANTHROPIC_API_KEY` is configured. The Telegram selection lasts until the
+Claude planning likewise uses the local Claude Code login (read, search and glob only, schema-checked
+JSON via `--json-schema`), or the API with `CLAUDE_PLANNER_VIA=api` and `ANTHROPIC_API_KEY`. The Telegram selection lasts until the
 bot restarts; `PLANNING_AGENT` controls the startup default.
 `/codex` reports local Codex CLI/login status only; Codex ChatGPT quota windows are shown in the dashboard Limits card.
 `/plan`, `/implement`, and `/bugfix` can include GitHub issue, pull request, file, or commit links. The
