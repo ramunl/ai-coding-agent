@@ -17,7 +17,6 @@ import json
 import logging
 import math
 import os
-import shutil
 import subprocess
 import time
 from collections.abc import Callable
@@ -107,8 +106,7 @@ def probe(path: Path, runner: Runner = run, now: float | None = None) -> bool:
     error = None
     conflict = False
     try:
-        if not shutil.which("claude") and runner is run:
-            raise FileNotFoundError
+        # A missing claude raises FileNotFoundError here (cli_unavailable).
         result = runner(command())
         output = result if isinstance(result, str) else result.stdout
         diagnostic = output + ("" if isinstance(result, str) else result.stderr)
