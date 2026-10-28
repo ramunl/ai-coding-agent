@@ -37,6 +37,9 @@ PLANNING_AGENT = os.environ.get("PLANNING_AGENT", "codex").strip().lower()
 CLAUDE_PLANNER_VIA = os.environ.get("CLAUDE_PLANNER_VIA", "code").strip().lower()
 # Claude Code's model for planning; empty = Claude Code's own default.
 CLAUDE_PLANNER_MODEL = os.environ.get("CLAUDE_PLANNER_MODEL", "").strip()
+# "subscription" (default): Claude Code runs on the claude.ai login, with the
+# API key kept out of its environment (claude_env). "api_key": it may use it.
+CLAUDE_CODE_AUTH = os.environ.get("CLAUDE_CODE_AUTH", "subscription").strip().lower()
 IMPLEMENTATION_AGENT = os.environ.get("IMPLEMENTATION_AGENT", "codex").strip().lower()
 CLAUDE_CODE_ARGS = tuple(
     shlex.split(os.environ.get("CLAUDE_CODE_ARGS", "--permission-mode acceptEdits"))

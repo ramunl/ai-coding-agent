@@ -23,6 +23,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from ai_agent.claude_code_limits import capture_limits, record_attempt
+from ai_agent.claude_env import claude_code_env
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,12 @@ Runner = Callable[[list[str]], str | subprocess.CompletedProcess]
 def run(argv: list[str]) -> subprocess.CompletedProcess:
     """Collect stdout, stderr and exit status without logging credential output."""
     return subprocess.run(
-        argv, capture_output=True, text=True, timeout=TIMEOUT_SECONDS, check=False
+        argv,
+        capture_output=True,
+        text=True,
+        timeout=TIMEOUT_SECONDS,
+        check=False,
+        env=claude_code_env(),  # the subscription's windows, not the API key's
     )
 
 

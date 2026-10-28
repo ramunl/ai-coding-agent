@@ -10,6 +10,7 @@ import re
 import signal
 from dataclasses import dataclass
 
+from ai_agent.claude_env import env_for
 from ai_agent.config import ANTHROPIC_KEY
 
 PROBE_TIMEOUT = 5.0
@@ -35,6 +36,7 @@ async def run_probe(*args: str) -> tuple[int, str]:
         stderr=asyncio.subprocess.STDOUT,
         start_new_session=True,
         limit=OUTPUT_LIMIT + 1,
+        env=env_for(args),  # report the login Claude Code actually uses
     )
     try:
         async with asyncio.timeout(PROBE_TIMEOUT):

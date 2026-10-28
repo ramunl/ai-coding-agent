@@ -57,6 +57,8 @@ Optional values:
 - `CLAUDE_PLANNER_VIA`, `code` (default: Claude Code on the Claude subscription, no API key) or `api`
 - `CLAUDE_PLANNER_MODEL`, optional Claude Code model for planning (default: Claude Code's own)
 - `ANTHROPIC_API_KEY`, required only with `CLAUDE_PLANNER_VIA=api`
+- `CLAUDE_CODE_AUTH`, `subscription` (default: every `claude` run gets the environment without
+  `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN`, so it uses the claude.ai login) or `api_key`
 - `CODEX_MODEL`: optional model override for all Codex planning and implementation runs.
   Set it in **Coding → Setup → AI tools**, or `/model codex set <id>`;
   `/model codex list` lists the installed CLI catalog. `default` restores CLI

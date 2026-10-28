@@ -5,6 +5,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from ai_agent.claude_env import env_for
 from ai_agent.config import COMMAND_TIMEOUT_SECONDS
 from ai_agent.image_delivery import private_failure
 from ai_agent.projects import active_project
@@ -68,6 +69,7 @@ def run(
             ),
             check=False,
             cwd=working_directory,
+            env=env_for(args),
             text=True,
             timeout=timeout,
         )
