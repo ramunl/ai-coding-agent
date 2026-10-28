@@ -101,15 +101,20 @@ def cache_claude_limits(status: int, headers: dict[str, str]) -> None:
                 "reset": headers.get(f"{prefix}-reset"),
             }
         )
-    if not windows:
+    if not windows and status < 400:
         return
+    previous = _LIMITS.get("claude", saved_claude_limits())
     _LIMITS["claude"] = {
+        "kind": "api_rate_limits",
+        "spending_status": "unknown",
+        "attempted_at": time.time(),
+        "collection_error": f"http_{status}" if status >= 400 else None,
         "status": "ok" if status < 400 and windows else "unavailable",
         "message": "API rate limits; separate from Claude Code subscription"
         if status < 400
         else f"Claude API returned HTTP {status}",
-        "checked_at": time.time(),
-        "windows": windows,
+        "checked_at": time.time() if windows else previous.get("checked_at"),
+        "windows": windows or previous.get("windows", []),
     }
 
     from ai_agent.bot.atomic_file import write_json_atomic

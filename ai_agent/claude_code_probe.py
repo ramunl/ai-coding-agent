@@ -15,13 +15,14 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import os
-import shutil
 import subprocess
+import time
 from collections.abc import Callable
 from pathlib import Path
 
-from ai_agent.claude_code_limits import capture_limits
+from ai_agent.claude_code_limits import capture_limits, record_attempt
 
 logger = logging.getLogger(__name__)
 
@@ -31,20 +32,14 @@ TIMEOUT_SECONDS = 120
 START_DELAY_SECONDS = 90  # let the bot finish starting first
 WINDOW_NAMES = ("five_hour", "seven_day")
 
-# argv -> stdout ("" when it can't run).
-Runner = Callable[[list[str]], str]
+Runner = Callable[[list[str]], str | subprocess.CompletedProcess]
 
 
-def run(argv: list[str]) -> str:
-    """Run the probe; its stdout, or "" if Claude Code is missing or fails."""
-    try:
-        result = subprocess.run(
-            argv, capture_output=True, text=True, timeout=TIMEOUT_SECONDS, check=False
-        )
-    except (OSError, subprocess.TimeoutExpired) as error:
-        logger.info("Claude limits probe failed: %s", error)
-        return ""
-    return result.stdout
+def run(argv: list[str]) -> subprocess.CompletedProcess:
+    """Collect stdout, stderr and exit status without logging credential output."""
+    return subprocess.run(
+        argv, capture_output=True, text=True, timeout=TIMEOUT_SECONDS, check=False
+    )
 
 
 def command(model: str = PROBE_MODEL) -> list[str]:
@@ -64,7 +59,11 @@ def command(model: str = PROBE_MODEL) -> list[str]:
 
 
 def _percent(fraction: object) -> float | None:
-    if isinstance(fraction, bool) or not isinstance(fraction, (int, float)):
+    if (
+        isinstance(fraction, bool)
+        or not isinstance(fraction, (int, float))
+        or not math.isfinite(fraction)
+    ):
         return None
     return max(0.0, min(100.0, float(fraction) * 100))
 
@@ -103,12 +102,47 @@ def rate_limits(output: str) -> dict:
 
 def probe(path: Path, runner: Runner = run, now: float | None = None) -> bool:
     """Run one probe; True when fresh windows were saved."""
-    if not shutil.which("claude") and runner is run:
-        return False
-    limits = rate_limits(runner(command()))
-    if not limits:
-        return False  # keep the last reading rather than blank it
-    return capture_limits({"rate_limits": limits}, path, now)
+    current = time.time() if now is None else now
+    error = None
+    conflict = False
+    try:
+        # A missing claude raises FileNotFoundError here (cli_unavailable).
+        result = runner(command())
+        output = result if isinstance(result, str) else result.stdout
+        diagnostic = output + ("" if isinstance(result, str) else result.stderr)
+        diagnostic = diagnostic.lower()
+        conflict = "takes precedence" in diagnostic or "auth conflict" in diagnostic
+        if "specified api usage limits" in diagnostic or "spending limit" in diagnostic:
+            error = "api_spending_limit"
+        elif conflict:
+            error = "authentication_conflict"
+        elif "not logged in" in diagnostic or "invalid api key" in diagnostic:
+            error = "authentication_failed"
+        elif (not isinstance(result, str) and result.returncode) or any(
+            isinstance(event, dict) and event.get("is_error")
+            for event in _events(output)
+        ):
+            error = "cli_failed"
+        if not error:
+            return capture_limits(
+                {"rate_limits": rate_limits(output)}, path, current, source="probe"
+            )
+    except subprocess.TimeoutExpired:
+        error = "timeout"
+    except OSError:
+        error = "cli_unavailable"
+    record_attempt(path, current, "probe", error, auth_conflict=conflict)
+    return False
+
+
+def _events(output: str) -> list[dict]:
+    events = []
+    for line in output.splitlines():
+        try:
+            events.append(json.loads(line))
+        except ValueError:
+            continue
+    return events
 
 
 async def probe_forever(path: Path, minutes: int = PROBE_MINUTES) -> None:
@@ -120,5 +154,5 @@ async def probe_forever(path: Path, minutes: int = PROBE_MINUTES) -> None:
         try:
             await asyncio.to_thread(probe, path)
         except Exception as error:  # the next probe must still run
-            logger.warning("Claude limits probe failed: %s", error)
+            logger.warning("Claude limits probe failed (%s)", type(error).__name__)
         await asyncio.sleep(minutes * 60)
