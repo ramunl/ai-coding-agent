@@ -36,7 +36,10 @@ Each part is planned in its own repository with the whole change as context,
 and gets its own branch and pull request. A part waits until the part before
 it has a pull request; the worker follows the same order. The todo the plan
 came from goes with the last part, so it closes when the whole change is
-deployed.
+deployed. Each part names its assigned repository before the original request;
+its plan lists only that repository. Prerequisites belong in risks, not in the
+changes list. An already split part cannot be split again: revise a plan that
+includes separately handled repositories.
 
 A plan for one repository that isn't the active project (the task was made in
 the wrong one) is moved the same way: `/split` (**Move to <repository>** in the

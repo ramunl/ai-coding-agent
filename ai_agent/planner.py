@@ -81,6 +81,10 @@ In "repositories" list each registered repository the change needs, by its \
 name from the REPOSITORIES list, in the order to change them (storage or API \
 before the screens that use it). When there are several, start each file and \
 step with its repository name.
+If the request is an already split or repository-scoped task, list ONLY its \
+assigned repository in "repositories". Plan files and steps only for that \
+repository. Other parts and prerequisites are context only; mention dependencies \
+in risks without planning their changes again.
 Keep the JSON compact so it is never truncated: at most 8 files and 8 steps, each \
 under 200 characters.
                 """
@@ -138,6 +142,10 @@ In "repositories" list each registered repository the change needs, by its \
 name from the REPOSITORIES list, in the order to change them (storage or API \
 before the screens that use it). When there are several, start each file and \
 step with its repository name.
+If the request is an already split or repository-scoped task, list ONLY its \
+assigned repository in "repositories". Plan files and steps only for that \
+repository. Other parts and prerequisites are context only; mention dependencies \
+in risks without planning their changes again.
 Keep the JSON compact so it is never truncated: at most 8 files and 8 steps, each \
 under 200 characters.
                 """

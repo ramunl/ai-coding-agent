@@ -35,13 +35,22 @@ def part_text(
         if item is not repository
     )
     if len(parts) == 1:
-        return f"{feature}\n\nIn this repository: {repository['changes']}"[:TEXT_LIMIT]
+        return (
+            f"Assigned repository: {repository['name']}. This task is already scoped. "
+            "Return only this repository in repositories; do not split it again.\n"
+            f"In this repository: {repository['changes']}\n\n"
+            f"Original request (context only): {feature}"
+        )[:TEXT_LIMIT]
     text = (
-        f"{feature}\n\n"
+        f"Assigned repository: {repository['name']}. This task is already split. "
+        "Return only this repository in repositories; do not split it again.\n"
         f"This is part {index} of {len(parts)} of a change across several "
         f"repositories. Plan only this repository's part: {repository['changes']}\n"
+        "Other repositories are context and prerequisites only; mention them in "
+        "risks if needed, never as changes or steps in this plan.\n"
         f"Whole change: {document.summary}\n"
-        f"Other parts (done separately, in this order): {others}"
+        f"Other parts (done separately, in this order): {others}\n\n"
+        f"Original request (context only): {feature}"
     )
     return text[:TEXT_LIMIT]
 
@@ -76,6 +85,11 @@ def split_plan(
         ),
         None,
     )
+    if source is not None and source.get("group"):
+        raise SplitError(
+            "This task is already a repository part. Revise its plan to change "
+            f"only {source['repo']}; other parts are handled separately."
+        )
     todo = source.get("todo") if source else None
     created: list[dict] = []
     for index, repository in enumerate(parts, 1):

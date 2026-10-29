@@ -63,6 +63,30 @@ class SplitTests(unittest.TestCase):
         self.assertEqual((first["todo"], second["todo"]), (None, "3:abc"))
         self.assertTrue(first["autopilot"] and second["autopilot"])
 
+    def test_split_part_cannot_be_split_again(self) -> None:
+        first, second = self.split()
+        second.update(stage="planned", plan_id="p2")
+        plan = _plan()
+        plan.id = "p2"
+        self.data["pending_plan"] = plan
+        before = list(tasks.tasks_of(self.data))
+        with self.assertRaisesRegex(task_split.SplitError, "already a repository part"):
+            task_split.split_plan(
+                self.data, plan, parse_plan_document(PLAN), KNOWN, "ai-dashboard"
+            )
+        self.assertEqual(tasks.tasks_of(self.data), before)
+        self.assertIs(self.data["pending_plan"], plan)
+        self.assertEqual(second["after"], first["id"])
+
+    def test_scope_survives_a_long_original_request(self) -> None:
+        plan = _plan()
+        plan.feature = "original request " * 1000
+        first, second = self.split(plan)
+        self.assertTrue(second["text"].startswith("Assigned repository: ai-dashboard."))
+        self.assertIn("Return only this repository", second["text"])
+        self.assertIn("drag the PM list", second["text"])
+        self.assertLessEqual(len(second["text"]), task_split.TEXT_LIMIT)
+
     def test_unknown_or_single_repositories_are_refused(self) -> None:
         data = json.loads(PLAN)
         data["repositories"][1]["name"] = "ai-unknown"

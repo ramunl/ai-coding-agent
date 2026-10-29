@@ -110,6 +110,8 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual(result, "planned")
         self.assertIn("Feature request: enriched request", prompt)
         self.assertIn("Project files sample:\nApp.kt", prompt)
+        self.assertIn("already split or repository-scoped task", prompt)
+        self.assertIn('assigned repository in "repositories"', prompt)
 
     def test_plan_feature_injects_rules_block(self) -> None:
         planner, provider = self._modules()
