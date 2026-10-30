@@ -11,6 +11,8 @@ from ai_agent.config import (
     CODEX_TIMEOUT_SECONDS,
     IMPLEMENTATION_AGENT,
 )
+from ai_agent.context_packets import with_context
+from ai_agent.context_sources import ContextRequest
 from ai_agent.git_recovery import (
     guarded_run,
     require_clean_checkout,
@@ -109,7 +111,10 @@ def implementation_command(prompt: str, agent: str | None = None) -> list[str]:
     return ["codex", "exec", *model_args(), "-s", "workspace-write", prompt]
 
 
-def run_implementation_agent(prompt: str, agent: str | None = None) -> CommandResult:
+@with_context
+def run_implementation_agent(
+    prompt: str, agent: str | None = None, *, context: ContextRequest | None = None
+) -> CommandResult:
     """Run a provider command, count its usage, and explain capacity failures."""
     with codex_capacity_explained():
         result = run_with_images(
@@ -190,9 +195,14 @@ def validate_branch_name(branch_name: str) -> None:
         raise ValueError(f"Invalid branch name: {branch_name}")
 
 
+@with_context
 @guarded_run
 def implement(
-    plan: str, branch_name: str, agent: str | None = None
+    plan: str,
+    branch_name: str,
+    agent: str | None = None,
+    *,
+    context: ContextRequest | None = None,
 ) -> ImplementationResult:
     """Create a feature branch and capture the implementation result."""
     validate_branch_name(branch_name)
@@ -206,9 +216,14 @@ def implement(
     return _run_and_capture_changes(plan, agent)
 
 
+@with_context
 @guarded_run
 def repair_implementation(
-    prompt: str, branch_name: str, agent: str | None = None
+    prompt: str,
+    branch_name: str,
+    agent: str | None = None,
+    *,
+    context: ContextRequest | None = None,
 ) -> ImplementationResult:
     """Update an existing branch and capture a repair result."""
     validate_branch_name(branch_name)
@@ -217,9 +232,14 @@ def repair_implementation(
     return _run_and_capture_changes(prompt, agent)
 
 
+@with_context
 @guarded_run
 def repair_pull_request_branch(
-    prompt: str, branch_name: str, agent: str | None = None
+    prompt: str,
+    branch_name: str,
+    agent: str | None = None,
+    *,
+    context: ContextRequest | None = None,
 ) -> ImplementationResult:
     """Check out a remote pull-request branch and capture its repair result."""
     validate_branch_name(branch_name)

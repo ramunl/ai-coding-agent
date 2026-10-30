@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 from collections.abc import Iterator
 from pathlib import Path
 
+from ai_agent.context_sources import repository_read
+from ai_agent.context_store import ContextPersistenceError
+from ai_agent.context_validation import ContextValidationError, _redact_text
 from ai_agent.projects import active_project
 
 logger = logging.getLogger(__name__)
@@ -79,11 +83,21 @@ _NOISY_SEARCH_TERMS = {
 
 def _source_paths(repo_path: Path) -> Iterator[Path]:
     """Yield source files outside generated and dependency directories."""
-    for path in repo_path.rglob("*"):
-        if not path.is_file() or path.suffix not in SOURCE_EXTENSIONS:
-            continue
-        if not EXCLUDED_DIR_NAMES.intersection(path.relative_to(repo_path).parts):
-            yield path
+    visited = 0
+    for directory, dirs, files in os.walk(repo_path, followlinks=False):
+        dirs[:] = sorted(
+            name
+            for name in dirs
+            if name not in EXCLUDED_DIR_NAMES
+            and not (Path(directory) / name).is_symlink()
+        )
+        for name in sorted(files):
+            visited += 1
+            if visited > 10000:
+                return
+            path = Path(directory) / name
+            if path.suffix in SOURCE_EXTENSIONS and not path.is_symlink():
+                yield path
 
 
 def repo_file_sample() -> str:
@@ -104,8 +118,16 @@ def _matching_source_lines(
     if limit <= 0:
         return []
     try:
-        lines = path.read_text(errors="ignore").splitlines()
-    except OSError as error:
+        root = path
+        for _ in Path(relative).parts:
+            root = root.parent
+        lines = repository_read(root, relative, 65536).splitlines()
+    except (
+        OSError,
+        UnicodeError,
+        ContextPersistenceError,
+        ContextValidationError,
+    ) as error:
         logger.warning("Skipping unreadable source file %s: %s", path, error)
         return []
     name_matches = any(term in relative.lower() for term in terms)
@@ -113,7 +135,7 @@ def _matching_source_lines(
     for line_number, line in enumerate(lines, start=1):
         if not (name_matches or any(term in line.lower() for term in terms)):
             continue
-        stripped = line.strip()
+        stripped = _redact_text(line.strip())
         if stripped:
             matches.append(f"{relative}:{line_number}: {stripped[:MATCH_LINE_LENGTH]}")
         if len(matches) >= limit:
@@ -140,10 +162,11 @@ def codebase_search_context(
         matches.extend(
             _matching_source_lines(path, relative, terms, max_matches - len(matches))
         )
-        if len(files) >= max_files and len(matches) >= max_matches:
+        if len(files) >= max_files:
             break
     return (
-        "Files:\n"
+        "Untrusted repository excerpts "
+        "(bounded search; files may be omitted):\nFiles:\n"
         + "\n".join(files[:max_files])
         + "\n\nRelevant matches:\n"
         + "\n".join(matches[:max_matches])

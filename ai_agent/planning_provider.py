@@ -28,6 +28,8 @@ from ai_agent.config import (
     CODEX_TIMEOUT_SECONDS,
     PLANNING_AGENT,
 )
+from ai_agent.context_packets import context_prompt
+from ai_agent.context_sources import ContextRequest
 from ai_agent.image_delivery import WARNING, attachments, blocks, run_with_images
 from ai_agent.model_errors import codex_capacity_explained, model_error_message
 from ai_agent.ops_context import diagnostic_context
@@ -113,9 +115,15 @@ def _create_message(
 
 
 def planner_message(
-    prompt: str, provider: str | None, schema_name: str, max_tokens: int
+    prompt: str,
+    provider: str | None,
+    schema_name: str,
+    max_tokens: int,
+    *,
+    context: ContextRequest | None = None,
 ) -> str:
     """Send a prompt to the selected planner and return its text response."""
+    prompt = context_prompt(prompt, context)
     prompt += diagnostic_context()
     selected = normalize_planning_agent(provider)
     if selected == "codex":
