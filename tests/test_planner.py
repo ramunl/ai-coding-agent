@@ -401,7 +401,9 @@ class PlannerTests(unittest.TestCase):
                     "active_project",
                     return_value=types.SimpleNamespace(repo_path=root),
                 ),
-                patch.object(Path, "read_text", side_effect=OSError("unreadable")),
+                patch.object(
+                    context_module, "repository_read", side_effect=OSError("unreadable")
+                ),
                 self.assertLogs("ai_agent.repository_context", level="WARNING") as logs,
             ):
                 context = context_module.codebase_search_context("playback")

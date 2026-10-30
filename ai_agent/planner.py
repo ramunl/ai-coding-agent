@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+from functools import partial
+from pathlib import Path
+
 from ai_agent.bugfix_questions import (
     IMPLEMENTATION_QUESTION_PATTERNS,
     bugfix_questions,
 )
+from ai_agent.context_sources import ContextBlockedError, ContextRequest
 from ai_agent.ecosystem import ecosystem_block
 from ai_agent.github_links import enrich_feature_description
 from ai_agent.image_delivery import invoke
@@ -44,24 +48,54 @@ __all__ = [
 ]
 
 
+def _validate_context(context: ContextRequest | None) -> None:
+    if context is None:
+        return
+    context.validate()
+    repository = context.scope.repository
+    project = active_project()
+    if (project.name, str(project.repo_path), project.github_repository) != (
+        repository.project_name,
+        repository.repo_path,
+        repository.github_repository,
+    ):
+        raise ContextBlockedError("Select the context request's original repository")
+
+
 def plan_feature(
     feature_description: str,
     provider: str | None = None,
     images: list[dict] | None = None,
+    *,
+    context: ContextRequest | None = None,
 ) -> str:
     """Request a structured implementation plan with project rules and context."""
+    _validate_context(context)
     if images is not None:
-        return invoke(images, plan_feature, feature_description, provider)
-    context = repo_file_sample()
+        return invoke(
+            images,
+            partial(plan_feature, context=context),
+            feature_description,
+            provider,
+        )
+    file_sample = repo_file_sample()
     enriched_feature_description = enrich_feature_description(feature_description)
-    rules_block = project_brief_block() + ecosystem_block() + rules_prompt_block()
+    rules_block = (
+        (
+            project_brief_block(Path(context.scope.repository.repo_path), strict=True)
+            if context is not None
+            else project_brief_block()
+        )
+        + ecosystem_block()
+        + rules_prompt_block()
+    )
     repository = active_project().github_repository
 
     prompt = f"""
 You are a senior software engineer working on the {repository} repository.
 
 Project files sample:
-{context}
+{file_sample}
 
 {rules_block}
 Feature request: {enriched_feature_description}
@@ -88,7 +122,13 @@ in risks without planning their changes again.
 Keep the JSON compact so it is never truncated: at most 8 files and 8 steps, each \
 under 200 characters.
                 """
-    return planner_message(prompt, provider, "feature_plan.json", 4000)
+    return planner_message(
+        prompt,
+        provider,
+        "feature_plan.json",
+        4000,
+        **({"context": context} if context is not None else {}),
+    )
 
 
 def revise_feature_plan(
@@ -97,19 +137,30 @@ def revise_feature_plan(
     feedback: str,
     provider: str | None = None,
     images: list[dict] | None = None,
+    *,
+    context: ContextRequest | None = None,
 ) -> str:
     """Request a revised plan using the existing plan and user feedback."""
+    _validate_context(context)
     if images is not None:
         return invoke(
             images,
-            revise_feature_plan,
+            partial(revise_feature_plan, context=context),
             feature_description,
             current_plan,
             feedback,
             provider,
         )
     enriched_feature_description = enrich_feature_description(feature_description)
-    rules_block = project_brief_block() + ecosystem_block() + rules_prompt_block()
+    rules_block = (
+        (
+            project_brief_block(Path(context.scope.repository.repo_path), strict=True)
+            if context is not None
+            else project_brief_block()
+        )
+        + ecosystem_block()
+        + rules_prompt_block()
+    )
     repository = active_project().github_repository
 
     prompt = f"""
@@ -149,14 +200,31 @@ in risks without planning their changes again.
 Keep the JSON compact so it is never truncated: at most 8 files and 8 steps, each \
 under 200 characters.
                 """
-    return planner_message(prompt, provider, "feature_plan.json", 4000)
+    return planner_message(
+        prompt,
+        provider,
+        "feature_plan.json",
+        4000,
+        **({"context": context} if context is not None else {}),
+    )
 
 
-def build_bugfix_prompt(bug_description: str) -> str:
+def build_bugfix_prompt(
+    bug_description: str, *, context: ContextRequest | None = None
+) -> str:
     """Build an implementation prompt for a reported bug and its triage."""
+    _validate_context(context)
     enriched_bug_description = enrich_feature_description(bug_description)
     search_context = codebase_search_context(enriched_bug_description)
-    rules_block = project_brief_block() + ecosystem_block() + rules_prompt_block()
+    rules_block = (
+        (
+            project_brief_block(Path(context.scope.repository.repo_path), strict=True)
+            if context is not None
+            else project_brief_block()
+        )
+        + ecosystem_block()
+        + rules_prompt_block()
+    )
     repository = active_project().github_repository
     return f"""
 Fix this bug in the {repository} repository.
@@ -179,8 +247,14 @@ files, methods, URLs, or state are located.
     """.strip()
 
 
-def assess_bugfix_report(bug_description: str, provider: str | None = None) -> str:
+def assess_bugfix_report(
+    bug_description: str,
+    provider: str | None = None,
+    *,
+    context: ContextRequest | None = None,
+) -> str:
     """Request bug triage with repository context and project rules."""
+    _validate_context(context)
     enriched_bug_description = enrich_feature_description(bug_description)
     search_context = codebase_search_context(enriched_bug_description)
 
@@ -218,4 +292,10 @@ Questions response:
 
 Ask at most 2 questions.
                 """
-    return planner_message(prompt, provider, "bugfix_assessment.json", 500).strip()
+    return planner_message(
+        prompt,
+        provider,
+        "bugfix_assessment.json",
+        500,
+        **({"context": context} if context is not None else {}),
+    ).strip()
