@@ -82,6 +82,10 @@ PROJECTS_ROOT = Path(os.environ.get("PROJECTS_ROOT", "/opt/projects")).expanduse
 STATE_FILE = Path(
     os.environ.get("AGENT_STATE_FILE", "/var/lib/ai-coding-agent/state.json")
 ).expanduser()
+# Durable context archive, separate from the pruned task queue (CTX01).
+CONTEXT_ROOT = Path(
+    os.environ.get("CONTEXT_ROOT", "/var/lib/ai-coding-agent/context")
+).expanduser()
 # Read model for the dashboard service (a separate process). Secret-free.
 SNAPSHOT_FILE = Path(
     os.environ.get("AGENT_SNAPSHOT_FILE", "/var/lib/ai-coding-agent/snapshot.json")
