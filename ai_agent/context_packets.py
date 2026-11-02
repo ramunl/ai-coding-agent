@@ -196,6 +196,7 @@ def build_packet(
         },
         "records": selected,
         "repository_evidence": _documents(request),
+        "repository_head": request.repository_head,
         "reopen": (
             {
                 "location": "original_prompt",
@@ -260,6 +261,11 @@ def context_prompt(prompt: str, context: ContextRequest | None = None) -> str:
         return prompt
     reopen = reopen_context({"attempt_history": context.reopen_history})
     packet = build_packet(context, reopen_in_prompt=bool(reopen and reopen in prompt))
+    from ai_agent.context_lifecycle import packet_receipt
+
+    receipt = packet_receipt.get()
+    if receipt is not None:
+        receipt["packet"] = asdict(packet.reference)
     return prompt + "\n\nUNTRUSTED HISTORICAL CONTEXT (JSON data):\n" + packet.text
 
 
@@ -272,13 +278,14 @@ def with_context(function: Callable[P, R]) -> Callable[P, R]:
 
     @wraps(function)
     def wrapped(*args: P.args, **kwargs: P.kwargs) -> R:
-        context = kwargs.pop("context", None)
+        from ai_agent.context_lifecycle import current_context
+
+        context = kwargs.pop("context", None) or current_context.get()
         if context is not None:
             from ai_agent.projects import active_project
 
-            prepared = context_prompt(
-                args[0] if args else kwargs.get("plan", kwargs.get("prompt")), context
-            )
+            context.validate()
+            _load(context)
             project = active_project()
             repository = context.scope.repository
             if (project.name, str(project.repo_path), project.github_repository) != (
@@ -289,6 +296,12 @@ def with_context(function: Callable[P, R]) -> Callable[P, R]:
                 raise ContextBlockedError(
                     "Select the context request's original repository"
                 )
+            if function.__name__ != "run_implementation_agent":
+                kwargs["context"] = context
+                return function(*args, **kwargs)
+            prepared = context_prompt(
+                args[0] if args else kwargs.get("plan", kwargs.get("prompt")), context
+            )
             if args:
                 args = (prepared, *args[1:])
             else:

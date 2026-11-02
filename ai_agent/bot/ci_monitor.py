@@ -14,6 +14,7 @@ from ai_agent.config import (
     CI_POLL_INTERVAL_SECONDS,
     CI_TIMEOUT_SECONDS,
 )
+from ai_agent.context_attempts import checkpoint
 from ai_agent.github import ensure_github_configured, github_request
 from ai_agent.projects import active_project
 from ai_agent_common import choice_keyboard
@@ -110,6 +111,7 @@ async def watch_ci(update: Update, head_sha: str) -> CiResult:
 
     while True:
         result = await asyncio.to_thread(evaluate_ci, head_sha)
+        checkpoint("ci", state=result.state, sha=head_sha, url=result.url)
         if result.summary != last_summary:
             message = result.summary
             if result.url:

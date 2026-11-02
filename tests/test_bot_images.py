@@ -132,6 +132,9 @@ class ImageBotTests(TelegramTestCase):
         )
         plan.images = [{"id": "opaque", "bytes": 4}]
         revised = plans.revise_plan_state(plan, plan.plan_text)
+        from ai_agent.context_lifecycle import approve_plan
+
+        approve_plan(revised)
         context = SimpleNamespace(user_data={"pending_plan": revised})
         state.set_pending_from_plan(context, revised)
         queued = state.enqueue_pending_implementation(

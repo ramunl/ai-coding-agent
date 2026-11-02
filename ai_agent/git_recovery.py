@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import ParamSpec, TextIO, TypeVar
 from uuid import uuid4
 
+from ai_agent.context_attempts import execution_control
 from ai_agent.projects import active_project
 from ai_agent.shell import run
 
@@ -66,16 +67,28 @@ def serialized_execution(
     @wraps(function)
     async def wrapped(*args: P.args, **kwargs: P.kwargs) -> R:
         with recovery_session():
+            control = {}
+            token = execution_control.set(control)
             # Cancellation must not release the lease while a provider thread
             # is still editing the checkout. Let execution and cleanup finish.
             task = asyncio.create_task(function(*args, **kwargs))
             try:
                 return await asyncio.shield(task)
             except asyncio.CancelledError:
+                attempt = control.get("attempt")
+                if attempt is not None and not attempt.state["terminal"]:
+                    attempt.checkpoint("cancellation_requested", {})
                 try:
-                    await task
+                    while not task.done():
+                        try:
+                            await asyncio.shield(task)
+                        except asyncio.CancelledError:
+                            continue
+                    task.result()
                 finally:
                     raise
+            finally:
+                execution_control.reset(token)
 
     return wrapped
 

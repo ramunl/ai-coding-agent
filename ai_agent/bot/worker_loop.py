@@ -16,6 +16,7 @@ from typing import Any
 from ai_agent import auto_todos, code_review, log_scan
 from ai_agent.actions import ActionError
 from ai_agent.bot import task_actions, work_actions
+from ai_agent.context_recovery import reconcile
 from ai_agent.planner import normalize_planning_agent
 from ai_agent.projects import active_project, list_projects
 from ai_agent.provider_limits import limits_snapshot
@@ -121,6 +122,9 @@ async def tick(ptb_app: Any, owner_id: int, now: float | None = None) -> str:
     now = time.time() if now is None else now
     data = ptb_app.user_data[owner_id]
     worker = settings(data)
+    if data.get("context_recovery_pending"):
+        if not await asyncio.to_thread(reconcile, data, owner_id):
+            return "waiting: context handoff recovery is pending"
     await _settle(ptb_app, owner_id, data, worker, now)
     if work_actions._starting:
         decision_status = "waiting: the agent is planning"
@@ -175,6 +179,11 @@ async def tick(ptb_app: Any, owner_id: int, now: float | None = None) -> str:
                 reply = f"could not split “{task['title']}”: {error} It waits for you."
             await _tell(ptb_app, owner_id, f"autopilot: {reply}")
         elif decision.action == "approve":
+            plan = data.get("pending_plan")
+            if getattr(plan, "review_required", False):
+                task["autopilot_stuck"] = True
+                task["note"] = "plan or context changed; owner review is required"
+                return "waiting: owner review is required"
             await work_actions.run_work_action(ptb_app, owner_id, "approve_plan", {})
             plan = data.get("pending_plan")
             if plan is None or not getattr(plan, "approved", False):

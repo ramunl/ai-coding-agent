@@ -9,6 +9,7 @@ from ai_agent.bugfix_questions import (
     IMPLEMENTATION_QUESTION_PATTERNS,
     bugfix_questions,
 )
+from ai_agent.context_lifecycle import current_context
 from ai_agent.context_sources import ContextBlockedError, ContextRequest
 from ai_agent.ecosystem import ecosystem_block
 from ai_agent.github_links import enrich_feature_description
@@ -71,6 +72,7 @@ def plan_feature(
     context: ContextRequest | None = None,
 ) -> str:
     """Request a structured implementation plan with project rules and context."""
+    context = context or current_context.get()
     _validate_context(context)
     if images is not None:
         return invoke(
@@ -144,6 +146,7 @@ def revise_feature_plan(
     context: ContextRequest | None = None,
 ) -> str:
     """Request a revised plan using the existing plan and user feedback."""
+    context = context or current_context.get()
     _validate_context(context)
     if images is not None:
         return invoke(
@@ -218,6 +221,7 @@ def build_bugfix_prompt(
     bug_description: str, *, context: ContextRequest | None = None
 ) -> str:
     """Build an implementation prompt for a reported bug and its triage."""
+    context = context or current_context.get()
     _validate_context(context)
     enriched_bug_description = enrich_feature_description(bug_description)
     search_context = codebase_search_context(enriched_bug_description)
@@ -259,6 +263,7 @@ def assess_bugfix_report(
     context: ContextRequest | None = None,
 ) -> str:
     """Request bug triage with repository context and project rules."""
+    context = context or current_context.get()
     _validate_context(context)
     enriched_bug_description = enrich_feature_description(bug_description)
     search_context = codebase_search_context(enriched_bug_description)

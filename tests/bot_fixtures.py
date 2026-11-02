@@ -40,6 +40,17 @@ class TelegramTestCase(unittest.TestCase):
             "ai_agent.task_images.IMAGE_DIR", Path(self._state_dir) / "images"
         )
         self._images_patch.start()
+        from ai_agent.context_store import ContextStore
+
+        for module in ("context_lifecycle", "context_recovery"):
+            context_patch = patch(
+                f"ai_agent.{module}.ContextStore",
+                side_effect=lambda scope: ContextStore(
+                    scope, Path(self._state_dir) / "context"
+                ),
+            )
+            context_patch.start()
+            self.addCleanup(context_patch.stop)
 
         self.previous_modules = {
             name: sys.modules.get(name)

@@ -5,6 +5,11 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 
 from ai_agent.config import redact_sensitive
+from ai_agent.context_lifecycle import (
+    current_context,
+    packet_receipt,
+    spec_from_request,
+)
 from ai_agent.ecosystem import repository_note
 from ai_agent.plan_document import PlanDocument, parse_plan_document
 from ai_agent.plan_scope import scope_warning
@@ -51,6 +56,10 @@ class PlanState:
     history: list[str] = field(default_factory=list)
     images: list[dict] = field(default_factory=list)
     repository_identity: dict[str, str] | None = None
+    context_packet: dict | None = None
+    context_spec: dict | None = None
+    approval_binding: dict | None = None
+    review_required: bool = False
 
 
 @dataclass(frozen=True)
@@ -113,6 +122,8 @@ def new_plan_state(
         plan_text=plan_text,
         approved=False,
         history=[],
+        context_spec=spec_from_request(current_context.get()),
+        context_packet=(packet_receipt.get() or {}).get("packet"),
         repository_identity=dict(repository_identity) if repository_identity else None,
     )
 
@@ -127,6 +138,9 @@ def revise_plan_state(plan: PlanState, plan_text: str) -> PlanState:
         approved=False,
         history=[*plan.history, plan.plan_text],
         images=list(plan.images),
+        context_spec=spec_from_request(current_context.get()) or plan.context_spec,
+        context_packet=(packet_receipt.get() or {}).get("packet")
+        or plan.context_packet,
         repository_identity=(
             dict(plan.repository_identity) if plan.repository_identity else None
         ),

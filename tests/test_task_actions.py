@@ -154,7 +154,9 @@ def test_branch_is_displayed_and_preserved_through_revision_and_approval(
     monkeypatch.setattr(planning, "require_authorized", lambda _: True)
     monkeypatch.setattr(planning, "repository_mismatch", lambda _: None)
     monkeypatch.setattr(planning, "_not_here", lambda _: None)
-    monkeypatch.setattr(planning, "planning_guard", lambda _: contextlib.nullcontext())
+    monkeypatch.setattr(
+        planning, "planning_guard", lambda _, **kwargs: contextlib.nullcontext()
+    )
     monkeypatch.setattr(planning, "current_planning_agent", lambda _: "codex")
     monkeypatch.setattr(planning, "report_missing", AsyncMock())
     monkeypatch.setattr(planning, "forget_pending_implementation", lambda _: None)

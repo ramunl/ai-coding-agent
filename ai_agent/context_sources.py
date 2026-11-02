@@ -47,6 +47,7 @@ class ContextRequest:
     candidates: tuple[RecordReference, ...] = ()
     dependency_ids: tuple[str, ...] = ()
     documents: tuple[RepositoryEvidence, ...] = ()
+    repository_head: str | None = None
     query: str = ""
     reopen_history: tuple[dict, ...] = ()
 
