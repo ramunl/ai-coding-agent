@@ -40,6 +40,7 @@ def test_shell_runs_claude_without_the_key(claude_env, monkeypatch, tmp_path):
         return subprocess.CompletedProcess(args, 0, "ok", "")
 
     monkeypatch.setattr(shell.subprocess, "run", fake_run)
+    monkeypatch.setattr("ai_agent.provider_process.grouped_run", fake_run)
     shell.run(["claude", "-p", "hi"], cwd=tmp_path)
     shell.run(["git", "status"], cwd=tmp_path)
     assert "ANTHROPIC_API_KEY" not in seen[0] and seen[0]["KEEP_ME"] == "1"

@@ -2,9 +2,85 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
-  "required": ["status", "questions"],
+  "required": [
+    "status",
+    "questions"
+  ],
   "properties": {
-    "status": {"type": "string", "enum": ["ready", "questions"]},
-    "questions": {"type": "array", "maxItems": 2, "items": {"type": "string"}}
+    "status": {
+      "type": "string",
+      "enum": [
+        "ready",
+        "questions"
+      ]
+    },
+    "questions": {
+      "type": "array",
+      "maxItems": 2,
+      "items": {
+        "type": "string"
+      }
+    },
+    "files": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "string"
+      }
+    },
+    "steps": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "string"
+      }
+    },
+    "risks": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "string"
+      }
+    },
+    "scope_assessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "recommend_split",
+        "reason",
+        "milestones"
+      ],
+      "properties": {
+        "recommend_split": {
+          "type": "boolean"
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "milestones": {
+          "type": "array",
+          "maxItems": 5,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "title",
+              "acceptance"
+            ],
+            "properties": {
+              "title": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "acceptance": {
+                "type": "string",
+                "maxLength": 500
+              }
+            }
+          }
+        }
+      }
+    }
   }
 }

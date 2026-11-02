@@ -20,7 +20,9 @@ from ai_agent.bot.transport import (
     reply_chunks,
     require_authorized,
 )
+from ai_agent.bugfix_scope import BugfixReview, parse_bugfix_review
 from ai_agent.image_delivery import invoke
+from ai_agent.plan_scope import scope_warning
 from ai_agent.plan_state import (
     PlanState,
     capture_repository_identity,
@@ -33,7 +35,6 @@ from ai_agent.plan_state import (
 )
 from ai_agent.planner import (
     assess_bugfix_report,
-    bugfix_questions,
     build_bugfix_prompt,
     plan_feature,
     planning_agent_label,
@@ -287,6 +288,8 @@ async def bugfix_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             current_planning_agent(context),
         )
         await report_missing(update, images)
+        review = questions if isinstance(questions, BugfixReview) else None
+        questions = review.questions if review else questions
         if questions:
             context.user_data["pending_bugfix_clarification"] = {
                 "repository_identity": identity,
@@ -302,7 +305,7 @@ async def bugfix_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             )
             return
 
-        await prepare_bugfix(update, context, bug, bug, identity, images)
+        await prepare_bugfix(update, context, bug, bug, identity, images, review)
 
 
 async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -345,6 +348,8 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             current_planning_agent(context),
         )
         await report_missing(update, images)
+        review = questions if isinstance(questions, BugfixReview) else None
+        questions = review.questions if review else questions
         if questions:
             context.user_data["pending_bugfix_clarification"] = {
                 "repository_identity": dict(pending["repository_identity"]),
@@ -367,12 +372,13 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             branch_source,
             pending["repository_identity"],
             images,
+            review,
         )
 
 
-def get_bugfix_questions(bug: str, provider: str | None = None) -> str | None:
-    """Return clarification questions from the selected planner."""
-    return bugfix_questions(assess_bugfix_report(bug, provider))
+def get_bugfix_questions(bug: str, provider: str | None = None) -> BugfixReview:
+    """Return clarification and scope advice from the selected planner."""
+    return parse_bugfix_review(assess_bugfix_report(bug, provider), bug)
 
 
 async def prepare_bugfix(
@@ -382,6 +388,7 @@ async def prepare_bugfix(
     branch_source: str,
     identity: dict[str, str] | None = None,
     images: list[dict] | None = None,
+    review: BugfixReview | None = None,
 ) -> None:
     """Prepare pending implementation data for a bugfix branch."""
     with planning_guard(context):
@@ -403,8 +410,21 @@ async def prepare_bugfix(
         }
 
         context.user_data.pop("pending_bugfix_clarification", None)
+        scope_text = ""
+        if review:
+            context.user_data["pending_implementation"]["scope_assessment"] = (
+                review.scope_assessment
+            )
+            warning = scope_warning(review.scope_assessment)
+            if warning:
+                # Bugfixes await /confirm directly, without a revisable plan.
+                warning[-1] = (
+                    "To narrow this fix, use /cancel then /plan for one milestone. "
+                    "You may also /confirm the full scope. No tasks were split."
+                )
+                scope_text = "\n".join(warning) + "\n\n"
         await reply_chunks(
             update,
-            f"Pending bug fix branch: {branch_name}\n"
+            scope_text + f"Pending bug fix branch: {branch_name}\n"
             "Send /confirm to enqueue this task, or /cancel to discard this request.",
         )

@@ -210,7 +210,7 @@ class PlannerTests(unittest.TestCase):
         kwargs = provider.client().messages.kwargs
         prompt = kwargs["messages"][0]["content"]
         self.assertEqual(result, "planned")
-        self.assertEqual(kwargs["max_tokens"], 500)
+        self.assertEqual(kwargs["max_tokens"], 1800)
         self.assertIn("Bug report:\nenriched bug", prompt)
 
     def test_codex_planner_uses_read_only_structured_output(self) -> None:

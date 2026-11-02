@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from telegram.ext import ContextTypes
 
 from ai_agent.config import redact_sensitive
+from ai_agent.plan_scope import assess_scope
 from ai_agent.plan_state import (
     ExecutionState,
     PlanState,
@@ -108,6 +109,7 @@ def set_pending_from_plan(
             if plan_state.repository_identity
             else None
         ),
+        "plan_id": plan_state.id,
         "change": plan_state.feature,
         "images": list(plan_state.images),
         "codex_prompt": document.codex_prompt,
@@ -140,6 +142,9 @@ def enqueue_pending_implementation(
     """Snapshot pending work and append it to the FIFO queue."""
     task = {
         "id": next_task_id(context),
+        "execution_mode": pending.get("execution_mode", "fresh"),
+        "checkpoint_task": pending.get("checkpoint_task"),
+        "plan_id": pending.get("plan_id"),
         "repository_identity": (
             dict(pending["repository_identity"])
             if pending.get("repository_identity")
@@ -332,6 +337,11 @@ def snapshot(context: Any) -> dict:
             if isinstance(plan, PlanState)
             else None
         ),
+        "pending_scope_assessment": assess_scope(
+            pending.get("scope_assessment"), [], []
+        )
+        if isinstance(pending, dict)
+        else None,
         "pending_branch": pending.get("branch_name")
         if isinstance(pending, dict)
         else None,

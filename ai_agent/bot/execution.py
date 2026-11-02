@@ -35,7 +35,10 @@ from ai_agent.bot.transport import reply_chunks, require_authorized
 from ai_agent.ci import CiResult, build_failure_context
 from ai_agent.config import CI_FIX_ATTEMPTS
 from ai_agent.git_recovery import (
+    bind_checkpoint,
     cleanup_recovery,
+    mark_complete,
+    mark_published,
     recovery_details,
     serialized_execution,
     set_aside_notice,
@@ -58,6 +61,7 @@ from ai_agent.workflow import (
     push,
     repair_implementation,
     repair_pull_request_branch,
+    resume_implementation,
     return_to_base_branch,
     validate_branch_name,
 )
@@ -154,11 +158,27 @@ async def run_queued_implementation(
         task.get("implementation_agent")
     )
     confirmation_label = task.get("confirmation_label", "implementation")
+    owner_task = next(
+        (
+            item
+            for item in context.user_data.get("tasks", [])
+            if item.get("id") == task.get("checkpoint_task")
+            and item.get("repo")
+            == (task.get("repository_identity") or {}).get("project_name")
+            and item.get("branch") == branch_name
+        ),
+        None,
+    )
+    checkpoint_task = str(owner_task["id"]) if owner_task else ""
+    bind_checkpoint(
+        checkpoint_task, branch_name, task.get("execution_mode") == "resume"
+    )
     no_code = False
     try:
         pull_request, commit_sha = await _publish_queued_implementation(
             update, context, task
         )
+        await asyncio.to_thread(mark_published, pull_request.url)
         set_active_execution(context, branch_name, "Polling CI")
         ci_result = await watch_ci(update, commit_sha)
 
@@ -174,6 +194,8 @@ async def run_queued_implementation(
         ci_result, repair_attempt = await _repair_failed_ci(
             update, context, request, ci_result
         )
+        if ci_result.state == "passed":
+            await asyncio.to_thread(mark_complete)
         if await _report_execution(update, context, ci_result, repair_attempt):
             return
         await reply_chunks(
@@ -233,7 +255,7 @@ async def _publish_queued_implementation(
     implementation_result = await asyncio.to_thread(
         invoke,
         task.get("images", []),
-        implement,
+        resume_implementation if task.get("execution_mode") == "resume" else implement,
         codex_prompt,
         branch_name,
         implementation_agent,

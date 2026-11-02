@@ -159,17 +159,22 @@ def _advance(task: dict, data: MutableMapping, pending_id: Any, busy: set) -> No
 
 def remember_run(data: MutableMapping, item: dict) -> None:
     """Keep a queued run on the task of its branch, for a later retry."""
-    task = next(
-        (
-            task
-            for task in tasks_of(data)
-            if task.get("branch") == item.get("branch_name")
-            and task.get("stage") in ("planned", "implementing")
-        ),
-        None,
-    )
+    repo = (item.get("repository_identity") or {}).get("project_name")
+    candidates = [
+        task
+        for task in tasks_of(data)
+        if task.get("branch") == item.get("branch_name")
+        and task.get("stage") in ("planned", "implementing")
+        and (not repo or task.get("repo") == repo)
+        and (
+            not item.get("checkpoint_task") or task.get("id") == item["checkpoint_task"]
+        )
+        and (not item.get("plan_id") or task.get("plan_id") == item["plan_id"])
+    ]
+    task = candidates[0] if len(candidates) == 1 else None
     if task is None:
         return
+    item["checkpoint_task"] = task["id"]
     run = {key: item.get(key) for key in RUN_KEYS}
     run["codex_prompt"] = str(run.get("codex_prompt") or "")[:RUN_PROMPT_LIMIT]
     task["run"] = run
@@ -201,7 +206,18 @@ def view(task: dict, data: MutableMapping) -> dict:
     is_own_plan = task.get("stage") == "planned" and getattr(
         pending, "id", None
     ) == task.get("plan_id")
+    from ai_agent.checkpoints import task_status
+
     return {
+        **(
+            task_status(task)
+            if can_retry(task)
+            else {
+                "can_resume": False,
+                "resume_reason": "Task has no failed attempt.",
+                "resume_summary": "",
+            }
+        ),
         "id": task.get("id"),
         "title": task.get("title"),
         "image_count": len(task.get("images") or []),

@@ -502,8 +502,7 @@ def test_private_command_failure_omits_paths_bytes_but_preserves_capacity(
     from ai_agent import shell
 
     monkeypatch.setattr(
-        shell.subprocess,
-        "run",
+        "ai_agent.provider_process.grouped_run",
         lambda *args, **kwargs: SimpleNamespace(
             returncode=1,
             stdout="private-payload usage limit reached",

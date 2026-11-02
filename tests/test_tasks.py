@@ -383,7 +383,7 @@ class TaskActionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(seen["pending"]["branch_name"], "feature/upload")
         self.assertEqual(seen["pending"]["images"], [{"id": "a1b2.png"}])
         self.assertEqual(task["stage"], "implementing")
-        self.assertIn("Retrying", reply)
+        self.assertIn("Starting fresh", reply)
 
     async def test_a_retry_waits_while_other_work_runs(self) -> None:
         tasks = importlib.import_module("ai_agent.tasks")

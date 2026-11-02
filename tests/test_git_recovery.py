@@ -23,6 +23,9 @@ def repository(tmp_path, monkeypatch):
     git("commit", "-m", "initial")
     git("remote", "add", "origin", str(tmp_path))
     project = SimpleNamespace(repo_path=tmp_path, base_branch="main")
+    from ai_agent import checkpoints
+
+    monkeypatch.setattr(checkpoints, "active_project", lambda: project)
     monkeypatch.setattr(recovery, "active_project", lambda: project)
     monkeypatch.setattr(workflow, "active_project", lambda: project)
     from ai_agent import shell

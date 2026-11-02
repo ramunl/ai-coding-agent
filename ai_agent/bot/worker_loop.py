@@ -62,10 +62,20 @@ async def _limit_failure(
         return False
     worker["out_until"][tool] = until
     if task.get("stage") in ("stopped", "ended"):
-        set_stage(task, "todo", f"{tool} hit its usage limit; will retry")
+        if current.get("phase") == "running":
+            task["worker_failed"] = True
+            set_stage(
+                task,
+                "stopped",
+                f"{tool} hit its usage limit; choose Resume saved work or Start fresh",
+            )
+        else:
+            set_stage(task, "todo", f"{tool} hit its usage limit; will retry planning")
     until_text = time.strftime("%H:%M", time.localtime(until))
     others = [name for name in TOOLS if name != tool]
     plan_b = f"; using {others[0]} meanwhile" if worker.get("auto_tool", True) else ""
+    if current.get("phase") == "running":
+        plan_b = "; task paused; choose Resume saved work or Start fresh"
     await _tell(
         ptb_app, owner_id, f"{tool} hit its usage limit until {until_text}{plan_b}."
     )

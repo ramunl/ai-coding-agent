@@ -13,6 +13,7 @@ from ai_agent.context_sources import ContextBlockedError, ContextRequest
 from ai_agent.ecosystem import ecosystem_block
 from ai_agent.github_links import enrich_feature_description
 from ai_agent.image_delivery import invoke
+from ai_agent.plan_scope import SCOPE_GUIDANCE
 from ai_agent.planning_provider import (
     SCHEMAS_DIR,
     SUPPORTED_PLANNING_AGENTS,
@@ -100,6 +101,8 @@ Project files sample:
 {rules_block}
 Feature request: {enriched_feature_description}
 
+{SCOPE_GUIDANCE}
+
 Return only valid JSON with this shape:
 {{
   "branch": "feature/short-safe-branch-name",
@@ -175,6 +178,8 @@ Current plan:
 
 User feedback:
 {feedback}
+
+{SCOPE_GUIDANCE}
 
 Return only valid JSON with this shape:
 {{
@@ -290,12 +295,16 @@ Ready response:
 Questions response:
 {{"status":"questions","questions":["short necessary product/UX question"]}}
 
+{SCOPE_GUIDANCE}
+Also include optional files, steps and risks describing the actual fix scope
+(at most 8 strings each). Include scope_assessment for ready reports too;
+ready means enough information, not that the task is small.
 Ask at most 2 questions.
                 """
     return planner_message(
         prompt,
         provider,
         "bugfix_assessment.json",
-        500,
+        1800,
         **({"context": context} if context is not None else {}),
     ).strip()

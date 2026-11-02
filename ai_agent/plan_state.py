@@ -7,6 +7,7 @@ from enum import StrEnum
 from ai_agent.config import redact_sensitive
 from ai_agent.ecosystem import repository_note
 from ai_agent.plan_document import PlanDocument, parse_plan_document
+from ai_agent.plan_scope import scope_warning
 from ai_agent.projects import active_project
 
 __all__ = [
@@ -169,6 +170,7 @@ def render_plan(plan: PlanState) -> str:
         note = repository_note(document.repositories, project_name)
         if note:
             lines.append(note)
+    lines.extend(scope_warning(document.scope_assessment))
     if document.files:
         lines.extend(["", "Files:", *[f"- {file}" for file in document.files]])
     if document.steps:
@@ -204,6 +206,7 @@ def plan_outline(plan: PlanState) -> dict:
         return [short(value) for value in values[:OUTLINE_ITEMS]]
 
     return {
+        "scope_assessment": document.scope_assessment,
         "branch": short(document.branch),
         "summary": short(document.summary),
         "files": items(document.files),
