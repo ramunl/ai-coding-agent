@@ -12,6 +12,7 @@ from typing import ParamSpec, TypeVar
 from ai_agent.context_models import (
     AttemptSnapshot,
     ContextRecord,
+    Dependency,
     PacketReference,
     RecordReference,
 )
@@ -63,10 +64,13 @@ def _entry(ref: RecordReference, record: ContextRecord) -> dict:
 
 def _load(
     request: ContextRequest,
+    *,
+    verify_dependencies: bool = True,
 ) -> tuple[list[tuple[int, RecordReference, ContextRecord, bool]], list[dict]]:
     required = set(request.constraints + request.prerequisites)
     refs = sorted(required | set(request.candidates), key=_key)
     entries, omitted, decisions, dependencies = [], [], {}, set(request.dependency_ids)
+    scoped = list(request.dependencies)
     for ref in refs:
         try:
             record = request.read(ref)
@@ -74,6 +78,7 @@ def _load(
                 if record.record_id != request.initiative_id:
                     raise ContextBlockedError("Initiative identity mismatch")
                 dependencies.update(record.dependency_ids)
+                scoped.extend(record.dependencies)
             missing = set(record.references) - required
             if missing:
                 raise ContextBlockedError(
@@ -112,11 +117,35 @@ def _load(
         for _, ref, record, _ in entries
         if ref in request.prerequisites and isinstance(record, AttemptSnapshot)
     }
-    if dependencies - handoffs:
+    scoped_ids = {d.task_id for d in scoped}
+    for _, ref, record, _ in entries:
+        if (
+            isinstance(record, AttemptSnapshot)
+            and record.task_id in dependencies - scoped_ids
+            and ref in request.prerequisites
+        ):
+            scoped.append(Dependency(record.task_id, ref.scope, ref))
+    if dependencies - handoffs - scoped_ids:
         raise ContextBlockedError(
             "Missing prerequisite handoffs: "
             + ", ".join(sorted(dependencies - handoffs))
         )
+    from ai_agent.dependency_evidence import evaluate_dependency
+
+    if len(scoped) > 8:
+        raise ContextBlockedError("Dependency limit exceeded")
+    for dependency in scoped if verify_dependencies else ():
+        try:
+            evaluate_dependency(
+                asdict(dependency),
+                store=next(
+                    (s for s in request.stores if s.scope == dependency.scope), None
+                ),
+            )
+        except Exception as error:
+            raise ContextBlockedError(
+                "Dependency evidence unknown; fresh verification required"
+            ) from error
     terms = set(re.findall(r"[a-z0-9_]{3,}", request.query.lower()))
 
     def relevance(entry: tuple) -> tuple:
@@ -161,6 +190,7 @@ def build_packet(
     char_limit: int = HISTORY_CHAR_LIMIT,
     handoff_limit: int = HANDOFF_LIMIT,
     reopen_in_prompt: bool = False,
+    verify_dependencies: bool = True,
 ) -> ContextPacket:
     """Include mandatory evidence whole; omit optional records with a trace."""
     try:
@@ -183,7 +213,7 @@ def build_packet(
         )
     if reopen_in_prompt:
         char_limit -= len(reopen)
-    entries, omitted = _load(request)
+    entries, omitted = _load(request, verify_dependencies=verify_dependencies)
     selected, refs = [], []
     envelope = {
         "schema_version": 1,
@@ -197,6 +227,7 @@ def build_packet(
         "records": selected,
         "repository_evidence": _documents(request),
         "repository_head": request.repository_head,
+        "dependencies": [asdict(d) for d in request.dependencies],
         "reopen": (
             {
                 "location": "original_prompt",

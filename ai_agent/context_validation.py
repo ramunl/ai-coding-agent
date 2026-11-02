@@ -14,6 +14,7 @@ from ai_agent.context_models import (
     MAX_TEXT,
     RECORD_TYPES,
     ContextRecord,
+    Dependency,
     Scope,
 )
 
@@ -144,6 +145,32 @@ def references_of(record: ContextRecord) -> tuple:
     )
 
 
+def decode_dependency(data: dict, owner_id: str) -> Dependency:
+    """Validate cross-repository prerequisites within the authorized owner."""
+    dependency = _decode(data, Dependency)
+    opaque_id(dependency.task_id)
+    validate_scope(dependency.scope)
+    if dependency.scope.owner_id != owner_id or dependency.scope.repository is None:
+        raise ContextValidationError("Dependency outside owner/repository scope")
+    if not 1 <= dependency.revision <= 1_000_000:
+        raise ContextValidationError("Invalid dependency revision")
+    ref = dependency.attempt
+    if ref is not None:
+        opaque_id(ref.record_id)
+        if ref.kind != "attempt" or ref.scope != dependency.scope or ref.revision != 1:
+            raise ContextValidationError("Invalid dependency attempt reference")
+    override = dependency.override
+    if override is not None:
+        opaque_id(override.record_id)
+        if (
+            override.kind != "initiative"
+            or override.scope != dependency.scope
+            or override.revision < 1
+        ):
+            raise ContextValidationError("Invalid dependency override reference")
+    return dependency
+
+
 def decode_record(data: dict) -> ContextRecord:
     """Reject unknown fields, unsupported schemas and malformed contracts."""
     if type(data) is not dict:
@@ -175,6 +202,8 @@ def decode_record(data: dict) -> ContextRecord:
         opaque_id(dependency)
     if len(set(dependencies)) != len(dependencies):
         raise ContextValidationError("Duplicate dependency ID")
+    for dependency in getattr(record, "dependencies", ()):
+        decode_dependency(asdict(dependency), record.scope.owner_id)
     for evidence in record.evidence:
         opaque_id(evidence.evidence_id)
     for packet in getattr(record, "packets", ()):

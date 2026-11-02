@@ -77,6 +77,20 @@ class Decision:
     superseded_by: str | None = None
 
 
+@dataclass(frozen=True)
+class Dependency:
+    """A required predecessor in its own repository, optionally pinned to an attempt."""
+
+    task_id: str
+    scope: Scope
+    attempt: RecordReference | None = None
+    policy: Literal["reviewable_pr", "merged_in_checkout", "deployed"] = (
+        "merged_in_checkout"
+    )
+    revision: int = 1
+    override: RecordReference | None = None
+
+
 @dataclass(frozen=True, kw_only=True)
 class ContextRecord:
     """Shared versioned envelope; revision zero denotes an unwritten draft."""
@@ -104,6 +118,7 @@ class InitiativeContext(ContextRecord):
 
     kind: Literal["initiative"] = "initiative"
     dependency_ids: tuple[str, ...] = ()
+    dependencies: tuple[Dependency, ...] = ()
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -122,6 +137,7 @@ class AttemptSnapshot(ContextRecord):
     attempt_id: str
     outcome: Literal["succeeded", "failed", "blocked", "cancelled"]
     dependency_ids: tuple[str, ...] = ()
+    dependencies: tuple[Dependency, ...] = ()
     packets: tuple[PacketReference, ...] = ()
 
 

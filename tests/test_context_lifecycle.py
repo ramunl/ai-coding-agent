@@ -477,7 +477,7 @@ def test_retry_rechecks_packet_digest_even_without_pending_plan(setup, monkeypat
     monkeypatch.setattr(
         lifecycle,
         "build_packet",
-        lambda request: replace(
+        lambda request, **kwargs: replace(
             original, reference=replace(original.reference, sha256="f" * 64)
         ),
     )

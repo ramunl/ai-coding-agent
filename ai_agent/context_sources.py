@@ -5,7 +5,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from ai_agent.context_models import ContextRecord, RecordReference, Scope
+from ai_agent.context_models import ContextRecord, Dependency, RecordReference, Scope
 from ai_agent.context_store import ContextStore, read_bytes
 from ai_agent.context_validation import (
     _redact_text,
@@ -46,6 +46,7 @@ class ContextRequest:
     prerequisites: tuple[RecordReference, ...] = ()
     candidates: tuple[RecordReference, ...] = ()
     dependency_ids: tuple[str, ...] = ()
+    dependencies: tuple[Dependency, ...] = ()
     documents: tuple[RepositoryEvidence, ...] = ()
     repository_head: str | None = None
     query: str = ""
@@ -78,6 +79,14 @@ class ContextRequest:
                 raise ContextBlockedError(
                     "Repository evidence requires a SHA-256 digest"
                 )
+        from dataclasses import asdict
+
+        from ai_agent.context_validation import decode_dependency
+
+        if len(self.dependencies) > 8:
+            raise ContextBlockedError("Dependency limit exceeded")
+        for dependency in self.dependencies:
+            decode_dependency(asdict(dependency), self.authorized_owner_id)
         for dependency in self.dependency_ids:
             opaque_id(dependency)
         for scope in [

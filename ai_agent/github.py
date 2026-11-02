@@ -31,7 +31,13 @@ def ensure_github_configured() -> None:
 
 
 def github_request(
-    method: str, path: str, data: dict | None = None, query: dict | None = None
+    method: str,
+    path: str,
+    data: dict | None = None,
+    query: dict | None = None,
+    *,
+    timeout: float | None = None,
+    max_bytes: int | None = None,
 ) -> dict:
     """Send an authenticated API request and decode its JSON response."""
     if not GITHUB_TOKEN:
@@ -55,9 +61,12 @@ def github_request(
     request = urllib.request.Request(url, data=body, headers=headers, method=method)
     try:
         with urllib.request.urlopen(
-            request, timeout=COMMAND_TIMEOUT_SECONDS
+            request, timeout=timeout or COMMAND_TIMEOUT_SECONDS
         ) as response:
-            response_body = response.read().decode("utf-8")
+            payload = response.read(max_bytes + 1) if max_bytes else response.read()
+            if max_bytes and len(payload) > max_bytes:
+                raise ValueError("GitHub response exceeds limit")
+            response_body = payload.decode("utf-8")
     except urllib.error.HTTPError as exc:
         error_body = exc.read().decode("utf-8", errors="replace")
         raise RuntimeError(

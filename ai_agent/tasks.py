@@ -49,6 +49,7 @@ FINISHED = ("pr", "done", "stopped")
 # same approved plan (and another tool) instead of planning it again.
 RUN_KEYS = (
     "context_spec",
+    "dependency_task",
     "approval_binding",
     "run_binding",
     "repository_identity",
@@ -178,6 +179,22 @@ def remember_run(data: MutableMapping, item: dict) -> None:
     if task is None:
         return
     item["checkpoint_task"] = task["id"]
+    from copy import deepcopy
+
+    item["dependency_task"] = deepcopy(
+        {
+            key: task[key]
+            for key in (
+                "id",
+                "after",
+                "dependencies",
+                "dependency_ids",
+                "attempt",
+                "dependency_invalidations",
+            )
+            if key in task
+        }
+    )
     run = {key: item.get(key) for key in RUN_KEYS}
     if not run.get("run_binding"):
         # Legacy records keep their existing preview bound. Sealed approvals
@@ -192,20 +209,11 @@ def can_retry(task: dict) -> bool:
 
 
 def waiting_for(task: dict, data: MutableMapping) -> dict | None:
-    """The earlier part of a split plan this task waits for, or None.
+    """Display the latest dependency decision without performing evidence I/O."""
+    from ai_agent.dependency_evidence import cached_reason
 
-    A part may start once the part before it has a pull request (or was
-    merged or removed): its code then exists for this one to build on.
-    """
-    after = task.get("after")
-    if data.get("context_recovery_pending"):
-        return {"title": "context handoff recovery"}
-    if not after:
-        return None
-    previous = find_task(data, after)
-    if previous is None or previous.get("stage") in ("pr", "done"):
-        return None
-    return previous
+    reason = cached_reason(task, data)
+    return {"title": reason} if reason else None
 
 
 def view(task: dict, data: MutableMapping) -> dict:
@@ -244,6 +252,8 @@ def view(task: dict, data: MutableMapping) -> dict:
         "part": task.get("part"),
         "parts": task.get("parts"),
         "waiting_for": (waiting_for(task, data) or {}).get("title"),
+        "dependency_reason": (waiting_for(task, data) or {}).get("title")
+        or (task.get("dependency_check") or {}).get("reason"),
         "can_retry": can_retry(task),
         "can_reopen": can_reopen(task, data),
         "attempt": task.get("attempt", 1),
@@ -264,6 +274,14 @@ def view(task: dict, data: MutableMapping) -> dict:
 
 def remove_task(data: MutableMapping, task: dict) -> None:
     """Remove a task and attachments not shared with another task or plan."""
+    from ai_agent.dependency_evidence import bind_dependencies
+
+    for consumer in tasks_of(data):
+        try:
+            bind_dependencies(consumer, data)
+        except (ValueError, TypeError, KeyError):
+            # Preserve unresolved edges: removal cannot grant readiness.
+            pass
     tasks_of(data).remove(task)
     retained = [*tasks_of(data), *(data.get("task_queue") or [])]
     pending = data.get("pending_plan")

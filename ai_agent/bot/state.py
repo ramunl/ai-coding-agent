@@ -182,6 +182,7 @@ def enqueue_pending_implementation(
     require_run(pending)
     task = {
         "context_spec": pending.get("context_spec"),
+        "dependency_task": pending.get("dependency_task"),
         "approval_binding": pending.get("approval_binding"),
         "run_binding": pending.get("run_binding"),
         "id": next_task_id(context),

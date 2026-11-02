@@ -17,6 +17,7 @@ from ai_agent import auto_todos, code_review, log_scan
 from ai_agent.actions import ActionError
 from ai_agent.bot import task_actions, work_actions
 from ai_agent.context_recovery import reconcile
+from ai_agent.dependency_evidence import refresh as refresh_dependencies
 from ai_agent.planner import normalize_planning_agent
 from ai_agent.projects import active_project, list_projects
 from ai_agent.provider_limits import limits_snapshot
@@ -138,6 +139,16 @@ async def tick(ptb_app: Any, owner_id: int, now: float | None = None) -> str:
         await _tell(ptb_app, owner_id, f"{status} in {started['repo']}.")
         ptb_app.mark_data_for_update_persistence(user_ids=owner_id)
         return status
+    if worker["enabled"]:
+        # Bound each pass; rotate checks so blocked tasks cannot starve later work.
+        candidates = [
+            t for t in tasks_of(data) if t.get("stage") in {"todo", "planned"}
+        ]
+        candidates.sort(
+            key=lambda t: (t.get("dependency_check") or {}).get("checked_at", 0)
+        )
+        for candidate in candidates[:2]:
+            await refresh_dependencies(candidate, data)
     decision = decide(data, tasks_of(data), limits_snapshot(), now)
     data["worker_status"] = decision.status
     if worker["enabled"] and auto_todos.is_due(data, now):

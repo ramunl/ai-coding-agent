@@ -339,7 +339,9 @@ class TaskActionTests(unittest.IsolatedAsyncioTestCase):
         tasks.set_stage(first, "implementing")
         second = tasks.add_task(self.data, "part two", "repo", None)
         second["after"] = first["id"]
-        with self.assertRaisesRegex(self.errors.ActionError, "waits for “part one”"):
+        with self.assertRaisesRegex(
+            self.errors.ActionError, "dependency evidence unknown"
+        ):
             await self.run_action("start_task", {"task": second["id"]})
         with self.assertRaisesRegex(self.errors.ActionError, "No pending plan"):
             await self.run_action("split_plan", {})
