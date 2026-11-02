@@ -65,11 +65,11 @@ def test_malformed_assessment_is_bounded_and_redacted():
     assert not assess_scope({"recommend_split": "false"}, [], [])["recommend_split"]
 
 
-def test_scope_remains_optional_in_schema():
+def test_scope_required_by_provider_schema():
     from ai_agent.planning_provider import SCHEMAS_DIR
 
     schema = json.loads((SCHEMAS_DIR / "feature_plan.json").read_text())
-    assert "scope_assessment" not in schema["required"]
+    assert "scope_assessment" in schema["required"]
     assert "scope_assessment" in schema["properties"]
 
 

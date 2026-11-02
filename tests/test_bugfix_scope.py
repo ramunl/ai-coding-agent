@@ -71,9 +71,9 @@ def test_broad_ready_bugfix_warns_before_confirm_and_preserves_fix_semantics():
     assert text.index("Scope warning") < text.index("Send /confirm")
 
 
-def test_bugfix_scope_fields_optional_in_schema():
+def test_bugfix_scope_fields_required_by_provider_schema():
     from ai_agent.planning_provider import SCHEMAS_DIR
 
     schema = json.loads((SCHEMAS_DIR / "bugfix_assessment.json").read_text())
-    assert schema["required"] == ["status", "questions"]
+    assert set(schema["required"]) == set(schema["properties"])
     assert "scope_assessment" in schema["properties"]
