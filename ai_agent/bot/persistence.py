@@ -30,6 +30,8 @@ from telegram.ext import BasePersistence, PersistenceInput
 
 from ai_agent.bot.atomic_file import write_json_atomic
 from ai_agent.bot.state import PERSISTENT_KEYS
+from ai_agent.config import CHAT_ID
+from ai_agent.context_recovery import detect_pending
 from ai_agent.plan_state import ExecutionState, PlanState
 from ai_agent.task_images import references_in
 
@@ -208,10 +210,23 @@ class JsonStatePersistence(BasePersistence):
 
     async def get_user_data(self) -> dict[int, dict]:
         """Decode persisted user records for the Telegram application."""
-        return {
+        users = {
             user_id: deserialize_user_data(data)
             for user_id, data in self._encoded_users().items()
         }
+        if CHAT_ID not in users:
+            try:
+                if detect_pending(CHAT_ID):
+                    users[CHAT_ID] = {"context_recovery_pending": True}
+            except Exception:
+                users[CHAT_ID] = {"context_recovery_pending": True}
+        for user_id, data in users.items():
+            try:
+                if detect_pending(user_id):
+                    data["context_recovery_pending"] = True
+            except Exception:
+                data["context_recovery_pending"] = True
+        return users
 
     async def update_user_data(self, user_id: int, data: dict) -> None:
         # PTB calls this every update_interval for users whose data changed.

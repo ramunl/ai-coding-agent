@@ -48,6 +48,9 @@ FINISHED = ("pr", "done", "stopped")
 # What a task keeps of its run, so a run that failed can be retried with the
 # same approved plan (and another tool) instead of planning it again.
 RUN_KEYS = (
+    "context_spec",
+    "approval_binding",
+    "run_binding",
     "repository_identity",
     "change",
     "images",
@@ -176,7 +179,10 @@ def remember_run(data: MutableMapping, item: dict) -> None:
         return
     item["checkpoint_task"] = task["id"]
     run = {key: item.get(key) for key in RUN_KEYS}
-    run["codex_prompt"] = str(run.get("codex_prompt") or "")[:RUN_PROMPT_LIMIT]
+    if not run.get("run_binding"):
+        # Legacy records keep their existing preview bound. Sealed approvals
+        # must retain exact requirements for future Resume/Start fresh actions.
+        run["codex_prompt"] = str(run.get("codex_prompt") or "")[:RUN_PROMPT_LIMIT]
     task["run"] = run
 
 
@@ -192,6 +198,8 @@ def waiting_for(task: dict, data: MutableMapping) -> dict | None:
     merged or removed): its code then exists for this one to build on.
     """
     after = task.get("after")
+    if data.get("context_recovery_pending"):
+        return {"title": "context handoff recovery"}
     if not after:
         return None
     previous = find_task(data, after)

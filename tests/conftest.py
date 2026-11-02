@@ -13,3 +13,5 @@ import tempfile
 _USAGE_DIR = tempfile.mkdtemp(prefix="token-usage-tests-")
 atexit.register(shutil.rmtree, _USAGE_DIR, ignore_errors=True)
 os.environ["TOKEN_USAGE_PATH"] = os.path.join(_USAGE_DIR, "token-usage.json")
+
+os.environ["CONTEXT_ROOT"] = os.path.join(_USAGE_DIR, "context")

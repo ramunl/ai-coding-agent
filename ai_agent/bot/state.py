@@ -17,7 +17,17 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from telegram.ext import ContextTypes
 
-from ai_agent.config import redact_sensitive
+from ai_agent.config import CHAT_ID, redact_sensitive
+from ai_agent.context_lifecycle import (
+    current_context,
+    packet_receipt,
+    planning_request,
+    recovery_refusal,
+    request_from_spec,
+    require_plan_approval,
+    require_run,
+    run_binding,
+)
 from ai_agent.plan_scope import assess_scope
 from ai_agent.plan_state import (
     ExecutionState,
@@ -38,6 +48,8 @@ from ai_agent.workflow import ImplementationResult, normalize_implementation_age
 # forgotten on restart (harmless) rather than restored (possibly harmful).
 PERSISTENT_KEYS = frozenset(
     {
+        "context_recovery_pending",
+        "context_sources",
         "pending_plan",
         "pending_implementation",
         "pending_bugfix_clarification",  # Includes owned bug-report image references.
@@ -78,13 +90,31 @@ def _data(source: Any) -> MutableMapping:
 
 
 @contextmanager
-def planning_guard(context: Any) -> Iterator[None]:
+def planning_guard(
+    context: Any, *, identity: dict | None = None, context_spec: dict | None = None
+) -> Iterator[None]:
     """Block project switches across the whole planning flow, including replies."""
     data = _data(context)
+    token = None
+    receipt_token = None
+    if current_context.get() is None and identity is not None:
+        reason = recovery_refusal(data)
+        if reason:
+            raise RuntimeError(reason)
+        request = (
+            request_from_spec(context_spec)
+            if context_spec
+            else planning_request(data, str(CHAT_ID), identity)
+        )
+        token = current_context.set(request)
+        receipt_token = packet_receipt.set({})
     data["planning_active"] = data.get("planning_active", 0) + 1
     try:
         yield
     finally:
+        if token is not None:
+            packet_receipt.reset(receipt_token)
+            current_context.reset(token)
         remaining = data["planning_active"] - 1
         if remaining:
             data["planning_active"] = remaining
@@ -102,6 +132,7 @@ def set_pending_from_plan(
     context: ContextTypes.DEFAULT_TYPE, plan_state: PlanState
 ) -> None:
     """Convert an approved plan into pending implementation data."""
+    require_plan_approval(plan_state)
     document = parse_plan_document(plan_state.plan_text, plan_state.feature)
     _data(context)["pending_implementation"] = {
         "repository_identity": (
@@ -110,6 +141,8 @@ def set_pending_from_plan(
             else None
         ),
         "plan_id": plan_state.id,
+        "context_spec": plan_state.context_spec,
+        "approval_binding": plan_state.approval_binding,
         "change": plan_state.feature,
         "images": list(plan_state.images),
         "codex_prompt": document.codex_prompt,
@@ -118,6 +151,9 @@ def set_pending_from_plan(
         "pr_body_label": f"Plan revision {plan_state.revision}",
         "confirmation_label": "implementation",
     }
+
+    pending = _data(context)["pending_implementation"]
+    pending["run_binding"] = run_binding(pending)
 
 
 def next_task_id(context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -140,7 +176,14 @@ def enqueue_pending_implementation(
     context: ContextTypes.DEFAULT_TYPE, pending: dict
 ) -> dict:
     """Snapshot pending work and append it to the FIFO queue."""
+    reason = recovery_refusal(_data(context))
+    if reason:
+        raise RuntimeError(reason)
+    require_run(pending)
     task = {
+        "context_spec": pending.get("context_spec"),
+        "approval_binding": pending.get("approval_binding"),
+        "run_binding": pending.get("run_binding"),
         "id": next_task_id(context),
         "execution_mode": pending.get("execution_mode", "fresh"),
         "checkpoint_task": pending.get("checkpoint_task"),
@@ -316,6 +359,7 @@ def snapshot(context: Any) -> dict:
     execution = data.get("active_execution")
     last = last_execution(context)
     return {
+        "context_recovery_pending": bool(data.get("context_recovery_pending")),
         "running": dict(execution) if isinstance(execution, dict) else None,
         "queue": [
             {

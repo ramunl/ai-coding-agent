@@ -19,6 +19,7 @@ from ai_agent.bot.ci_monitor import (
     final_ci_status_message,
     watch_ci,
 )
+from ai_agent.bot.context_execution import lifecycle_execution
 from ai_agent.bot.image_intake import report_missing
 from ai_agent.bot.state import (
     active_execution_text,
@@ -34,6 +35,12 @@ from ai_agent.bot.state import (
 from ai_agent.bot.transport import reply_chunks, require_authorized
 from ai_agent.ci import CiResult, build_failure_context
 from ai_agent.config import CI_FIX_ATTEMPTS
+from ai_agent.context_attempts import checkpoint, current_attempt
+from ai_agent.context_lifecycle import (
+    recovery_refusal,
+    require_plan_approval,
+    require_run,
+)
 from ai_agent.git_recovery import (
     bind_checkpoint,
     cleanup_recovery,
@@ -99,6 +106,9 @@ async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
 
+    if plan_state:
+        require_plan_approval(plan_state)
+    require_run(pending)
     refusal = repository_mismatch(pending.get("repository_identity"))
     if refusal:
         await reply_chunks(update, refusal)
@@ -131,11 +141,16 @@ async def run_task_queue(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     context.user_data["queue_runner_active"] = True
     try:
         while task_queue(context):
+            reason = recovery_refusal(context.user_data)
+            if reason:
+                await reply_chunks(update, reason)
+                return
             task = task_queue(context)[0]
             refusal = repository_mismatch(task.get("repository_identity"))
             if refusal:
                 await reply_chunks(update, refusal)
                 return
+            require_run(task)
             task_queue(context).pop(0)
             await run_queued_implementation(update, context, task)
     finally:
@@ -143,6 +158,7 @@ async def run_task_queue(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 @serialized_execution
+@lifecycle_execution
 async def run_queued_implementation(
     update: Update, context: ContextTypes.DEFAULT_TYPE, task: dict
 ) -> None:
@@ -180,7 +196,7 @@ async def run_queued_implementation(
         )
         await asyncio.to_thread(mark_published, pull_request.url)
         set_active_execution(context, branch_name, "Polling CI")
-        ci_result = await watch_ci(update, commit_sha)
+        ci_result = await _watch_ci(update, commit_sha)
 
         request = _RepairRequest(
             branch_name=branch_name,
@@ -205,6 +221,7 @@ async def run_queued_implementation(
         )
     except NoCodeOutcomeError as outcome:
         no_code = True
+        checkpoint("no_code", outcome=outcome.status, model_report="unverified")
         record_outcome(context.user_data, branch_name, outcome)
         context.application.mark_data_for_update_persistence(
             user_ids=[update.effective_user.id]
@@ -297,6 +314,13 @@ async def _publish_queued_implementation(
     return pull_request, commit_sha
 
 
+async def _watch_ci(update: Update, sha: str) -> CiResult:
+    """Capture the application result even when a custom polling adapter is used."""
+    result = await watch_ci(update, sha)
+    checkpoint("ci", sha=sha, state=result.state, url=getattr(result, "url", None))
+    return result
+
+
 async def reset_to_base_branch(update: Update) -> bool:
     """Report recovery and cleanup failures without replacing the run error."""
     restored = False
@@ -325,6 +349,7 @@ async def reset_to_base_branch(update: Update) -> bool:
 
 
 @serialized_execution
+@lifecycle_execution
 async def fixpr(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Repair failing CI for an open pull request in the active repository."""
     if not require_authorized(update):
@@ -364,7 +389,7 @@ async def fixpr(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await reply_chunks(
             update, f"Checking CI for PR #{pr_number}.\n\nBranch:\n{branch_name}"
         )
-        ci_result = await watch_ci(update, head_sha)
+        ci_result = await _watch_ci(update, head_sha)
 
         ci_result, repair_attempt = await _repair_failed_ci(
             update, context, request, ci_result
@@ -414,6 +439,11 @@ async def _load_pr_repair(
 
     pr_url = str(pull_data.get("html_url") or "")
     head_sha = str(head.get("sha") or "")
+    attempt = current_attempt.get()
+    if attempt:
+        attempt.state["branch"] = branch_name
+        attempt.save()
+    checkpoint("pr", number=pr_number, url=pr_url, sha=head_sha)
     title = str(pull_data.get("title") or f"PR #{pr_number}")
     body = str(pull_data.get("body") or "")
     implementation_agent = current_implementation_agent(context)
@@ -487,7 +517,7 @@ async def _repair_failed_ci(
             request.branch_name,
             f"Polling CI after {label} (attempt {attempt})",
         )
-        ci_result = await watch_ci(update, commit_sha)
+        ci_result = await _watch_ci(update, commit_sha)
     return ci_result, repair_attempt
 
 

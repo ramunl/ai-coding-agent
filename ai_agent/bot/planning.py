@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import asdict
 
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -21,6 +22,13 @@ from ai_agent.bot.transport import (
     require_authorized,
 )
 from ai_agent.bugfix_scope import BugfixReview, parse_bugfix_review
+from ai_agent.context_lifecycle import (
+    approve_plan,
+    current_context,
+    run_binding,
+    spec_from_request,
+)
+from ai_agent.context_packets import build_packet
 from ai_agent.image_delivery import invoke
 from ai_agent.plan_scope import scope_warning
 from ai_agent.plan_state import (
@@ -58,7 +66,7 @@ async def plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
 
-    with planning_guard(context):
+    with planning_guard(context, identity=capture_repository_identity()):
         identity = capture_repository_identity()
         provider = current_planning_agent(context)
         await reply_chunks(update, f"Planning with {planning_agent_label(provider)}...")
@@ -98,7 +106,11 @@ async def discuss(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
 
-    with planning_guard(context):
+    with planning_guard(
+        context,
+        identity=plan_state.repository_identity,
+        context_spec=plan_state.context_spec,
+    ):
         provider = current_planning_agent(context)
         await reply_chunks(
             update, f"Revising plan with {planning_agent_label(provider)}..."
@@ -166,7 +178,7 @@ async def approve(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await reply_chunks(update, refusal)
         return
 
-    plan_state.approved = True
+    approve_plan(plan_state)
     context.user_data["pending_plan"] = plan_state
     set_pending_from_plan(context, plan_state)
     document = parse_plan_document(plan_state.plan_text, plan_state.feature)
@@ -223,7 +235,7 @@ async def implement_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         )
         return
 
-    with planning_guard(context):
+    with planning_guard(context, identity=capture_repository_identity()):
         identity = capture_repository_identity()
         provider = current_planning_agent(context)
         await reply_chunks(update, f"Planning with {planning_agent_label(provider)}...")
@@ -239,7 +251,7 @@ async def implement_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             await reply_chunks(update, f"{render_plan(plan_state)}\n\n{refusal}")
             return
 
-        plan_state.approved = True
+        approve_plan(plan_state)
         context.user_data["pending_plan"] = plan_state
         set_pending_from_plan(context, plan_state)
         document = parse_plan_document(plan_state.plan_text, plan_state.feature)
@@ -264,7 +276,7 @@ async def bugfix_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         )
         return
 
-    with planning_guard(context):
+    with planning_guard(context, identity=capture_repository_identity()):
         identity = capture_repository_identity()
         images = list(getattr(update.message, "images", []) or [])
         # Own the uploads before yielding; failed assessments remain retryable.
@@ -331,7 +343,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
 
-    with planning_guard(context):
+    with planning_guard(context, identity=capture_repository_identity()):
         images = list(pending.get("images") or [])
         await report_missing(update, images)
         combined_bug = f"{pending['bug']}\n\nUser clarification:\n{details}"
@@ -391,7 +403,7 @@ async def prepare_bugfix(
     review: BugfixReview | None = None,
 ) -> None:
     """Prepare pending implementation data for a bugfix branch."""
-    with planning_guard(context):
+    with planning_guard(context, identity=capture_repository_identity()):
         identity = (
             dict(identity) if identity is not None else capture_repository_identity()
         )
@@ -400,6 +412,7 @@ async def prepare_bugfix(
 
         context.user_data["pending_implementation"] = {
             "repository_identity": identity,
+            "context_spec": spec_from_request(current_context.get()),
             "change": bug,
             "images": list(images or []),
             "codex_prompt": bugfix_prompt,
@@ -409,6 +422,13 @@ async def prepare_bugfix(
             "confirmation_label": "bug fix",
         }
 
+        pending = context.user_data["pending_implementation"]
+        request = current_context.get()
+        if request is not None:
+            pending["approval_binding"] = {
+                "sources": asdict(build_packet(request).reference)
+            }
+        pending["run_binding"] = run_binding(pending)
         context.user_data.pop("pending_bugfix_clarification", None)
         scope_text = ""
         if review:

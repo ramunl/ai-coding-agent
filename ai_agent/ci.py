@@ -15,25 +15,24 @@ class CiResult:
     url: str | None = None
 
 
-def list_workflow_runs(head_sha: str) -> list[dict]:
+def list_workflow_runs(head_sha: str, repository: str | None = None) -> list[dict]:
     """Fetch workflow runs associated with the requested commit."""
     response = github_request(
         "GET",
-        f"/repos/{active_project().github_repository}/actions/runs",
+        f"/repos/{repository or active_project().github_repository}/actions/runs",
         query={"head_sha": head_sha, "per_page": "20"},
     )
     return response.get("workflow_runs", [])
 
 
-def list_workflow_jobs(run_id: int) -> list[dict]:
+def list_workflow_jobs(run_id: int, repository: str | None = None) -> list[dict]:
     """Fetch the jobs belonging to a workflow run."""
-    response = github_request(
-        "GET", f"/repos/{active_project().github_repository}/actions/runs/{run_id}/jobs"
-    )
+    selected = repository or active_project().github_repository
+    response = github_request("GET", f"/repos/{selected}/actions/runs/{run_id}/jobs")
     return response.get("jobs", [])
 
 
-def summarize_failed_jobs(runs: list[dict]) -> str:
+def summarize_failed_jobs(runs: list[dict], repository: str | None = None) -> str:
     """Describe failed workflow jobs and their failing steps."""
     lines = []
     for run_data in runs:
@@ -44,7 +43,11 @@ def summarize_failed_jobs(runs: list[dict]) -> str:
             "action_required",
         }:
             continue
-        jobs = list_workflow_jobs(int(run_data["id"]))
+        jobs = (
+            list_workflow_jobs(int(run_data["id"]), repository)
+            if repository
+            else list_workflow_jobs(int(run_data["id"]))
+        )
         failed_jobs = [
             job
             for job in jobs
@@ -95,9 +98,13 @@ def run_sort_key(run_data: dict) -> tuple[str, int, int]:
     )
 
 
-def evaluate_ci(head_sha: str) -> CiResult:
+def evaluate_ci(head_sha: str, *, repository: str | None = None) -> CiResult:
     """Classify the latest workflow runs for a commit."""
-    runs = latest_runs_by_workflow(list_workflow_runs(head_sha))
+    runs = latest_runs_by_workflow(
+        list_workflow_runs(head_sha, repository)
+        if repository
+        else list_workflow_runs(head_sha)
+    )
     if not runs:
         return CiResult("waiting", "CI has not started yet")
 
@@ -118,7 +125,11 @@ def evaluate_ci(head_sha: str) -> CiResult:
         in {"failure", "cancelled", "timed_out", "action_required"}
     ]
     if failed:
-        details = summarize_failed_jobs(failed)
+        details = (
+            summarize_failed_jobs(failed, repository)
+            if repository
+            else summarize_failed_jobs(failed)
+        )
         summary = "CI failed"
         if details:
             summary = f"{summary}:\n{details}"

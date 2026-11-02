@@ -1,8 +1,9 @@
 """Implement changes and publish their branches and pull requests."""
 
+import hashlib
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, replace
 
 from ai_agent.codex_models import model_args
 from ai_agent.config import (
@@ -11,7 +12,8 @@ from ai_agent.config import (
     CODEX_TIMEOUT_SECONDS,
     IMPLEMENTATION_AGENT,
 )
-from ai_agent.context_packets import with_context
+from ai_agent.context_attempts import checkpoint, current_attempt, intent
+from ai_agent.context_packets import build_packet, with_context
 from ai_agent.context_sources import ContextRequest
 from ai_agent.git_recovery import (
     _session,
@@ -117,6 +119,7 @@ def run_implementation_agent(
     prompt: str, agent: str | None = None, *, context: ContextRequest | None = None
 ) -> CommandResult:
     """Run a provider command, count its usage, and explain capacity failures."""
+    intent("implementation")
     with codex_capacity_explained():
         result = run_with_images(
             implementation_command(
@@ -221,7 +224,7 @@ def implement(
 
         begin(state.task_id, branch_name)
         state.checkpoint_started = True
-    return _run_and_capture_changes(plan, agent)
+    return _run_and_capture_changes(plan, agent, context)
 
 
 @with_context
@@ -252,6 +255,7 @@ def resume_implementation(
         "Complete remaining approved work; do not reset or discard partial progress. "
         "This is a fresh model invocation, not a resumed provider conversation.",
         agent,
+        context,
     )
 
 
@@ -268,7 +272,7 @@ def repair_implementation(
     validate_branch_name(branch_name)
     run(["git", "checkout", "--no-overwrite-ignore", branch_name])
     run(["git", "pull", "origin", branch_name])
-    return _run_and_capture_changes(prompt, agent)
+    return _run_and_capture_changes(prompt, agent, context)
 
 
 @with_context
@@ -294,12 +298,42 @@ def repair_pull_request_branch(
             f"origin/{branch_name}",
         ]
     )
-    return _run_and_capture_changes(prompt, agent)
+    return _run_and_capture_changes(prompt, agent, context)
 
 
-def _run_and_capture_changes(prompt: str, agent: str | None) -> ImplementationResult:
+def _run_and_capture_changes(
+    prompt: str, agent: str | None, context: ContextRequest | None = None
+) -> ImplementationResult:
     """Capture provider output and the resulting Git changes consistently."""
-    agent_result = run_implementation_agent(prompt, agent)
+    try:
+        if context is not None:
+            head = run(["git", "rev-parse", "HEAD"]).output.strip()
+            context = replace(context, repository_head=head)
+            packet = build_packet(context)
+            attempt = current_attempt.get()
+            if attempt:
+                attempt.packets.append(packet.reference)
+            checkpoint("checkout", sha=head, packet=asdict(packet.reference))
+            agent_result = run_implementation_agent(prompt, agent, context=context)
+        else:
+            agent_result = run_implementation_agent(prompt, agent)
+    except BaseException:
+        # Observe partial edits before guarded_run preserves them and restores
+        # base. Never treat an interrupted provider's prose as evidence.
+        if current_attempt.get() is not None:
+            try:
+                paths = changed_files()
+                partial = run(["git", "diff", "--no-ext-diff", "HEAD"]).output
+                checkpoint(
+                    "diff",
+                    sha256=hashlib.sha256(partial.encode()).hexdigest(),
+                    files=paths,
+                    digest_scope="tracked diff only; untracked paths listed",
+                    model_tests="unverified",
+                )
+            except Exception:
+                checkpoint("git_observation_unavailable", state="unknown")
+        raise
     run(["git", "add", "-N", "."])
     files_changed = changed_files()
     if not files_changed:
@@ -309,6 +343,12 @@ def _run_and_capture_changes(prompt: str, agent: str | None) -> ImplementationRe
         if not files_changed:
             raise NoCodeOutcomeError(agent_result.output)
     diff = run(["git", "diff", "--no-ext-diff"]).output
+    checkpoint(
+        "diff",
+        sha256=hashlib.sha256(diff.encode()).hexdigest(),
+        files=files_changed,
+        model_tests="unverified",
+    )
     return ImplementationResult(
         output=agent_result.output, files_changed=files_changed, diff=diff
     )
@@ -349,9 +389,14 @@ def push(branch_name: str, change_name: str, commit_type: str = "feat") -> str:
         )
     if has_changes():
         run(["git", "add", "."])
+        intent("commit")
         run(["git", "commit", "-m", f"{commit_type}: {change_name}"])
+    sha = run(["git", "rev-parse", "HEAD"]).output.strip()
+    checkpoint("commit", sha=sha, branch=branch_name)
+    intent("push")
     run(["git", "push", "origin", branch_name])
-    return run(["git", "rev-parse", "HEAD"]).output.strip()
+    checkpoint("push", sha=sha, branch=branch_name)
+    return sha
 
 
 def create_pull_request(
@@ -371,8 +416,46 @@ def create_pull_request(
         "body": f"Generated by Channel Cast Agent.\n\n{body_label}:\n\n{body_text}",
         "maintainer_can_modify": True,
     }
+    attempt = current_attempt.get()
+    if attempt:
+        repository = active_project().github_repository
+        existing = github_request(
+            "GET",
+            f"/repos/{repository}/pulls",
+            query={
+                "state": "open",
+                "head": f"{repository.split('/')[0]}:{branch_name}",
+                "base": active_project().base_branch,
+                "per_page": 100,
+            },
+        )
+        if existing:
+            if len(existing) != 1:
+                raise RuntimeError(
+                    "Ambiguous existing pull requests; recovery required"
+                )
+            response = existing[0]
+            local_sha = run(["git", "rev-parse", "HEAD"]).output.strip()
+            if response["head"]["sha"] != local_sha:
+                raise RuntimeError(
+                    "PR head differs from local commit; recovery required"
+                )
+            checkpoint(
+                "pr",
+                number=int(response["number"]),
+                url=response["html_url"],
+                sha=response["head"]["sha"],
+            )
+            return PullRequest(int(response["number"]), response["html_url"], local_sha)
+    intent("pr")
     response = github_request(
         "POST", f"/repos/{active_project().github_repository}/pulls", payload
+    )
+    checkpoint(
+        "pr",
+        number=int(response["number"]),
+        url=response["html_url"],
+        sha=response["head"]["sha"],
     )
     return PullRequest(
         number=int(response["number"]),

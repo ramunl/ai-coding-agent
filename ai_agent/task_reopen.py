@@ -24,6 +24,7 @@ ATTEMPT_FIELDS = (
     "archived_at",
 )
 CLEAR_FIELDS = (
+    "context_handoff",
     "plan_id",
     "run",
     "branch",
@@ -38,6 +39,8 @@ CLEAR_FIELDS = (
 
 def reopen_refusal(task: dict, data: MutableMapping) -> str | None:
     """Use the same eligibility for actions and snapshots, including legacy tasks."""
+    if data.get("context_recovery_pending"):
+        return "Context handoff recovery is pending."
     if task.get("stage") not in ("done", "stopped"):
         return "Only Done or Stopped tasks can be reopened."
     if data.get("planning_task") == task.get("id"):
@@ -95,6 +98,8 @@ def reopen_task(task: dict, data: MutableMapping) -> None:
         started_at=task.get("started_at", task.get("created_at")),
     )
     task.setdefault("attempt_history", []).append(previous)
+    if task.get("context_handoff"):
+        task.setdefault("context_handoffs", []).append(task["context_handoff"])
     for key in CLEAR_FIELDS:
         task.pop(key, None)
     task.update(

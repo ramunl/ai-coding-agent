@@ -57,6 +57,8 @@ STARTABLE = ("todo", "stopped", "blocked", "ops_required")
 
 def start_refusal(data: Any) -> str | None:
     """Why no task can start planning now, or None."""
+    if data.get("context_recovery_pending"):
+        return "context handoff recovery is pending"
     if work_actions._starting or data.get("planning_task"):
         return "another request is being planned"
     if data.get("pending_plan") or data.get("pending_implementation"):
