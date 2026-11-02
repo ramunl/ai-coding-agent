@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ai_agent.ecosystem import plan_repositories
+from ai_agent.plan_scope import assess_scope
 from ai_agent.workflow import slugify_branch_name
 
 
@@ -20,6 +21,7 @@ class PlanDocument:
     risks: list[str]
     codex_prompt: str
     repositories: list[dict[str, str]] = field(default_factory=list)
+    scope_assessment: dict = field(default_factory=dict)
 
 
 def parse_plan_document(plan_text: str, feature: str = "") -> PlanDocument:
@@ -41,6 +43,7 @@ def parse_plan_document(plan_text: str, feature: str = "") -> PlanDocument:
             steps=_plain_text_steps(plan_text),
             risks=[],
             codex_prompt=fallback_prompt,
+            scope_assessment=assess_scope(None, [], _plain_text_steps(plan_text)),
         )
 
     summary = _string_value(data, "summary") or feature or "Planned change"
@@ -66,6 +69,9 @@ def parse_plan_document(plan_text: str, feature: str = "") -> PlanDocument:
         risks=risks,
         codex_prompt=codex_prompt,
         repositories=repositories,
+        scope_assessment=assess_scope(
+            data.get("scope_assessment"), files, steps, risks
+        ),
     )
 
 

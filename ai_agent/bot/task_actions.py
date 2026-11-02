@@ -9,6 +9,7 @@ as soon as the agent is free, ahead of the worker's own picks.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import Any
@@ -45,6 +46,7 @@ TASK_ACTIONS = (
     "dismiss_task",
     "split_plan",
     "retry_task",
+    "resume_task",
     "create_autopilot_task",
     "set_autopilot",
     "cancel_start",
@@ -192,7 +194,9 @@ async def start(
     )
 
 
-async def retry(ptb_app: Any, owner_id: int, task: dict, tool: str) -> str:
+async def retry(
+    ptb_app: Any, owner_id: int, task: dict, tool: str, *, resume: bool = False
+) -> str:
     """Run a task's approved plan again, with tool; raise ActionError if it can't."""
     data = ptb_app.user_data[owner_id]
     if not can_retry(task):
@@ -201,16 +205,42 @@ async def retry(ptb_app: Any, owner_id: int, task: dict, tool: str) -> str:
     if reason:
         raise ActionError(f"Not retried: {reason}.")
     await _switch_to(ptb_app, data, task["repo"])
-    data["pending_implementation"] = {**task["run"], "implementation_agent": tool}
+    from ai_agent.checkpoints import load
+
+    try:
+        existing = await asyncio.to_thread(load, task["id"], task["branch"])
+    except (OSError, ValueError, RuntimeError, KeyError, TypeError):
+        existing = {}
+    if task.get("pr_url") or existing.get("pr_url"):
+        raise ActionError(
+            "PR exists; use PR repair. Saved CI edits need manual recovery."
+        )
+    if resume:
+        from ai_agent.checkpoints import status
+
+        availability = await asyncio.to_thread(status, task["id"], task["branch"])
+        if not availability["can_resume"]:
+            raise ActionError(availability["resume_reason"])
+    data["pending_implementation"] = {
+        **task["run"],
+        "implementation_agent": tool,
+        "execution_mode": "resume" if resume else "fresh",
+        "checkpoint_task": task["id"],
+    }
     task.pop("worker_failed", None)
-    set_stage(task, "implementing", f"retrying with {tool}")
+    set_stage(
+        task,
+        "implementing",
+        f"{'resuming saved work' if resume else 'starting fresh'} with {tool}",
+    )
     try:
         await work_actions.run_work_action(ptb_app, owner_id, "confirm_work", {})
     except Exception:
         data.pop("pending_implementation", None)
         set_stage(task, "stopped", f"retry with {tool} could not start")
         raise
-    return f"Retrying “{task['title'][:80]}” with {tool}; progress is in the bot chat."
+    label = "Resuming saved work" if resume else "Starting fresh"
+    return f"{label}: “{task['title'][:80]}” with {tool}; progress is in the bot chat."
 
 
 async def run_task_action(
@@ -282,8 +312,10 @@ async def run_task_action(
         except ValueError as error:
             raise ActionError(str(error)) from error
         return f"Reopened as To do: {task['title']}. A fresh plan requires approval."
-    if action == "retry_task":
-        return await retry(ptb_app, owner_id, task, args["tool"])
+    if action in ("retry_task", "resume_task"):
+        return await retry(
+            ptb_app, owner_id, task, args["tool"], resume=action == "resume_task"
+        )
     if action == "start_task":
         if task.get("stage") not in ("todo", "stopped", "blocked", "ops_required"):
             raise ActionError(

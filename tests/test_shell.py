@@ -72,7 +72,7 @@ def test_a_failure_shows_the_tool_error_not_the_whole_prompt(monkeypatch, tmp_pa
     failed = subprocess.CompletedProcess(
         [], 1, stdout="", stderr="ERROR: You've hit your usage limit.\n"
     )
-    monkeypatch.setattr(shell.subprocess, "run", lambda *a, **k: failed)
+    monkeypatch.setattr("ai_agent.provider_process.grouped_run", lambda *a, **k: failed)
     with pytest.raises(RuntimeError) as caught:
         shell.run(["codex", "exec", "-s", "workspace-write", prompt], cwd=tmp_path)
     assert str(caught.value) == (

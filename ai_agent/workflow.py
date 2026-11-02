@@ -14,6 +14,7 @@ from ai_agent.config import (
 from ai_agent.context_packets import with_context
 from ai_agent.context_sources import ContextRequest
 from ai_agent.git_recovery import (
+    _session,
     guarded_run,
     require_clean_checkout,
     retain_branch,
@@ -209,11 +210,49 @@ def implement(
     base_branch = active_project().base_branch
     run(["git", "checkout", "--no-overwrite-ignore", base_branch])
     run(["git", "pull", "origin", base_branch])
+    # Explicit start-fresh protects the previous tip before replacing it.
     # -B, not -b: a run that failed (a usage limit, a crash) leaves its branch
     # behind, and a retry must start again from the fresh base, not fail.
     retain_branch(branch_name)
     run(["git", "checkout", "--no-overwrite-ignore", "-B", branch_name])
+    state = _session.get()
+    if state and state.task_id:
+        from ai_agent.checkpoints import begin
+
+        begin(state.task_id, branch_name)
+        state.checkpoint_started = True
     return _run_and_capture_changes(plan, agent)
+
+
+@with_context
+@guarded_run
+def resume_implementation(
+    plan: str,
+    branch_name: str,
+    agent: str | None = None,
+    *,
+    context: ContextRequest | None = None,
+) -> ImplementationResult:
+    """Restore this task's verified checkpoint without pulling/resetting base."""
+    from ai_agent.checkpoints import restore
+
+    validate_branch_name(branch_name)
+    state = _session.get()
+    if not state or not state.task_id or not state.resume:
+        raise RuntimeError("Resume requires a task-bound checkpoint.")
+    state.checkpoint_started = True
+    saved = restore(state.task_id, branch_name)
+    return _run_and_capture_changes(
+        plan
+        + "\n\nCONTINUE SAVED WORK: restored branch "
+        + branch_name
+        + " at "
+        + saved["head"]
+        + ". Inspect existing changes and tests first. "
+        "Complete remaining approved work; do not reset or discard partial progress. "
+        "This is a fresh model invocation, not a resumed provider conversation.",
+        agent,
+    )
 
 
 @with_context
@@ -264,7 +303,11 @@ def _run_and_capture_changes(prompt: str, agent: str | None) -> ImplementationRe
     run(["git", "add", "-N", "."])
     files_changed = changed_files()
     if not files_changed:
-        raise NoCodeOutcomeError(agent_result.output)
+        files_changed = run(
+            ["git", "diff", "--name-only", active_project().base_branch + "...HEAD"]
+        ).output.splitlines()
+        if not files_changed:
+            raise NoCodeOutcomeError(agent_result.output)
     diff = run(["git", "diff", "--no-ext-diff"]).output
     return ImplementationResult(
         output=agent_result.output, files_changed=files_changed, diff=diff
@@ -294,13 +337,19 @@ def has_changes() -> bool:
 def push(branch_name: str, change_name: str, commit_type: str = "feat") -> str:
     """Commit and push changes, returning the resulting commit SHA."""
     validate_branch_name(branch_name)
-    if not has_changes():
+    if (
+        not has_changes()
+        and not run(
+            ["git", "log", "--oneline", active_project().base_branch + "..HEAD"]
+        ).output.strip()
+    ):
         raise RuntimeError(
             "There are no uncommitted file changes to publish. "
             "No commit or pull request was created."
         )
-    run(["git", "add", "."])
-    run(["git", "commit", "-m", f"{commit_type}: {change_name}"])
+    if has_changes():
+        run(["git", "add", "."])
+        run(["git", "commit", "-m", f"{commit_type}: {change_name}"])
     run(["git", "push", "origin", branch_name])
     return run(["git", "rev-parse", "HEAD"]).output.strip()
 

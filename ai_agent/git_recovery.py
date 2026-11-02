@@ -22,6 +22,12 @@ R = TypeVar("R")
 class RecoverySession:
     """State shared by the async execution and its worker threads."""
 
+    task_id: str = ""
+    branch: str = ""
+    resume: bool = False
+    completed: bool = False
+    checkpoint_started: bool = False
+    cleaned: bool = False
     preflight: bool = False
     lock: TextIO | None = None
     blocked: Path | None = None
@@ -161,6 +167,9 @@ def set_aside_leftovers() -> None:
     A submodule only pointing at another commit is checked out again; one with
     edits of its own stops the run, since those cannot be saved here.
     """
+    from ai_agent.checkpoints import save_interrupted_checkout
+
+    save_interrupted_checkout()
     status = _status()
     if not status.strip():
         return
@@ -259,13 +268,60 @@ def preserve_changes() -> None:
     require_clean_checkout()
 
 
+def bind_checkpoint(task_id: str, branch: str, resume: bool = False) -> None:
+    """Bind recovery to the owner task before entering a worker thread."""
+    state = _session.get()
+    if state:
+        state.task_id, state.branch, state.resume = task_id, branch, resume
+
+
+def current_references() -> list[str]:
+    """Return immutable refs generated in this recovery session."""
+    state = _session.get()
+    return list(state.references) if state else []
+
+
+def mark_published(pr_url: str) -> None:
+    """Record an existing PR before CI repairs can be interrupted."""
+    state = _session.get()
+    if state and state.task_id:
+        from ai_agent.checkpoints import published
+
+        published(state.task_id, state.branch, pr_url)
+
+
+def mark_complete() -> None:
+    """Prevent published work from being offered as interrupted progress."""
+    state = _session.get()
+    if state:
+        state.completed = True
+        if state.task_id:
+            from ai_agent.checkpoints import complete
+
+            complete(state.task_id, state.branch)
+
+
 def cleanup_recovery() -> bool:
     """Preserve only edits belonging to a run that passed preflight."""
     state = _session.get()
     if state is None or not state.preflight:
         return False
+    if state.cleaned:
+        return True
     try:
+        from ai_agent.provider_process import require_no_writer
+
+        require_no_writer(active_project().repo_path)
+        before = list(state.references)
         preserve_changes()
+        if state.task_id and state.checkpoint_started and not state.completed:
+            from ai_agent.checkpoints import capture
+
+            capture(
+                state.task_id,
+                state.branch,
+                [ref for ref in state.references if ref not in before],
+            )
     except Exception:
         if state.blocked:
             state.blocked.write_text(
@@ -275,6 +331,7 @@ def cleanup_recovery() -> bool:
             "Cleanup failed; checkout was not switched. Inspect local recovery "
             "refs, preserve remaining edits manually, and resolve the recovery block."
         ) from None
+    state.cleaned = True
     return True
 
 
@@ -306,9 +363,19 @@ def guarded_run(function: Callable[P, R]) -> Callable[P, R]:
                     raise
         state = _session.get()
         _lease(state)
-        set_aside_leftovers()
-        require_clean_checkout()
+        from ai_agent.provider_process import require_no_writer
+
+        require_no_writer(active_project().repo_path)
+        if state.resume:
+            from ai_agent.checkpoints import status
+
+            if not status(state.task_id, state.branch)["can_resume"]:
+                raise RuntimeError("No verified saved work is available to resume.")
+        else:
+            set_aside_leftovers()
+            require_clean_checkout()
         state.preflight = True
+        state.cleaned = False
         return function(*args, **kwargs)
 
     return wrapped

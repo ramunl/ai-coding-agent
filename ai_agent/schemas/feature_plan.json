@@ -57,6 +57,46 @@
           }
         }
       }
+    },
+    "scope_assessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "recommend_split",
+        "reason",
+        "milestones"
+      ],
+      "properties": {
+        "recommend_split": {
+          "type": "boolean"
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "milestones": {
+          "type": "array",
+          "maxItems": 5,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "title",
+              "acceptance"
+            ],
+            "properties": {
+              "title": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "acceptance": {
+                "type": "string",
+                "maxLength": 500
+              }
+            }
+          }
+        }
+      }
     }
   }
 }

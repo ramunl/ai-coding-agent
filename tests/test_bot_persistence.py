@@ -64,7 +64,13 @@ class RestartTests(unittest.TestCase):
         plan = _plan(repository_identity=identity)
         data = {
             "tasks": [
-                {"id": "t1", "stage": "planned", "branch": "feature/genre-filter"}
+                {
+                    "id": "t1",
+                    "stage": "planned",
+                    "repo": "A",
+                    "plan_id": plan.id,
+                    "branch": "feature/genre-filter",
+                }
             ]
         }
         state.set_pending_from_plan(data, plan)

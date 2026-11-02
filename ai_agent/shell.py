@@ -59,7 +59,12 @@ def run(
         interactive,
     )
     try:
-        result = subprocess.run(
+        runner = subprocess.run
+        if args[0] in ("codex", "claude") and not interactive:
+            from ai_agent.provider_process import grouped_run
+
+            runner = grouped_run
+        result = runner(
             args,
             capture_output=not interactive,
             **(

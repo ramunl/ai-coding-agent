@@ -267,7 +267,7 @@ class TickTests(unittest.IsolatedAsyncioTestCase):
             self.data["implementation_agent"], "claude"
         )  # your setting stays
 
-    async def test_a_limit_failure_marks_the_tool_out_and_retries_the_task(
+    async def test_implementation_limit_pauses_task_for_explicit_resume_or_fresh(
         self,
     ) -> None:
         self.tasks.set_stage(
@@ -287,11 +287,12 @@ class TickTests(unittest.IsolatedAsyncioTestCase):
             await self.loop.tick(self.app, OWNER, NOW)
         self.assertEqual(self.data["worker"]["out_until"]["claude"], 1800003600)
         self.assertEqual(self.data["worker"]["failures"], 0)
-        self.assertNotIn("worker_failed", self.task)
+        self.assertTrue(self.task["worker_failed"])
+        self.assertEqual(self.task["stage"], "stopped")
+        self.assertIn("Resume saved work or Start fresh", self.task["note"])
         self.assertIn("claude hit its usage limit until", self.said()[0])
-        self.assertIn("using codex meanwhile", self.said()[0])
-        # Back to To do, and picked again at once with the other tool.
-        start.assert_awaited_once_with(self.app, OWNER, self.task, "codex")
+        self.assertIn("task paused", self.said()[0])
+        start.assert_not_awaited()
 
     async def test_an_old_error_does_not_count_as_this_runs_failure(self) -> None:
         self.tasks.set_stage(self.task, "stopped", "no plan was made")
