@@ -20,6 +20,12 @@ class WorkActionTests(unittest.IsolatedAsyncioTestCase):
         os.environ["TELEGRAM_BOT_TOKEN"] = "telegram-secret"
         os.environ["YOUR_CHAT_ID"] = str(OWNER)
         self.work = importlib.import_module("ai_agent.bot.work_actions")
+        # Other tests may import transport before this fixture sets the env.
+        # Patch its import-time owner explicitly instead of relying on order.
+        transport = importlib.import_module("ai_agent.bot.transport")
+        owner_patch = patch.object(transport, "CHAT_ID", OWNER)
+        owner_patch.start()
+        self.addCleanup(owner_patch.stop)
         self.inbox = importlib.import_module("ai_agent.inbox")
         self.actions = importlib.import_module("ai_agent.actions")
         plan_state = importlib.import_module("ai_agent.plan_state")
