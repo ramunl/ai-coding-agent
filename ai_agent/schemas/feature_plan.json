@@ -8,7 +8,8 @@
     "files",
     "steps",
     "risks",
-    "repositories"
+    "repositories",
+    "scope_assessment"
   ],
   "properties": {
     "branch": {

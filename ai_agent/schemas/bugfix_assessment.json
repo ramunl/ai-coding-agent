@@ -4,7 +4,11 @@
   "additionalProperties": false,
   "required": [
     "status",
-    "questions"
+    "questions",
+    "files",
+    "steps",
+    "risks",
+    "scope_assessment"
   ],
   "properties": {
     "status": {
