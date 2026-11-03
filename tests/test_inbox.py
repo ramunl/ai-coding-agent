@@ -510,3 +510,99 @@ class ReopenActionTests(InboxTestCase):
         ):
             with self.assertRaises(self.actions.ActionError):
                 self.inbox.validate(self.request("reopen_task", args))
+
+
+class ContextInboxTests(ProcessTests):
+    def context_request(self):
+        return self.request(
+            "context_approve_v1",
+            dict(
+                scope="owner",
+                kind="owner",
+                record_id="notes",
+                revision="1",
+                decision_id="choice",
+            ),
+        )
+
+    def test_context_contract_rejects_forged_authority(self):
+        request = self.context_request()
+        self.inbox.validate(request)
+        for key in ("actor", "actor_id", "approval", "provenance", "event"):
+            for forged in (
+                {**request, key: "123"},
+                {**request, "args": {**request["args"], key: "123"}},
+            ):
+                with self.assertRaises(self.inbox.ActionError):
+                    self.inbox.validate(forged)
+        for revision in (True, 1, "0", "1000001", "1\n"):
+            with self.assertRaises(self.inbox.ActionError):
+                self.inbox.validate(
+                    {**request, "args": {**request["args"], "revision": revision}}
+                )
+
+    def test_context_never_uses_synthetic_work_approval(self):
+        work = AsyncMock()
+        with self.assertRaises(self.inbox.ActionError):
+            asyncio.run(
+                self.inbox.execute(
+                    "context_approve_v1", self.context_request()["args"], {}, work=work
+                )
+            )
+        work.assert_not_called()
+        self.drop(self.context_request())
+        asyncio.run(self.inbox.process_inbox(self.dir, self.log, {}, work=work))
+        work.assert_not_called()
+        self.assertIn(
+            "confirmation delivery unavailable", self.results()["a1b2c3d4"]["message"]
+        )
+
+    def test_context_replay_after_result_rotation_and_delivery_failure(self):
+        from ai_agent.bot import context_management as controls
+        from ai_agent.context_controls import Confirmations
+
+        request = self.context_request()
+        notify = AsyncMock(side_effect=RuntimeError("delivery uncertain"))
+        with (
+            patch.object(
+                controls,
+                "_confirmations",
+                side_effect=lambda: Confirmations(self.tmp / "claims.db"),
+            ),
+            patch.object(controls, "ContextStore") as archive,
+        ):
+            self.drop(request)
+            asyncio.run(
+                self.inbox.process_inbox(self.dir, self.log, {}, notify_context=notify)
+            )
+            for index in range(25):
+                self.log.record(f"{index:08x}", "set_planner", "done", "ok")
+            self.log = self.inbox.ResultLog(self.tmp / "results.json")
+            self.drop(request)
+            asyncio.run(
+                self.inbox.process_inbox(self.dir, self.log, {}, notify_context=notify)
+            )
+        notify.assert_awaited_once()
+        archive.assert_not_called()
+        self.assertEqual(self.results()["a1b2c3d4"]["status"], "failed")
+
+    def test_context_action_schemas_match_control_contract(self):
+        from ai_agent.context_controls import CONTEXT_ACTIONS, command_args
+
+        values = dict(
+            self.context_request()["args"],
+            target_kind="attempt",
+            target_id="run",
+            target_revision="2",
+        )
+        for action, spec in CONTEXT_ACTIONS.items():
+            args = {key: values[key] for key in spec}
+            self.inbox.validate(self.request(action, args))
+            self.assertEqual(self.inbox.ACTIONS[action], spec)
+            self.assertEqual(command_args(action, args), list(args.values()))
+        request = self.context_request()
+        for timestamp in (True, "123", None, float("nan"), float("inf"), 10**500):
+            with self.assertRaises(self.inbox.ActionError):
+                self.inbox.validate({**request, "requested_at": timestamp})
+        with self.assertRaises(self.inbox.ActionError):
+            self.inbox.validate({**request, "id": "abcdef12\n"})
