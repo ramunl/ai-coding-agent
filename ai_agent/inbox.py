@@ -33,6 +33,7 @@ from ai_agent.actions import (
     use_project,
 )
 from ai_agent.bot.atomic_file import write_json_atomic
+from ai_agent.context_controls import CONTEXT_ACTIONS
 from ai_agent.task_images import ImageError, references_in
 from ai_agent.task_images import remove as remove_images
 
@@ -61,6 +62,7 @@ WorkRunner = Callable[[str, dict[str, Any]], Awaitable[str]]
 
 # action -> {argument: allowed pattern or values}
 ACTIONS: dict[str, dict[str, Any]] = {
+    **CONTEXT_ACTIONS,
     "use_project": {"name": _NAME},
     "add_repository": {"repository": _REPOSITORY},
     "set_planner": {"value": _AGENTS},
@@ -130,6 +132,21 @@ def validate(request: dict) -> tuple[str, str, dict[str, Any]]:
     spec = ACTIONS.get(action) if isinstance(action, str) else None
     if spec is None:
         raise ActionError(f"Unknown action '{action}'.")
+    if action in CONTEXT_ACTIONS and set(request) != {
+        "id",
+        "action",
+        "args",
+        "requested_at",
+    }:
+        raise ActionError(
+            "Context requests require exactly id, action, args, requested_at."
+        )
+    if action in CONTEXT_ACTIONS and (
+        not _ID.fullmatch(request_id)
+        or type(request.get("requested_at")) not in (int, float)
+        or not 0 < request["requested_at"] <= 1_000_000_000_000
+    ):
+        raise ActionError("Invalid context request id or timestamp.")
     args = request.get("args")
     expected = set(spec)
     supports_images = action == "create_task" or (
@@ -163,6 +180,8 @@ async def execute(
     work: WorkRunner | None = None,
 ) -> str:
     """Run one validated action through the shared core; return its message."""
+    if action in CONTEXT_ACTIONS:
+        raise ActionError("Context requests require an owner confirmation binding.")
     if action in WORK_ACTIONS:
         if work is None:
             raise ActionError("Work actions are not available here.")
@@ -242,6 +261,7 @@ async def process_inbox(
     rename_bot: Callable[[str], Awaitable[None]] | None = None,
     now: float | None = None,
     work: WorkRunner | None = None,
+    notify_context: Callable[[str], Awaitable[None]] | None = None,
 ) -> int:
     """Handle every waiting request, oldest first; return how many."""
     image_uploads.expire(inbox, now)
@@ -252,6 +272,8 @@ async def process_inbox(
             continue
         handled += 1
         try:
+            if working.stat().st_size > 32_768:
+                raise ValueError("request too large")
             request = json.loads(working.read_text(encoding="utf-8"))
             if not isinstance(request, dict):
                 raise ValueError("not an object")
@@ -291,6 +313,28 @@ async def process_inbox(
         log.record(request_id, action, "running", "Working…")
         refs = []
         try:
+            if action in CONTEXT_ACTIONS:
+                if notify_context is None:
+                    raise ActionError(
+                        "Owner confirmation delivery unavailable; no archive access."
+                    )
+                from ai_agent.bot.context_management import request_confirmation
+
+                prompt = await asyncio.to_thread(
+                    request_confirmation,
+                    request_id,
+                    action,
+                    args,
+                    request["requested_at"],
+                )
+                await notify_context(prompt)
+                log.record(
+                    request_id,
+                    action,
+                    "pending",
+                    "Awaiting Telegram owner confirmation.",
+                )
+                continue
             if args.get("images"):
                 # An exclusive durable marker prevents replay even after result
                 # rotation or restart. Mark before consuming any bytes.
@@ -311,7 +355,15 @@ async def process_inbox(
             _remove_unowned(refs, user_data)
             logger.warning("Inbox action %s failed (%s)", action, type(error).__name__)
             log.record(
-                request_id, action, "failed", "Unexpected error while handling action."
+                request_id,
+                action,
+                "failed",
+                (
+                    "Context request unavailable or already claimed. Inspect before "
+                    "explicitly resubmitting; no automatic retry."
+                )
+                if action in CONTEXT_ACTIONS
+                else "Unexpected error while handling action.",
             )
         finally:
             image_uploads.cleanup(inbox, request_id)
@@ -363,10 +415,18 @@ async def inbox_forever(
                 return await run_task_action(ptb_app, owner_id, action, args)
             return await run_work_action(ptb_app, owner_id, action, args)
 
+    async def notify_context(message: str) -> None:
+        await ptb_app.bot.send_message(chat_id=owner_id, text=message, parse_mode=None)
+
     while True:
         try:
             handled = await process_inbox(
-                inbox, log, ptb_app.user_data[owner_id], rename_bot, work=work
+                inbox,
+                log,
+                ptb_app.user_data[owner_id],
+                rename_bot,
+                work=work,
+                notify_context=notify_context,
             )
             if handled:
                 # PTB saves state only for users it just handled an update for;

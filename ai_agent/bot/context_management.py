@@ -1,10 +1,13 @@
 """Explicit owner-only Telegram archive commands, independent of session state."""
 
 import asyncio
+import sqlite3
+from dataclasses import asdict
 from typing import Any
 
 from ai_agent.bot.transport import require_authorized
-from ai_agent.config import CHAT_ID
+from ai_agent.config import CHAT_ID, STATE_FILE
+from ai_agent.context_controls import Confirmations, authenticate, command_args
 from ai_agent.context_management import ContextManagement, ManagementError, OwnerEvent
 from ai_agent.context_models import RecordReference, RepositoryIdentity, Scope
 from ai_agent.context_store import (
@@ -38,10 +41,45 @@ def _scope(value: str) -> Scope:
     )
 
 
+def _confirmations() -> Confirmations:
+    return Confirmations(STATE_FILE.with_name("context-confirmations.sqlite3"))
+
+
+def request_confirmation(
+    request_id: str,
+    action: str,
+    args: dict,
+    requested_at: float,
+) -> str:
+    """Bind an inbox request without reading the archive or fabricating an event."""
+    parts = command_args(action, args)
+    scope = _scope(parts[0])
+    token = _confirmations().offer(
+        request_id, action, args, asdict(scope), requested_at
+    )
+    command = action.removesuffix("_v1")
+    return (
+        "Context request (expires 10 minutes after submission):\n"
+        + command
+        + " "
+        + " ".join(parts)
+        + f"\nReview the pinned records, then send /{command} confirm {token}"
+    )
+
+
 def _execute(action: str, args: list[str], event: OwnerEvent) -> str:
+    authenticate(event, str(CHAT_ID))
+    payload = None
+    if len(args) == 2 and args[0] == "confirm":
+        payload = _confirmations().consume(
+            args[1], f"context_{action}_v1", event, str(CHAT_ID)
+        )
+        args = command_args(payload["action"], payload["args"])
     if not args or len(args) > 13:
         return USAGE
     scope = _scope(args[0])
+    if payload is not None and asdict(scope) != payload["scope"]:
+        raise ManagementError("Registered scope changed; inspect before resubmitting")
     service = ContextManagement(ContextStore(scope), str(CHAT_ID), event)
 
     def ref(parts: list[str]) -> RecordReference:
@@ -70,8 +108,14 @@ async def _command(update: Any, context: Any, action: str) -> None:
         not require_authorized(update)
         or user is None
         or str(user.id) != str(CHAT_ID)
+        or str(getattr(getattr(update, "effective_chat", None), "id", ""))
+        != str(CHAT_ID)
+        or type(getattr(update, "update_id", None)) is not int
+        or update.update_id < 0
         or not update.message
         or getattr(update, "edited_message", None)
+        or getattr(update, "edited_channel_post", None)
+        or getattr(update.message, "edit_date", None)
     ):
         return
     event = OwnerEvent(str(user.id), str(update.effective_chat.id), update.update_id)
@@ -82,12 +126,17 @@ async def _command(update: Any, context: Any, action: str) -> None:
             "Revision conflict. Inspect again and explicitly resubmit; "
             "no retry was made."
         )
-    except (ContextPersistenceError, OSError):
+    except (ContextPersistenceError, OSError, sqlite3.Error):
         response = (
             "Record or archive unavailable. No replacement record was created. "
             "Inspect before retrying."
         )
-    except (ContextValidationError, ManagementError, ProjectError, ValueError):
+    except ManagementError:
+        response = (
+            "Invalid context request refused: mismatched, expired or already consumed. "
+            "Inspect before explicitly resubmitting; no retry was made.\n" + USAGE
+        )
+    except (ContextValidationError, ProjectError, ValueError):
         response = "Invalid context request or scope; no change saved.\n" + USAGE
     await update.message.reply_text(response, parse_mode=None)
 

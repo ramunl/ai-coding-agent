@@ -44,6 +44,8 @@ from ai_agent.tasks import view as task_view
 from ai_agent.worker import view as worker_view
 from ai_agent.workflow import ImplementationResult, normalize_implementation_agent
 
+# Context confirmations intentionally use no user_data keys: their durable bindings
+# and consumption markers live in context-confirmations.sqlite3 beside STATE_FILE.
 # Saved across restarts. Allowlist on purpose: a key nobody classified is
 # forgotten on restart (harmless) rather than restored (possibly harmful).
 PERSISTENT_KEYS = frozenset(
