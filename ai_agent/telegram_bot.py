@@ -19,6 +19,12 @@ from telegram.ext import (
 
 from ai_agent.bot.ci_monitor import ci
 from ai_agent.bot.constants import BOT_COMMANDS
+from ai_agent.bot.context_management import (
+    context_approve,
+    context_inspect,
+    context_link,
+    context_reject,
+)
 from ai_agent.bot.execution import confirm, fixpr
 from ai_agent.bot.image_intake import media
 from ai_agent.bot.inspection import (
@@ -308,6 +314,10 @@ def command_handlers() -> dict:
         "start": start,
         "help": start,
         "more": more,
+        "context_inspect": context_inspect,
+        "context_link": context_link,
+        "context_approve": context_approve,
+        "context_reject": context_reject,
         "version": version,
         "plan": plan,
         "discuss": discuss,
