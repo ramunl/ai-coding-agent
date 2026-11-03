@@ -13,6 +13,7 @@ from ai_agent.config import CHAT_ID
 from ai_agent.context_models import AttemptSnapshot
 from ai_agent.context_store import ContextStore
 from ai_agent.context_validation import decode_dependency, opaque_id
+from ai_agent.dependency_checkout import StaleCheckoutError, synchronize
 
 EVIDENCE_AGE = 60
 MAX_DEPENDENCIES = 8
@@ -205,7 +206,10 @@ def evaluate_dependency(value: dict, *, store: ContextStore | None = None) -> di
     }:
         raise ValueError("Checkout repository identity mismatch")
     head = git(path, "rev-parse", "HEAD")
-    ancestor(path, pull["merge_commit"], head)
+    try:
+        ancestor(path, pull["merge_commit"], head)
+    except ValueError as error:
+        raise StaleCheckoutError(repository, pull["merge_commit"]) from error
     facts["checkout_head"] = head
     if dependency.policy == "deployed":
         from ai_agent.deployment_evidence import deployment_evidence
@@ -239,7 +243,18 @@ async def refresh(task: dict, data: dict) -> str | None:
     try:
         values = bind_dependencies(task, data)
         binding = fingerprint(task, data)
-        facts = await asyncio.to_thread(_evaluate, values) if values else []
+        # A merged prerequisite may be newer than the planner's checkout.
+        # Retry all evidence after each safe fast-forward, bounded per edge.
+        for attempt in range(len(values) + 1):
+            try:
+                facts = await asyncio.to_thread(_evaluate, values) if values else []
+                break
+            except StaleCheckoutError as stale:
+                if attempt == len(values):
+                    raise ValueError(
+                        "Planner checkout still lacks a merged prerequisite"
+                    ) from stale
+                await synchronize(stale, data)
         if fingerprint(task, data) != binding:
             raise ValueError("Dependencies changed during verification")
         result = {

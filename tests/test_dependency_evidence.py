@@ -92,7 +92,7 @@ def test_squash_merge_uses_predecessor_checkout_and_rechecks_head(evidence):
         == pull["merge_commit"]
     )
     git("checkout", "--detach", base)
-    with pytest.raises(ValueError, match="Checkout evidence unavailable"):
+    with pytest.raises(ValueError, match="Planner checkout is stale"):
         gate.evaluate_dependency(dependency, store=store)
 
 
@@ -242,3 +242,67 @@ def test_old_context_records_decode_without_granting_readiness(evidence):
     old = asdict(store.get("attempt", "attempt1", 1))
     old.pop("dependencies")
     assert decode_record(old).dependencies == ()
+
+
+def test_refresh_rechecks_authoritative_evidence_after_checkout_sync(
+    evidence, monkeypatch
+):
+    import asyncio
+
+    gate, dependency, store, pull, git, base = evidence
+    monkeypatch.setattr(gate, "ContextStore", lambda scope: store)
+    git("checkout", "--detach", base)
+    calls = []
+    evaluate = gate._evaluate
+
+    def counted(values):
+        calls.append("verify")
+        return evaluate(values)
+
+    async def synchronize(stale, data):
+        assert (
+            stale.repository.repo_path == dependency["scope"]["repository"]["repo_path"]
+        )
+        assert stale.commit == pull["merge_commit"]
+        calls.append("synchronize")
+        git("checkout", "--detach", stale.commit)
+
+    monkeypatch.setattr(gate, "_evaluate", counted)
+    monkeypatch.setattr(gate, "synchronize", synchronize)
+    task = {"id": "consumer", "dependencies": [dependency]}
+    assert asyncio.run(gate.refresh(task, {"tasks": [task]})) is None
+    assert calls == ["verify", "synchronize", "verify"]
+    assert task["dependency_check"]["status"] == "satisfied"
+
+
+def test_unmerged_dependency_never_synchronizes_checkout(evidence, monkeypatch):
+    import asyncio
+
+    gate, dependency, store, pull, _, _ = evidence
+    monkeypatch.setattr(gate, "ContextStore", lambda scope: store)
+    pull["merged"] = False
+
+    async def unexpected(*args):
+        pytest.fail("Unmerged prerequisite must not synchronize")
+
+    monkeypatch.setattr(gate, "synchronize", unexpected)
+    task = {"id": "consumer", "dependencies": [dependency]}
+    assert "not merged" in asyncio.run(gate.refresh(task, {"tasks": [task]}))
+
+
+def test_refresh_stays_blocked_if_sync_does_not_supply_merge(evidence, monkeypatch):
+    import asyncio
+
+    gate, dependency, store, _, git, base = evidence
+    monkeypatch.setattr(gate, "ContextStore", lambda scope: store)
+    git("checkout", "--detach", base)
+    calls = []
+
+    async def ineffective(*args):
+        calls.append("sync")
+
+    monkeypatch.setattr(gate, "synchronize", ineffective)
+    task = {"id": "consumer", "dependencies": [dependency]}
+    assert "still lacks" in asyncio.run(gate.refresh(task, {"tasks": [task]}))
+    assert calls == ["sync"]
+    assert task["dependency_check"]["status"] == "unknown"

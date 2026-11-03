@@ -20,8 +20,9 @@ Policies:
   does not assert passing CI or a review approval.
 * `merged_in_checkout`: GitHub confirms a merged PR and its merge commit is an
   ancestor of HEAD in the predecessor's captured checkout. Squash merges use the
-  merge commit, not the original feature head. No automatic fetch/deepen occurs;
-  unavailable commits or insufficient shallow history are unknown.
+  merge commit, not the original feature head. If a verified merged prerequisite
+  is absent locally, admission may fetch and fast-forward the registered base
+  branch as described below. Insufficient shallow history remains unknown.
 * `deployed`: additionally requires a healthy Ops deployment within 15 minutes,
   with the merge commit contained in the deployed commit. Rollbacks, recovery,
   active transactions, mismatched targets and checkout drift block.
@@ -48,3 +49,24 @@ reason, writes an approved durable decision, and returns its pinned reference.
 The decision binds the complete edge, including scope, attempt, policy and
 revision. Changing any of those fields invalidates it. No new dashboard action or
 automatic override is introduced. Review/rebinding must preserve this audit trail.
+
+
+## Stale planner checkouts
+
+The deployed service checkout and the planner's registered checkout are separate.
+After a prerequisite merge, admission rechecks its archived attempt and GitHub PR
+before attempting to update a stale planner checkout. The captured identity must
+still match the registry and origin. The agent must be idle, with no pending plan,
+implementation, queued execution or recovery. The checkout must be clean
+(including untracked files), attached to its registered base branch, and able to
+fast-forward. Feature branches, detached checkouts and local divergence are
+preserved and remain blocked with an explanation.
+
+Fetch is bounded to 30 seconds and runs off the event loop. After fetching, the
+agent rechecks activity, HEAD, branch, origin and working tree. Final checks and
+the fast-forward run without yielding to another bot handler. Synchronizations
+are serialized. There is no reset, stash, cleanup, branch switch, automatic
+history deepening or dependency override. The fetched branch must contain the
+verified merge commit; all dependency evidence is evaluated again after an
+update. Retries are bounded by the number of dependency edges. This applies to
+manual starts and worker admission, even when the worker is off for manual work.
