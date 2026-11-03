@@ -16,6 +16,7 @@ from collections.abc import Iterable, MutableMapping
 from ai_agent.config import CHAT_ID
 from ai_agent.plan_state import PlanDocument, PlanState, parse_plan_document
 from ai_agent.projects import active_project, list_projects
+from ai_agent.task_milestones import split_milestones
 from ai_agent.tasks import add_task, tasks_of
 
 TEXT_LIMIT = 4000
@@ -64,7 +65,7 @@ def split_plan(
     active: str = "",
     identities: dict[str, dict] | None = None,
 ) -> list[dict]:
-    """Add one To do task per repository of the plan; return them in order.
+    """Add ordered tasks per repository or suggested same-repository milestone.
 
     A plan for one repository that isn't the active one becomes one task
     there (planned again in that repository), so a task made in the wrong
@@ -72,6 +73,17 @@ def split_plan(
     """
     parts = document.repositories
     if not parts or (len(parts) == 1 and parts[0]["name"] == active):
+        scope = document.scope_assessment
+        if (
+            active
+            and scope.get("recommend_split")
+            and len(scope.get("milestones", [])) >= 2
+        ):
+            if active not in set(known):
+                raise SplitError(
+                    f"Not registered: {active}. Add the repository in Setup."
+                )
+            return split_milestones(data, plan, document, active, identities)
         raise SplitError("This plan needs only this repository; approve it instead.")
     unknown = [item["name"] for item in parts if item["name"] not in set(known)]
     if unknown:
@@ -165,8 +177,13 @@ def split_pending(data: MutableMapping) -> str:
             f"Moved to {created[0]['repo']}: a To do task that is planned again "
             "there. Start it in Tasks (or let the worker take it)."
         )
-    lines = [f"Split into {len(created)} tasks, one per repository:"]
-    lines.extend(f"{task['part']}. {task['repo']}" for task in created)
+    same_repository = len({task["repo"] for task in created}) == 1
+    description = "one per milestone" if same_repository else "one per repository"
+    lines = [f"Split into {len(created)} tasks, {description}:"]
+    lines.extend(
+        f"{task['part']}. {task['title'] if same_repository else task['repo']}"
+        for task in created
+    )
     lines.append(
         "Each is planned in its own repository. Part 1 can start now (Tasks › "
         "Start planning, or the worker); each next part waits for the pull "

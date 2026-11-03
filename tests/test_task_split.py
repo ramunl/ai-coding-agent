@@ -178,3 +178,139 @@ class SplitTests(unittest.TestCase):
         self.assertIn("1. ai-pm-agent\n2. ai-dashboard", reply)
         with self.assertRaisesRegex(task_split.SplitError, "No pending plan"):
             task_split.split_pending(self.data)
+
+
+class MilestoneSplitTests(unittest.TestCase):
+    def setUp(self):
+        self.data = {}
+        raw = json.loads(PLAN)
+        raw["repositories"] = [
+            {"name": "ai-coding-agent", "changes": "context controls"}
+        ]
+        raw["scope_assessment"] = {
+            "recommend_split": True,
+            "reason": "Independent checks",
+            "milestones": [
+                {"title": "Manage revisions", "acceptance": "Reject stale revisions"},
+                {"title": "Expose status", "acceptance": "Redact secrets"},
+            ],
+        }
+        self.plan = _plan(json.dumps(raw))
+
+    def split(self):
+        return task_split.split_plan(
+            self.data,
+            self.plan,
+            parse_plan_document(self.plan.plan_text),
+            KNOWN,
+            "ai-coding-agent",
+        )
+
+    def test_milestones_keep_repo_acceptance_todo_images_and_dependency_links(self):
+        previous = tasks.add_task(self.data, "prerequisite", "ai-coding-agent", None)
+        source = tasks.add_task(
+            self.data, "context controls", "ai-coding-agent", "3:abc"
+        )
+        source.update(
+            stage="planned",
+            plan_id=self.plan.id,
+            autopilot=True,
+            group="earlier",
+            after=previous["id"],
+        )
+        successor = tasks.add_task(self.data, "dependent", "ai-dashboard", None)
+        successor["after"] = source["id"]
+        self.plan.images = [{"id": "image-1"}]
+        first, last = self.split()
+        self.assertEqual([first["repo"], last["repo"]], ["ai-coding-agent"] * 2)
+        self.assertEqual(first["title"], "Manage revisions")
+        self.assertIn("Acceptance: Reject stale revisions", first["text"])
+        self.assertEqual(first["after"], previous["id"])
+        self.assertEqual(last["after"], first["id"])
+        self.assertEqual(successor["after"], last["id"])
+        self.assertEqual([first["todo"], last["todo"]], [None, "3:abc"])
+        self.assertTrue(first["autopilot"] and last["autopilot"])
+        self.assertEqual(last["images"], self.plan.images)
+        self.assertNotIn(source, tasks.tasks_of(self.data))
+        self.assertIsNotNone(tasks.waiting_for(last, self.data))
+
+    def test_split_pending_clears_plan_and_reports_milestones(self):
+        self.data["pending_plan"] = self.plan
+        with (
+            patch.object(
+                task_split,
+                "active_project",
+                return_value=SimpleNamespace(name="ai-coding-agent"),
+            ),
+            patch.object(
+                task_split,
+                "list_projects",
+                return_value=[
+                    SimpleNamespace(
+                        name=n, repo_path="/repos/" + n, github_repository="owner/" + n
+                    )
+                    for n in KNOWN
+                ],
+            ),
+        ):
+            reply = task_split.split_pending(self.data)
+        self.assertIn("one per milestone", reply)
+        self.assertIn("Manage revisions", reply)
+        self.assertNotIn("pending_plan", self.data)
+
+    def test_one_milestone_cannot_be_split(self):
+        raw = json.loads(self.plan.plan_text)
+        raw["scope_assessment"]["milestones"] = raw["scope_assessment"]["milestones"][
+            :1
+        ]
+        self.plan.plan_text = json.dumps(raw)
+        with self.assertRaises(task_split.SplitError):
+            self.split()
+        self.assertEqual(tasks.tasks_of(self.data), [])
+
+    def test_milestones_pin_new_dependency_edges_and_preserve_external_edges(self):
+        source = tasks.add_task(self.data, "context controls", "ai-coding-agent", None)
+        source.update(stage="planned", plan_id=self.plan.id)
+        scope = {
+            "owner_id": str(task_split.CHAT_ID),
+            "repository": {
+                "project_name": "ai-coding-agent",
+                "repo_path": "/repos/ai-coding-agent",
+                "github_repository": "owner/ai-coding-agent",
+            },
+        }
+        incoming = {
+            "task_id": "previous",
+            "scope": scope,
+            "policy": "deployed",
+            "revision": 1,
+        }
+        source["dependencies"] = [incoming]
+        successor = tasks.add_task(self.data, "consumer", "ai-dashboard", None)
+        successor["dependencies"] = [
+            {
+                "task_id": source["id"],
+                "scope": scope,
+                "policy": "merged_in_checkout",
+                "revision": 1,
+                "attempt": {"old": True},
+                "override": {"old": True},
+            }
+        ]
+        first, last = task_split.split_plan(
+            self.data,
+            self.plan,
+            parse_plan_document(self.plan.plan_text),
+            KNOWN,
+            "ai-coding-agent",
+            {"ai-coding-agent": scope["repository"]},
+        )
+        self.assertEqual(first["dependencies"], [incoming])
+        self.assertEqual(last["dependencies"][0]["task_id"], first["id"])
+        self.assertEqual(last["dependencies"][0]["policy"], "merged_in_checkout")
+        self.assertEqual(last["dependencies"][0]["scope"], first["dependency_scope"])
+        edge = successor["dependencies"][0]
+        self.assertEqual(edge["task_id"], last["id"])
+        self.assertEqual(edge["scope"], last["dependency_scope"])
+        self.assertNotIn("attempt", edge)
+        self.assertNotIn("override", edge)

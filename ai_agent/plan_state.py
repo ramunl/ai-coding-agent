@@ -220,6 +220,10 @@ def plan_outline(plan: PlanState) -> dict:
         return [short(value) for value in values[:OUTLINE_ITEMS]]
 
     return {
+        "can_split_milestones": bool(
+            document.scope_assessment.get("recommend_split")
+            and len(document.scope_assessment.get("milestones", [])) >= 2
+        ),
         "scope_assessment": document.scope_assessment,
         "branch": short(document.branch),
         "summary": short(document.summary),

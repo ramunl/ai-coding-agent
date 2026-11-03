@@ -99,7 +99,8 @@ def scope_warning(assessment: dict) -> list[str]:
     for index, item in enumerate(assessment["milestones"], 1):
         lines.append(f"{index}. {item['title']} — Check: {item['acceptance']}")
     lines.append(
-        "Use /discuss to revise this plan to one milestone, or approve "
+        "Use /split to create ordered milestone tasks when at least two are listed; "
+        "use /discuss to revise this plan to one milestone, or approve "
         "the full scope if you prefer. No tasks are created automatically."
     )
     return lines

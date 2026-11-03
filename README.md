@@ -38,8 +38,15 @@ it has a pull request; the worker follows the same order. The todo the plan
 came from goes with the last part, so it closes when the whole change is
 deployed. Each part names its assigned repository before the original request;
 its plan lists only that repository. Prerequisites belong in risks, not in the
-changes list. An already split part cannot be split again: revise a plan that
-includes separately handled repositories.
+changes list. An already split repository part cannot be split across repositories again:
+revise a plan that includes separately handled repositories.
+
+A plan within one repository that recommends at least two milestones can also
+be split with `/split` or **Split into tasks**. Each task keeps its milestone's
+acceptance check and is planned separately in order. Existing incoming and
+outgoing task dependencies, images and Autopilot settings are preserved; the
+original TODO belongs to the last milestone. Splitting requires an explicit
+owner action and does not start implementation.
 
 A plan for one repository that isn't the active project (the task was made in
 the wrong one) is moved the same way: `/split` (**Move to <repository>** in the

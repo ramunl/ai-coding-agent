@@ -11,6 +11,7 @@ def test_small_legacy_plan_has_no_warning():
         "fix label", json.dumps({"steps": ["Fix label", "Test label"]})
     )
     assert not plan_outline(state)["scope_assessment"]["recommend_split"]
+    assert plan_outline(state)["can_split_milestones"] is False
     assert "Scope warning" not in render_plan(state)
     assert not state.approved
 
@@ -30,6 +31,7 @@ def test_large_same_repository_plan_has_concrete_milestones_before_approval():
     state = new_plan_state("resume", json.dumps({"scope_assessment": advice}))
     outline = plan_outline(state)
     assert outline["scope_assessment"] == advice
+    assert outline["can_split_milestones"] is True
     rendered = render_plan(state)
     assert rendered.index("Scope warning") < rendered.index("- /approve")
     assert "Restart reloads checkpoint" in rendered
