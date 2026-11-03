@@ -21,6 +21,7 @@ import time
 from collections.abc import MutableMapping
 from typing import Any
 
+from ai_agent.context_projection import task_context_status
 from ai_agent.task_images import remove
 from ai_agent.task_reopen import attempt_history, can_reopen
 
@@ -216,7 +217,7 @@ def waiting_for(task: dict, data: MutableMapping) -> dict | None:
     return {"title": reason} if reason else None
 
 
-def view(task: dict, data: MutableMapping) -> dict:
+def view(task: dict, data: MutableMapping, *, now: int | None = None) -> dict:
     """What the dashboard shows for one task."""
     pending = data.get("pending_plan")
     is_own_plan = task.get("stage") == "planned" and getattr(
@@ -233,6 +234,9 @@ def view(task: dict, data: MutableMapping) -> dict:
                 "resume_reason": "Task has no failed attempt.",
                 "resume_summary": "",
             }
+        ),
+        "context_status": task_context_status(
+            task, data, now=int(time.time()) if now is None else now
         ),
         "id": task.get("id"),
         "title": task.get("title"),

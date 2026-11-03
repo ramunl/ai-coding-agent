@@ -184,3 +184,43 @@ class LoopTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_context_snapshot_is_additive_and_excludes_private_receipt_data():
+    from ai_agent.bot import state
+
+    task = {
+        "id": "task",
+        "title": "Existing title",
+        "stage": "todo",
+        "note": "Existing note",
+        "images": [],
+        "context_spec": {
+            "task_id": "task",
+            "initiative_id": "initiative",
+            "attempt_id": "attempt",
+            "scope": {"owner_id": "PRIVATE", "repo_path": "/PRIVATE"},
+        },
+        "packet": {"packet_id": "packet", "sha256": "a" * 64, "records": "PRIVATE"},
+        "packet_metadata": {
+            "schema_version": 1,
+            "verified": True,
+            "observed_at": 100,
+            "omission_count": 0,
+            "truncation_count": 0,
+            "summary": "PRIVATE",
+        },
+        "transcript": "PRIVATE",
+        "raw_error": "PRIVATE",
+    }
+    with patch.object(state.time, "time", return_value=100):
+        content = build_content({"tasks": [task]}, PROJECT, VERSIONS)
+    row = content["tasks"][0]
+    assert row["note"] == "Existing note"
+    assert row["title"] == "Existing title"
+    assert row["context_status"]["health"] == "healthy"
+    assert content["initiatives"][0]["context_status"]["health"] == "unknown"
+    assert "PRIVATE" not in json.dumps(content)
+    with patch.object(state.time, "time", return_value=161):
+        later = build_content({"tasks": [task]}, PROJECT, VERSIONS)
+    assert later["tasks"][0]["context_status"]["freshness"] == "stale"

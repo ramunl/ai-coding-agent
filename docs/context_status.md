@@ -2,8 +2,9 @@
 
 `ai_agent.context_status` defines an additive, display-only contract for later
 initiative/task publication. It never authorizes execution or replaces CTX03
-approval bindings or CTX04 dependency verification. No snapshot publication,
-archive migration, owner-management controls, or live deployment is included.
+approval bindings or CTX04 dependency verification. Snapshot publication is
+additive; archive migration, owner-management controls and live deployment
+are not included.
 
 All fields are present, including nulls:
 
@@ -84,7 +85,52 @@ Old packets can still be constructed without metadata. Missing sidecars,
 unsupported versions and malformed fields remain unknown with nullable counts
 and timestamps; never derive freshness from load time or infer zero omissions
 from absence. `PacketMetadata.from_dict` reads sidecars conservatively. Current
-plan/archive consumers may discard the additive receipt metadata; durable
-initiative/task publication and historical migration are later milestones.
-This milestone tests the contract and capture boundary only, not end-to-end
-snapshot compatibility or comprehensive publication redaction.
+plan/archive consumers may discard the additive receipt metadata. Publication
+therefore reports unknown when observations are absent; it does not add
+persistence or migrate historical records.
+
+
+## Snapshot publication (milestone 2)
+
+The existing snapshot adds `tasks[].context_status` (the unchanged v1 object)
+and `initiatives[]`, sorted by opaque initiative ID. Each initiative row contains
+only `id` and `context_status`; duplicate initiative IDs collapse. Existing
+snapshot fields and publisher timestamps retain their format and meaning.
+
+`context_projection` performs no archive, repository, network or clock reads.
+Its callers supply an explicit integer evaluation time; `snapshot()` captures
+one time for all context projections. `updated_at` is never evidence of context
+freshness. Publication heartbeat cannot refresh `observed_at`.
+
+Task selection uses the pending plan when its non-null plan ID matches the task;
+otherwise it uses the retained `run`, or the task itself if no run is present.
+The selected source must have a `context_spec` whose task ID equals the task's
+ID, with valid opaque task, initiative and attempt IDs. Invalid identities yield
+unknown task status and are omitted from the initiative collection. Selection
+never combines one source's packet with another source's metadata or falls back
+from a mismatched current plan to an older healthy receipt.
+
+Only the selected source's `context_packet` (or receipt `packet`) and
+`packet_metadata` are consumed. Safe references retain only packet ID and digest;
+scoped references, paths, summaries, transcripts, arbitrary fields, raw errors
+and supplied health enums are excluded. The v1 helpers validate bounds and derive
+health. Existing plans have no retained metadata, so even valid packet references
+normally have unknown freshness and health. No metadata persistence is added.
+
+Tasks with dependency edges default to `dependency_unknown`. The optional
+`dependency_observation` input must contain an exactly matching `context_spec`
+and fresh, verified v1 `metadata` before its structured `status`, `access_failed`,
+`invalidated`, or `recovery_pending` facts can be used by the v1 mapping helper.
+There is currently no producer retaining that observation in task state. Legacy
+`dependency_check` reasons, invalidation messages and arbitrary blocker codes
+are never interpreted as finer dependency evidence.
+
+Initiative IDs come from identity-matched task sources. These receipts establish
+only task/attempt observations: even a healthy child cannot establish complete
+initiative coverage. Until an initiative-wide evidence producer exists, every
+initiative status is unknown with empty refs and nullable observation fields.
+
+Tests cover the new projection and its snapshot placement with seeded private
+data. Existing task notes, dependency reasons and other legacy snapshot fields
+are preserved; broader snapshot sanitization and legacy fixture coverage remain
+separate milestones. Context evidence is never copied into those legacy fields.
