@@ -59,6 +59,12 @@ def request_from_spec(spec: dict) -> ContextRequest:
             for item in spec.get(name, [])
         )
 
+    from ai_agent.context_validation import decode_dependency
+    from ai_agent.dependency_evidence import dependency_ids
+
+    dependencies = spec.get("dependencies", [])
+    if not isinstance(dependencies, (list, tuple)) or len(dependencies) > 8:
+        raise ContextBlockedError("Invalid scoped dependencies")
     captured = scope(spec["scope"])
     constraints = references("constraints")
     prerequisites = references("prerequisites")
@@ -74,7 +80,10 @@ def request_from_spec(spec: dict) -> ContextRequest:
         constraints=constraints,
         prerequisites=prerequisites,
         candidates=candidates,
-        dependency_ids=tuple(spec.get("dependency_ids", [])),
+        dependency_ids=tuple(dependency_ids(spec)),
+        dependencies=tuple(
+            decode_dependency(d, captured.owner_id) for d in dependencies
+        ),
         reopen_history=tuple(spec.get("reopen_history", [])),
     )
     request.validate()
@@ -84,7 +93,11 @@ def request_from_spec(spec: dict) -> ContextRequest:
 def plan_binding(plan: object) -> dict:
     """Bind the exact plan, repository, images and authoritative packet revisions."""
     spec = plan.context_spec
-    packet = build_packet(request_from_spec(spec)) if spec else None
+    packet = (
+        build_packet(request_from_spec(spec), verify_dependencies=False)
+        if spec
+        else None
+    )
     return json.loads(
         json.dumps(
             {
@@ -148,7 +161,9 @@ def require_run(item: dict) -> None:
     if item.get("run_binding") and item["run_binding"] != run_binding(item):
         raise ContextBlockedError("Approved work changed; review a fresh plan")
     if item.get("context_spec"):
-        packet = build_packet(request_from_spec(item["context_spec"]))
+        packet = build_packet(
+            request_from_spec(item["context_spec"]), verify_dependencies=False
+        )
         approved = (item.get("approval_binding") or {}).get("sources")
         if approved and digest(approved) != digest(asdict(packet.reference)):
             raise ContextBlockedError("Approved context changed; owner review required")
@@ -174,6 +189,7 @@ def spec_from_request(request: ContextRequest | None) -> dict | None:
         "prerequisites": [asdict(ref) for ref in request.prerequisites],
         "candidates": [asdict(ref) for ref in request.candidates],
         "dependency_ids": list(request.dependency_ids),
+        "dependencies": [asdict(d) for d in request.dependencies],
         "reopen_history": list(request.reopen_history),
     }
 
@@ -188,7 +204,13 @@ def planning_request(data: dict, owner: str, identity: dict) -> ContextRequest:
     )
     spec = new_spec(owner, identity, task.get("id"))
     sources = data.get("context_sources") or {}
-    for key in ("constraints", "prerequisites", "candidates", "dependency_ids"):
+    for key in (
+        "constraints",
+        "prerequisites",
+        "candidates",
+        "dependency_ids",
+        "dependencies",
+    ):
         if key in sources:
             spec[key] = sources[key]
     spec["reopen_history"] = attempt_history(task)
@@ -196,14 +218,17 @@ def planning_request(data: dict, owner: str, identity: dict) -> ContextRequest:
         *spec.get("candidates", []),
         *task.get("context_handoffs", []),
     ]
-    if task.get("after"):
-        previous = next(
-            (t for t in data.get("tasks", []) if t.get("id") == task["after"]), {}
-        )
-        if previous.get("context_handoff"):
-            spec["dependency_ids"] = [*spec.get("dependency_ids", []), task["after"]]
-            spec["prerequisites"] = [
-                *spec.get("prerequisites", []),
-                previous["context_handoff"],
-            ]
+    from ai_agent.dependency_evidence import bind_dependencies
+
+    try:
+        if not isinstance(spec.get("dependencies", []), (list, tuple)):
+            raise ValueError("Invalid scoped dependencies")
+        spec["dependencies"] = [
+            *spec.get("dependencies", []),
+            *bind_dependencies(task, data),
+        ]
+    except (ValueError, TypeError, KeyError) as error:
+        raise ContextBlockedError(
+            "Dependency evidence unknown; review predecessor"
+        ) from error
     return request_from_spec(spec)

@@ -238,6 +238,9 @@ def decide(
         return Decision("wait", "waiting: a run is in progress")
     approved = _approved_task(data, tasks)
     if approved is not None:
+        dependency = waiting_for(approved, data)
+        if dependency:
+            return Decision("wait", f"waiting: {dependency['title']}")
         cap = int(worker["max_runs"])
         if cap and runs_today(worker, now) >= cap:
             return Decision("wait", f"waiting: {cap} runs today, the daily cap")
@@ -270,6 +273,16 @@ def decide(
         None,
     )
     if todo is None:
+        blocked = next(
+            (
+                waiting_for(t, data)
+                for t in tasks
+                if t.get("stage") == "todo" and waiting_for(t, data)
+            ),
+            None,
+        )
+        if blocked:
+            return Decision("wait", f"waiting: {blocked['title']}")
         return Decision("wait", "idle: no To do tasks")
     preferred = normalize_planning_agent(data.get("planning_agent"))
     tool, note = pick_tool(preferred, limits, worker, now)

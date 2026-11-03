@@ -1,5 +1,6 @@
 """Execution boundary shared by chat, inbox, worker and PR repair."""
 
+import asyncio
 from collections.abc import Awaitable, Callable
 from functools import wraps
 from typing import Any
@@ -19,6 +20,7 @@ from ai_agent.context_lifecycle import (
     require_run,
 )
 from ai_agent.context_sources import ContextBlockedError
+from ai_agent.dependency_evidence import refresh as refresh_dependencies
 from ai_agent.plan_state import capture_repository_identity
 from ai_agent.run_outcomes import NoCodeOutcomeError
 
@@ -40,6 +42,27 @@ def lifecycle_execution(
         if recovery_refusal(data):
             raise ContextBlockedError(recovery_refusal(data))
         item = args[0] if args else {}
+        task_id = (item.get("context_spec") or {}).get("task_id") or item.get(
+            "checkpoint_task"
+        )
+        candidates = [
+            t
+            for t in data.get("tasks", [])
+            if (
+                t.get("id") == task_id
+                if task_id
+                else bool(item.get("branch_name"))
+                and t.get("branch") == item["branch_name"]
+            )
+        ]
+        if not candidates and item.get("dependency_task"):
+            candidates = [item["dependency_task"]]
+        if task_id and not candidates and not item.get("context_spec"):
+            raise ContextBlockedError("Task dependency identity unavailable")
+        for task in candidates:
+            reason = await refresh_dependencies(task, data)
+            if reason:
+                raise ContextBlockedError(reason)
         require_run(item)
         spec = item.get("context_spec")
         if not spec and not args:  # Explicit owner request to repair an existing PR.
@@ -70,7 +93,9 @@ def lifecycle_execution(
                     previous["context_handoff"],
                 ],
             }
-        attempt = Attempt(spec, item.get("branch_name", ""), data)
+        attempt = await asyncio.to_thread(
+            Attempt, spec, item.get("branch_name", ""), data
+        )
         if unfinished(attempt.store):
             data["context_recovery_pending"] = True
             raise ContextBlockedError("Unfinished attempt requires reconciliation")

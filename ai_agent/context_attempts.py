@@ -165,6 +165,8 @@ class Attempt:
             task_id=self.request.task_id,
             attempt_id=self.state["attempt_id"],
             outcome=outcome,
+            dependencies=self.request.dependencies,
+            dependency_ids=self.request.dependency_ids,
             summary=summary,
             evidence=evidence,
             packets=tuple(self.packets),

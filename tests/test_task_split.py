@@ -112,7 +112,12 @@ class SplitTests(unittest.TestCase):
         data = json.loads(PLAN)
         data["repositories"] = [{"name": "ai-dashboard", "changes": "logs scroll"}]
         self.data["pending_plan"] = _plan(json.dumps(data))
-        projects = [SimpleNamespace(name=name) for name in KNOWN]
+        projects = [
+            SimpleNamespace(
+                name=name, repo_path="/repos/" + name, github_repository="owner/" + name
+            )
+            for name in KNOWN
+        ]
         active = SimpleNamespace(name="ai-coding-agent")
         with (
             patch.object(task_split, "list_projects", return_value=projects),
@@ -127,33 +132,40 @@ class SplitTests(unittest.TestCase):
         self.assertIn("Moved to ai-dashboard", reply)
         self.assertNotIn("pending_plan", self.data)
 
-    def test_a_part_waits_until_the_part_before_has_a_pull_request(self) -> None:
+    def test_a_part_waits_for_verified_evidence_regardless_of_display_stage(
+        self,
+    ) -> None:
         first, second = self.split()
         self.assertIsNone(tasks.waiting_for(first, self.data))
-        self.assertIs(tasks.waiting_for(second, self.data), first)
-        self.assertEqual(tasks.view(second, self.data)["waiting_for"], first["title"])
+        self.assertIsNotNone(tasks.waiting_for(second, self.data))
+        self.assertIn("evidence unknown", tasks.view(second, self.data)["waiting_for"])
         self.assertEqual(tasks.view(second, self.data)["part"], 2)
         self.assertTrue(tasks.view(first, self.data)["blocks"])
         self.assertFalse(tasks.view(second, self.data)["blocks"])
         tasks.set_stage(first, "pr")
-        self.assertIsNone(tasks.waiting_for(second, self.data))
+        self.assertIsNotNone(tasks.waiting_for(second, self.data))
         self.assertFalse(tasks.view(first, self.data)["blocks"])
         tasks.tasks_of(self.data).remove(first)
-        self.assertIsNone(tasks.waiting_for(second, self.data))
+        self.assertIsNotNone(tasks.waiting_for(second, self.data))
 
     def test_the_worker_skips_a_waiting_part(self) -> None:
         first, second = self.split()
         self.data["worker"] = {"enabled": True}
         tasks.set_stage(first, "blocked")
         decision = worker.decide(self.data, tasks.tasks_of(self.data), {}, 0.0)
-        self.assertEqual(decision.status, "idle: no To do tasks")
+        self.assertIn("evidence unknown", decision.status)
         tasks.set_stage(first, "pr")
         decision = worker.decide(self.data, tasks.tasks_of(self.data), {}, 0.0)
-        self.assertEqual(decision.task, second)
+        self.assertIsNone(decision.task)
 
     def test_split_pending_drops_the_plan_and_says_what_comes_next(self) -> None:
         self.data.update(pending_plan=_plan(), pending_implementation={"x": 1})
-        projects = [SimpleNamespace(name=name) for name in KNOWN]
+        projects = [
+            SimpleNamespace(
+                name=name, repo_path="/repos/" + name, github_repository="owner/" + name
+            )
+            for name in KNOWN
+        ]
         active = SimpleNamespace(name="ai-pm-agent")
         with (
             patch.object(task_split, "list_projects", return_value=projects),

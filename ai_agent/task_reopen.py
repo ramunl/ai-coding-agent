@@ -89,6 +89,9 @@ def reopen_task(task: dict, data: MutableMapping) -> None:
     reason = reopen_refusal(task, data)
     if reason:
         raise ValueError(reason)
+    from ai_agent.dependency_evidence import invalidate_dependents
+
+    invalidate_dependents(data, task["id"])
     now = time.time()
     attempt = task.get("attempt", 1)
     previous = {key: task.get(key) for key in ATTEMPT_FIELDS}

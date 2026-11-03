@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
+import time
 from collections.abc import MutableMapping
 from datetime import datetime
 from typing import Any
@@ -137,3 +139,47 @@ async def track_forever(
         data = ptb_app.user_data.get(owner_id) or {}
         waiting = any(task.get("stage") == "ended" for task in data.get("tasks") or [])
         await asyncio.sleep(min(interval, ENDED_POLL_SECONDS) if waiting else interval)
+
+
+def verified_pull(repository: str, url: str, head_sha: str) -> dict:
+    """Fresh exact-PR facts; branch names and cached display stages are insufficient.
+
+    Reviewable means open, explicitly non-draft, and bound to the archived
+    attempt head in the captured repository. It does not claim CI or approval.
+    """
+    match = re.fullmatch(
+        r"https://github\.com/" + re.escape(repository) + r"/pull/([1-9][0-9]*)", url
+    )
+    if not match or not re.fullmatch(r"[0-9a-f]{40}", head_sha):
+        raise ValueError("Missing identity-bound PR evidence")
+    number = int(match[1])
+    pull = github_request(
+        "GET", f"/repos/{repository}/pulls/{number}", timeout=10, max_bytes=256 * 1024
+    )
+    if (
+        pull.get("number") != number
+        or pull.get("html_url") != url
+        or pull.get("base", {}).get("repo", {}).get("full_name") != repository
+        or pull.get("head", {}).get("repo", {}).get("full_name") != repository
+        or pull.get("head", {}).get("sha") != head_sha
+        or pull.get("state") not in {"open", "closed"}
+        or type(pull.get("draft")) is not bool
+        or type(pull.get("merged")) is not bool
+    ):
+        raise ValueError("PR identity or state is incomplete")
+    merged_at = _epoch(pull.get("merged_at"))
+    merged = pull["merged"] and pull["state"] == "closed" and merged_at is not None
+    if pull["merged"] != (merged_at is not None) or (
+        pull["merged"] and (not merged or merged_at > time.time())
+    ):
+        raise ValueError("Invalid merge evidence")
+    return {
+        "reviewable": pull["state"] == "open"
+        and not pull["draft"]
+        and not pull["merged"],
+        "merged": merged,
+        "merge_commit": pull.get("merge_commit_sha"),
+        "head": head_sha,
+        "url": url,
+        "checked_at": time.time(),
+    }

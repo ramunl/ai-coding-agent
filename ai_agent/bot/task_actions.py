@@ -21,6 +21,7 @@ from ai_agent.actions import ActionError, busy_reason, use_project
 from ai_agent.bot import work_actions
 from ai_agent.bot.planning import plan
 from ai_agent.config import redact_sensitive
+from ai_agent.dependency_evidence import refresh as refresh_dependencies
 from ai_agent.plan_state import parse_plan_document
 from ai_agent.projects import ProjectError, active_project, get_project
 from ai_agent.task_reopen import enforce_attempt_branch, planning_text, reopen_task
@@ -108,7 +109,7 @@ async def start_queued(ptb_app: Any, owner_id: int) -> dict | None:
     """Start the oldest queued task if the agent is free; return it, or None."""
     data = ptb_app.user_data[owner_id]
     for task in queued(data):
-        if waiting_for(task, data) is not None:
+        if await refresh_dependencies(task, data) is not None:
             continue  # a later part: its previous part has no pull request yet
         reason = wait_reason(data, task)
         if reason:
@@ -174,6 +175,9 @@ async def start(
 ) -> str:
     """Start planning a task in its repository; raise ActionError if it can't."""
     data = ptb_app.user_data[owner_id]
+    dependency_reason = await refresh_dependencies(task, data)
+    if dependency_reason:
+        raise ActionError(f"Not started: {dependency_reason}.")
     reason = start_refusal(data)
     if reason:
         raise ActionError(f"Not started: {reason}.")
@@ -203,6 +207,9 @@ async def retry(
     data = ptb_app.user_data[owner_id]
     if not can_retry(task):
         raise ActionError("This task has no failed run to retry; start planning it.")
+    dependency_reason = await refresh_dependencies(task, data)
+    if dependency_reason:
+        raise ActionError(f"Not started: {dependency_reason}.")
     reason = start_refusal(data) or busy_reason(data)
     if reason:
         raise ActionError(f"Not retried: {reason}.")
@@ -323,11 +330,10 @@ async def run_task_action(
             raise ActionError(
                 "Only a To do, stopped, blocked or Ops-action task can be started."
             )
+        await refresh_dependencies(task, data)
         previous = waiting_for(task, data)
         if previous is not None:
-            raise ActionError(
-                f"This part waits for “{previous['title']}” to have a pull request."
-            )
+            raise ActionError(f"This part waits: {previous['title']}.")
         reason = wait_reason(data, task)
         if reason:
             return queue_start(task, reason)

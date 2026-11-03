@@ -4,7 +4,7 @@ The agent runs one repository at a time. A plan that lists several (see
 ecosystem.py) becomes a chain of To do tasks, one per repository, in the
 plan's order: each is planned in its own repository, with the whole change as
 context, and gets its own branch and pull request. A part waits until the
-part before it has a pull request (or is merged), so storage and API changes
+part before it is verified merged in its checkout, so storage and API changes
 come before the screens that use them. The todo the plan came from goes with
 the last part, so it is closed only when the whole change is deployed.
 """
@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, MutableMapping
 
+from ai_agent.config import CHAT_ID
 from ai_agent.plan_state import PlanDocument, PlanState, parse_plan_document
 from ai_agent.projects import active_project, list_projects
 from ai_agent.tasks import add_task, tasks_of
@@ -61,6 +62,7 @@ def split_plan(
     document: PlanDocument,
     known: Iterable[str],
     active: str = "",
+    identities: dict[str, dict] | None = None,
 ) -> list[dict]:
     """Add one To do task per repository of the plan; return them in order.
 
@@ -112,6 +114,20 @@ def split_plan(
             parts=len(parts),
             after=created[-1]["id"] if created else None,
         )
+        if identities and repository["name"] in identities:
+            task["dependency_scope"] = {
+                "owner_id": str(CHAT_ID),
+                "repository": identities[repository["name"]],
+            }
+        if created and created[-1].get("dependency_scope"):
+            task["dependencies"] = [
+                {
+                    "task_id": created[-1]["id"],
+                    "scope": created[-1]["dependency_scope"],
+                    "policy": "merged_in_checkout",
+                    "revision": 1,
+                }
+            ]
         created.append(task)
     if source is not None:
         tasks_of(data).remove(source)
@@ -126,12 +142,21 @@ def split_pending(data: MutableMapping) -> str:
     if data.get("planning_task") or data.get("thinking"):
         raise SplitError("Wait until the agent finishes planning.")
     document = parse_plan_document(plan.plan_text, plan.feature)
+    projects = list_projects()
     created = split_plan(
         data,
         plan,
         document,
-        [project.name for project in list_projects()],
+        [project.name for project in projects],
         active_project().name,
+        {
+            p.name: {
+                "project_name": p.name,
+                "repo_path": str(p.repo_path),
+                "github_repository": p.github_repository,
+            }
+            for p in projects
+        },
     )
     data.pop("pending_plan", None)
     data.pop("pending_implementation", None)
@@ -145,6 +170,6 @@ def split_pending(data: MutableMapping) -> str:
     lines.append(
         "Each is planned in its own repository. Part 1 can start now (Tasks › "
         "Start planning, or the worker); each next part waits for the pull "
-        "request of the one before it."
+        "request of the one before it to be merged and verified in its checkout."
     )
     return "\n".join(lines)

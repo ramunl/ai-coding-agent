@@ -183,3 +183,33 @@ def test_branch_is_displayed_and_preserved_through_revision_and_approval(
     assert task["branch"] in replies.call_args.args[1]
     asyncio.run(planning.approve(SimpleNamespace(), context))
     assert data["pending_implementation"]["branch_name"] == task["branch"]
+
+
+@pytest.mark.parametrize("entry", ["manual", "queued", "direct"])
+def test_all_task_starts_block_missing_dependency(actions, monkeypatch, entry):
+    task = {
+        "id": "consumer",
+        "title": "Consumer",
+        "repo": "repo",
+        "stage": "todo",
+        "after": "missing",
+        "start_next": 1,
+    }
+    data = {"tasks": [task]}
+    app = SimpleNamespace(user_data={123: data})
+    switch = AsyncMock()
+    monkeypatch.setattr(actions, "_switch_to", switch)
+    if entry == "queued":
+        assert asyncio.run(actions.start_queued(app, 123)) is None
+    else:
+        with pytest.raises(actions.ActionError, match="evidence unknown"):
+            if entry == "manual":
+                asyncio.run(
+                    actions.run_task_action(
+                        app, 123, "start_task", {"task": "consumer"}
+                    )
+                )
+            else:
+                asyncio.run(actions.start(app, 123, task))
+    switch.assert_not_called()
+    assert task["stage"] == "todo"

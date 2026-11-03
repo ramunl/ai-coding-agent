@@ -125,7 +125,8 @@ def test_archived_handoff_includes_observed_partial_work_facts(setup):
     assert "unverified" in archived
 
 
-def test_legacy_completed_dependency_without_handoff_remains_plannable(setup):
+def test_legacy_completed_dependency_without_handoff_blocks(setup):
+    from ai_agent.context_sources import ContextBlockedError
     from ai_agent.tasks import waiting_for
 
     _, plan = setup
@@ -133,10 +134,9 @@ def test_legacy_completed_dependency_without_handoff_remains_plannable(setup):
         "planning_task": "new",
         "tasks": [{"id": "old", "stage": "done"}, {"id": "new", "after": "old"}],
     }
-    assert waiting_for(data["tasks"][1], data) is None
-    request = lifecycle.planning_request(data, "123", plan.repository_identity)
-    assert not request.dependency_ids
-    assert lifecycle.build_packet(request)
+    assert waiting_for(data["tasks"][1], data) is not None
+    with pytest.raises(ContextBlockedError, match="Dependency evidence unknown"):
+        lifecycle.planning_request(data, "123", plan.repository_identity)
 
 
 def test_handled_failure_before_publication_allows_next_attempt(setup, bot_modules):
@@ -215,7 +215,7 @@ def test_direct_bugfix_seals_sources_until_confirmation(
     monkeypatch.setattr(
         lifecycle,
         "build_packet",
-        lambda request: replace(
+        lambda request, **kwargs: replace(
             original, reference=replace(original.reference, sha256="f" * 64)
         ),
     )
@@ -356,3 +356,23 @@ def test_precheckout_crash_without_effect_intent_closes_without_git_or_github(
     assert recovery.reconcile(data, 123)
     assert not recovery.detect_pending(123)
     assert attempt.store.get("attempt", attempt.state["attempt_id"]).outcome == "failed"
+
+
+@pytest.mark.parametrize("archived", [False, True])
+def test_execution_rechecks_dependencies_before_provider(setup, bot_modules, archived):
+    from ai_agent.bot.context_execution import lifecycle_execution
+    from ai_agent.context_sources import ContextBlockedError
+
+    task = {"id": "consumer", "after": "missing", "stage": "planned"}
+    item = {"checkpoint_task": "consumer", "dependency_task": dict(task)}
+    data = {"tasks": [] if archived else [task]}
+    context = SimpleNamespace(user_data=data)
+    reached = []
+
+    @lifecycle_execution
+    async def run(update, context, item):
+        reached.append(True)
+
+    with pytest.raises(ContextBlockedError, match="evidence unknown"):
+        asyncio.run(run(None, context, item))
+    assert not reached

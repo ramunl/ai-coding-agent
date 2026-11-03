@@ -49,7 +49,8 @@ def test_repeated_reopen_preserves_identity_history_and_dependencies(modules):
     assert first[0]["started_at"] == task["created_at"]
     assert first[0]["archived_at"] >= task["created_at"]
     assert {key: task[key] for key in identity} == identity
-    assert child == original_child
+    assert {key: child[key] for key in original_child} == original_child
+    assert child["dependency_invalidations"] == {task["id"]: "attempt reopened"}
     assert task["stage"] == "todo" and not task["autopilot"]
     assert all(key not in task for key in reopen.CLEAR_FIELDS)
     with pytest.raises(ValueError, match="Only Done or Stopped"):
