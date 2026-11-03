@@ -28,6 +28,7 @@ from ai_agent.context_lifecycle import (
     require_run,
     run_binding,
 )
+from ai_agent.context_projection import initiative_statuses
 from ai_agent.plan_scope import assess_scope
 from ai_agent.plan_state import (
     ExecutionState,
@@ -361,7 +362,9 @@ def snapshot(context: Any) -> dict:
     pending = data.get("pending_implementation")
     execution = data.get("active_execution")
     last = last_execution(context)
+    now = int(time.time())
     return {
+        "initiatives": initiative_statuses(data, now=now),
         "context_recovery_pending": bool(data.get("context_recovery_pending")),
         "running": dict(execution) if isinstance(execution, dict) else None,
         "queue": [
@@ -396,7 +399,7 @@ def snapshot(context: Any) -> dict:
             data.get("pending_bugfix_clarification"), dict
         ),
         "bugfix_questions": _bugfix_questions(data),
-        "tasks": [task_view(task, data) for task in data.get("tasks") or []],
+        "tasks": [task_view(task, data, now=now) for task in data.get("tasks") or []],
         "worker": worker_view(data, time.time()),
         "thinking": dict(data["thinking"])
         if isinstance(data.get("thinking"), dict)
