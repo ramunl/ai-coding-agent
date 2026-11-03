@@ -327,3 +327,28 @@ def test_reopen_metadata_counts_toward_both_limits(archive):
     assert json.loads(packet.text)["reopen"]["location"] == "original_prompt"
     with pytest.raises(ContextBlockedError, match="character limit"):
         build_packet(request, reopen_in_prompt=True, char_limit=len(reopen) + 20)
+
+
+def test_metadata_is_separate_from_packet_bytes_and_digest(archive, monkeypatch):
+    import hashlib
+
+    from ai_agent import context_packets
+    from ai_agent.context_status import PacketMetadata
+
+    store, request = archive
+    refs = tuple(attempt(store, f"prior{i}") for i in range(7))
+    request = replace(request, candidates=refs)
+    monkeypatch.setattr(context_packets.time, "time", lambda: 100)
+    first = build_packet(request)
+    monkeypatch.setattr(context_packets.time, "time", lambda: 200)
+    second = build_packet(request, verify_dependencies=False)
+    assert first.text == second.text
+    assert first.reference == second.reference
+    assert first.reference.sha256 == hashlib.sha256(first.text.encode()).hexdigest()
+    assert first.metadata == PacketMetadata(100, True, 2, 0)
+    assert second.metadata == PacketMetadata(200, False, 2, 0)
+    assert "observed_at" not in json.loads(first.text)
+    assert (
+        context_packets.ContextPacket(first.text, first.reference).metadata
+        == PacketMetadata()
+    )

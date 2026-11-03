@@ -509,3 +509,42 @@ def test_owner_scope_packet_keeps_full_journal_and_scoped_terminal_refs(setup):
     assert saved.packets[0].records == ()
     event = next(iter(attempt.state["events"].values()))
     assert event["facts"]["packet"]["records"][0]["scope"]["repository"] is None
+
+
+def test_receipt_metadata_is_additive_and_does_not_change_approval(setup, monkeypatch):
+    from ai_agent import context_packets
+    from ai_agent.context_status import PacketMetadata
+
+    spec, plan = setup
+    receipt = {}
+    token = lifecycle.packet_receipt.set(receipt)
+    try:
+        monkeypatch.setattr(context_packets.time, "time", lambda: 100)
+        context_packets.context_prompt(
+            "private prompt", lifecycle.request_from_spec(spec)
+        )
+        first = dict(receipt)
+        plan.context_packet = receipt["packet"]
+        lifecycle.approve_plan(plan)
+        binding = lifecycle.plan_binding(plan)
+        monkeypatch.setattr(context_packets.time, "time", lambda: 200)
+        context_packets.context_prompt(
+            "private prompt", lifecycle.request_from_spec(spec)
+        )
+        assert receipt["packet"] == first["packet"]
+        assert receipt["packet_metadata"]["observed_at"] == 200
+        assert first["packet_metadata"]["observed_at"] == 100
+        assert lifecycle.plan_binding(plan) == binding
+        lifecycle.require_plan_approval(plan)
+        assert "packet_metadata" not in json.dumps(binding)
+        assert "private prompt" not in json.dumps(receipt)
+        assert (
+            PacketMetadata.from_dict({"packet": first["packet"]}.get("packet_metadata"))
+            == PacketMetadata()
+        )
+        item = {"context_spec": spec, "approval_binding": binding}
+        before = lifecycle.run_binding(item)
+        item["packet_metadata"] = receipt["packet_metadata"]
+        assert lifecycle.run_binding(item) == before
+    finally:
+        lifecycle.packet_receipt.reset(token)
