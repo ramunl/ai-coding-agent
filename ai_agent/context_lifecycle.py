@@ -11,7 +11,7 @@ from dataclasses import asdict
 from uuid import uuid4
 
 from ai_agent.context_models import RecordReference, RepositoryIdentity, Scope
-from ai_agent.context_packets import build_packet
+from ai_agent.context_packets import ContextPacket, build_packet
 from ai_agent.context_sources import ContextBlockedError, ContextRequest
 from ai_agent.context_store import ContextStore
 
@@ -22,6 +22,18 @@ packet_receipt: ContextVar[dict | None] = ContextVar(
 current_context: ContextVar[ContextRequest | None] = ContextVar(
     "lifecycle_context", default=None
 )
+
+
+def capture_packet_receipt(packet: ContextPacket) -> None:
+    """Capture additive observation data separately from approval-bound refs.
+
+    Receipts are an internal boundary, not a public status object. Publication
+    must use context_status's explicit safe projection, never serialize these.
+    """
+    receipt = packet_receipt.get()
+    if receipt is not None:
+        receipt["packet"] = asdict(packet.reference)
+        receipt["packet_metadata"] = packet.metadata.to_dict()
 
 
 def digest(value: object) -> str:

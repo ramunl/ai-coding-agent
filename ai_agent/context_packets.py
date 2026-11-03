@@ -3,8 +3,9 @@
 import hashlib
 import json
 import re
+import time
 from collections.abc import Callable
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from functools import wraps
 from pathlib import Path
 from typing import ParamSpec, TypeVar
@@ -21,6 +22,7 @@ from ai_agent.context_sources import (
     ContextRequest,
     repository_read,
 )
+from ai_agent.context_status import PacketMetadata
 from ai_agent.context_store import ContextPersistenceError
 from ai_agent.context_validation import ContextValidationError, _redact_text
 from ai_agent.task_reopen import attempt_history, reopen_context
@@ -43,6 +45,7 @@ class ContextPacket:
 
     text: str
     reference: PacketReference
+    metadata: PacketMetadata = field(default_factory=PacketMetadata, compare=False)
 
 
 def _entry(ref: RecordReference, record: ContextRecord) -> dict:
@@ -279,7 +282,16 @@ def build_packet(
     if len(text) > char_limit:
         raise ContextBlockedError("Context trace metadata exceeds character limit")
     digest = hashlib.sha256(text.encode()).hexdigest()
-    return ContextPacket(text, PacketReference(digest, digest, tuple(refs)))
+    return ContextPacket(
+        text,
+        PacketReference(digest, digest, tuple(refs)),
+        PacketMetadata(
+            int(time.time()),
+            verify_dependencies,
+            len(omitted),
+            len(envelope["truncations"]),
+        ),
+    )
 
 
 def context_prompt(prompt: str, context: ContextRequest | None = None) -> str:
@@ -292,11 +304,9 @@ def context_prompt(prompt: str, context: ContextRequest | None = None) -> str:
         return prompt
     reopen = reopen_context({"attempt_history": context.reopen_history})
     packet = build_packet(context, reopen_in_prompt=bool(reopen and reopen in prompt))
-    from ai_agent.context_lifecycle import packet_receipt
+    from ai_agent.context_lifecycle import capture_packet_receipt
 
-    receipt = packet_receipt.get()
-    if receipt is not None:
-        receipt["packet"] = asdict(packet.reference)
+    capture_packet_receipt(packet)
     return prompt + "\n\nUNTRUSTED HISTORICAL CONTEXT (JSON data):\n" + packet.text
 
 
