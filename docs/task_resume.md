@@ -57,3 +57,8 @@ Real-Git tests cover partial commits, separate staged/unstaged edits, untracked
 files, repeated failures, interrupted-checkout recovery, start-fresh preservation,
 invalid identities/refs, moved branches and empty checkpoints. Process tests use
 local child writers and prove they cannot write after timeout or leader exit.
+
+Task PR tracking binds modern archived attempts to their recorded commit SHA
+and PR URL when available. Reusing a branch name cannot attach an older merged
+PR to a later failed attempt. Missing archives remain unresolved rather than
+marking the task complete.

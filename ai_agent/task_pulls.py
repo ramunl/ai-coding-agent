@@ -58,6 +58,7 @@ def pull_state(repository: str, branch: str) -> dict | None:
         raise ValueError("Invalid GitHub pull request merge timestamp")
     return {
         "url": pull.get("html_url"),
+        "head_sha": (pull.get("head") or {}).get("sha"),
         "state": "merged" if merged_at is not None else pull.get("state"),
         "merged_at": merged_at,
         "merge_commit": pull.get("merge_commit_sha") if merged_at is not None else None,
@@ -97,6 +98,34 @@ def apply_pull(task: dict, pull: dict | None) -> bool:
     return task != before
 
 
+def attempt_pull(task: dict, repository: str, pull: dict | None) -> dict | None:
+    """Bind modern task tracking to archived work, never just a reused branch."""
+    if pull is None or not task.get("context_handoff"):
+        return pull
+    from ai_agent.config import CHAT_ID
+    from ai_agent.context_models import AttemptSnapshot
+    from ai_agent.context_store import ContextStore
+    from ai_agent.context_validation import decode_dependency
+
+    ref = task["context_handoff"]
+    dependency = decode_dependency(
+        {"task_id": task["id"], "scope": ref["scope"], "attempt": ref},
+        str(CHAT_ID),
+    )
+    if dependency.scope.repository.github_repository != repository:
+        raise ValueError("Attempt repository mismatch")
+    record = ContextStore(dependency.scope).get(
+        "attempt", dependency.attempt.record_id, dependency.attempt.revision
+    )
+    if not isinstance(record, AttemptSnapshot) or record.task_id != task["id"]:
+        raise ValueError("Attempt task identity mismatch")
+    commits = {e.locator for e in record.evidence if e.source == "commit"}
+    urls = {e.locator for e in record.evidence if e.source == "pull_request"}
+    if pull.get("head_sha") not in commits or (urls and pull["url"] not in urls):
+        return None
+    return pull
+
+
 async def check_once(data: MutableMapping) -> bool:
     """Ask GitHub about every task waiting on its pull request; True if any moved."""
     changed = False
@@ -110,6 +139,7 @@ async def check_once(data: MutableMapping) -> bool:
                 await asyncio.to_thread(get_project, task["repo"])
             ).github_repository
             pull = await asyncio.to_thread(pull_state, repository, identity[1])
+            pull = await asyncio.to_thread(attempt_pull, task, repository, pull)
         except Exception as error:  # one repo failing must not stop the others
             logger.warning(
                 "Task %s: pull request check failed: %s", task.get("id"), error

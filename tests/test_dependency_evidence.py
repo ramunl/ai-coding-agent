@@ -306,3 +306,59 @@ def test_refresh_stays_blocked_if_sync_does_not_supply_merge(evidence, monkeypat
     assert "still lacks" in asyncio.run(gate.refresh(task, {"tasks": [task]}))
     assert calls == ["sync"]
     assert task["dependency_check"]["status"] == "unknown"
+
+
+@pytest.mark.parametrize("matching", [False, True])
+def test_task_tracker_requires_attempt_head_on_reused_branch(
+    evidence, monkeypatch, matching
+):
+    from ai_agent import task_pulls
+
+    _, dependency, store, _, _, _ = evidence
+    monkeypatch.setattr("ai_agent.context_store.ContextStore", lambda scope: store)
+    task = {"id": "first", "context_handoff": dependency["attempt"]}
+    pull = {
+        "url": "https://github.com/owner/predecessor/pull/12",
+        "head_sha": ("a" if matching else "b") * 40,
+        "state": "merged",
+    }
+    result = task_pulls.attempt_pull(task, "owner/predecessor", pull)
+    assert result == (pull if matching else None)
+
+
+def test_task_tracker_rejects_old_pr_after_attempt_failed_before_changes(
+    evidence, monkeypatch
+):
+    from dataclasses import replace
+
+    from ai_agent import task_pulls
+
+    _, dependency, store, _, _, _ = evidence
+    ref = dependency["attempt"]
+    record = store.get("attempt", ref["record_id"], ref["revision"])
+    store.write(
+        replace(
+            record,
+            record_id="failed1",
+            attempt_id="failed1",
+            evidence=(),
+            outcome="failed",
+            revision=0,
+        ),
+        expected_revision=0,
+    )
+    ref["record_id"] = "failed1"
+    monkeypatch.setattr("ai_agent.context_store.ContextStore", lambda scope: store)
+    task = {"id": "first", "context_handoff": ref}
+    assert (
+        task_pulls.attempt_pull(
+            task,
+            "owner/predecessor",
+            {
+                "url": "https://github.com/owner/predecessor/pull/12",
+                "head_sha": "a" * 40,
+                "state": "merged",
+            },
+        )
+        is None
+    )
