@@ -168,11 +168,14 @@ def test_succeeded_handoff_grounds_b_without_rediscovery(store, monkeypatch):
     assert entry["task_id"] == "task-a"
     assert entry["attempt_id"] == "attempt-a"
     assert entry["outcome"] == "succeeded"
-    assert entry["sha256"] == hashlib.sha256(
-        json.dumps(
-            asdict(saved), sort_keys=True, ensure_ascii=True, separators=(",", ":")
-        ).encode()
-    ).hexdigest()
+    assert (
+        entry["sha256"]
+        == hashlib.sha256(
+            json.dumps(
+                asdict(saved), sort_keys=True, ensure_ascii=True, separators=(",", ":")
+            ).encode()
+        ).hexdigest()
+    )
     assert packet.reference.records == (ref,)
     # Source-grounded: only the pinned attempt revision and its freshness read.
     assert calls == [("attempt", "attempt-a", 1), ("attempt", "attempt-a", None)]
