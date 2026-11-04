@@ -34,10 +34,10 @@ def evidence(tmp_path, monkeypatch):
     )
     from ai_agent.context_store import ContextStore
 
-    # attempt_pull reads ai_agent.config.CHAT_ID at call time, while this
-    # module binds CHAT_ID once at import. Earlier tests that replace
-    # ai_agent.config can split the two apart, so pin the bound copy to the
-    # live config value the owner check will actually use.
+    # attempt_pull and this module both validate the archived attempt scope
+    # against this bound CHAT_ID. dependency_evidence binds CHAT_ID once at
+    # import, while earlier tests can re-import ai_agent.config with another
+    # value, so pin the bound copy to the live config value for this test.
     monkeypatch.setattr(gate, "CHAT_ID", str(config.CHAT_ID))
 
     repo = tmp_path / "repo"
