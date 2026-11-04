@@ -34,6 +34,24 @@ negative, floating-point and nonnumeric count values become null, not zero.
 Invalid timestamps become null. Unknown enum or blocker values are rejected
 with fixed errors that do not echo inputs.
 
+## Versioning and compatibility
+
+The contract is versioned by the integer `schema_version`, currently `1`. v1 is
+additive only: a field may be added with a documented null/unknown default, but
+existing fields, bounds and meanings never change in place. `PacketMetadata.from_dict`
+reads a sidecar only when `schema_version` is exactly `1`; a missing, non-integer
+or future `schema_version` yields the legacy default — unknown health/freshness,
+null counts and timestamps, empty refs — and never raises or migrates. No
+migration runs and historical records are never rewritten: old packets stay
+unknown and any future field defaults to null/unknown for them.
+
+The field, bounds, safe-reference and legacy-default tables above are the single
+source of truth for the v1 wire shape. `ContextStatus.to_dict` projects exactly
+those fields with closed enum value sets, and `to_json` emits sorted, compact
+ASCII keys. Code changes must update these tables and the contract pinning test
+(`tests/test_context_status_contract.py`) together; management and inbox
+contracts are separate and unchanged by this file.
+
 ## Evidence semantics and precedence
 
 Unknown means missing, invalid or unverified evidence. Unavailable means an
