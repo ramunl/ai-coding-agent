@@ -24,9 +24,12 @@ from ai_agent import context_attempts as journal
 from ai_agent import context_lifecycle as lifecycle
 from ai_agent import context_recovery as recovery
 from ai_agent.context_models import (
+    Approval,
     AttemptSnapshot,
+    Decision,
     Dependency,
     EvidenceReference,
+    InitiativeContext,
     RecordReference,
     RepositoryIdentity,
     Scope,
@@ -117,6 +120,7 @@ def request_b(
     store,
     *,
     prerequisite=None,
+    constraints=(),
     dependencies=(),
     documents=(),
     dependency_ids=(),
@@ -130,6 +134,7 @@ def request_b(
         attempt_id="attempt-b",
         stores=(store,),
         prerequisites=(prerequisite,) if prerequisite is not None else (),
+        constraints=constraints,
         dependencies=dependencies,
         dependency_ids=dependency_ids,
         documents=documents,
@@ -179,6 +184,114 @@ def test_succeeded_handoff_grounds_b_without_rediscovery(store, monkeypatch):
     assert packet.reference.records == (ref,)
     # Source-grounded: only the pinned attempt revision and its freshness read.
     assert calls == [("attempt", "attempt-a", 1), ("attempt", "attempt-a", None)]
+
+
+def test_attempt_snapshot_survives_finished_task_pruning(store):
+    from ai_agent import tasks
+
+    saved = save_attempt(store)
+    assert saved.revision == 1
+    data = {"tasks": []}
+    for number in range(55):
+        task = tasks.add_task(data, f"Finished task {number}", "repo", None)
+        task["stage"] = "done"
+    # Task-list pruning evicts the oldest finished entries, never archive records.
+    assert len(tasks.tasks_of(data)) == 50
+    assert store.get("attempt", saved.record_id, 1) == saved
+
+
+def test_context_handoff_pointer_survives_eviction(store, monkeypatch):
+    from ai_agent import dependency_evidence, tasks
+
+    monkeypatch.setattr(dependency_evidence, "CHAT_ID", store.scope.owner_id)
+    saved = save_attempt(store)
+    ref = asdict(ref_of(saved))
+    predecessor = {
+        "id": "task-a",
+        "repo": store.scope.repository.project_name,
+        "stage": "done",
+        "context_handoff": ref,
+    }
+    consumer = {"id": "task-b", "after": "task-a", "stage": "todo"}
+    data = {"tasks": [predecessor, consumer]}
+    monkeypatch.setattr(tasks, "MAX_TASKS", 2)
+    tasks.add_task(data, "New finished task", "other", None)
+    assert predecessor not in data["tasks"]
+    # The dependency edge is copied from A's handoff before A is evicted.
+    assert consumer["dependencies"][0]["attempt"] == ref
+    assert store.get("attempt", saved.record_id, 1) == saved
+
+
+def test_unseeded_old_evidence_is_never_auto_loaded(store, monkeypatch):
+    from ai_agent import context_index
+
+    saved = save_attempt(store)
+    ref = ref_of(saved)
+    old = AttemptSnapshot(
+        record_id="old-attempt",
+        scope=store.scope,
+        summary="Unrelated old handoff",
+        task_id="task-old",
+        attempt_id="attempt-old",
+        outcome="succeeded",
+    )
+    store.write(old, expected_revision=0)
+
+    calls = []
+    original = store.get
+
+    def spy(kind, record_id, revision=None):
+        calls.append((kind, record_id, revision))
+        return original(kind, record_id, revision)
+
+    monkeypatch.setattr(store, "get", spy)
+    monkeypatch.setattr(
+        context_index,
+        "load_index",
+        Mock(side_effect=AssertionError("no index auto-load")),
+    )
+    monkeypatch.setattr(
+        context_index,
+        "rebuild_index",
+        Mock(side_effect=AssertionError("no index auto-load")),
+    )
+
+    packet = build_packet(request_b(store, prerequisite=ref))
+    data = json.loads(packet.text)
+    assert [record["ref"] for record in data["records"]] == [asdict(ref)]
+    assert all(
+        record["ref"]["record_id"] != "old-attempt" for record in data["records"]
+    )
+    assert ("attempt", "old-attempt", 1) not in calls
+    assert ("attempt", "old-attempt", None) not in calls
+
+    # Empty candidates yield no records.
+    assert json.loads(build_packet(request_b(store)).text)["records"] == []
+
+    # Seeded initiative decisions stay owner-approved only; proposals are excluded.
+    initiative = InitiativeContext(
+        record_id="initiative-b",
+        scope=store.scope,
+        summary="Seeded initiative",
+        decisions=(
+            Decision("proposed-idea", "a proposed idea", "proposed"),
+            Decision(
+                "approved-rule",
+                "owner approved rule",
+                "approved",
+                Approval("owner", "event-1", 1, "manual"),
+            ),
+        ),
+    )
+    store.write(initiative, expected_revision=0)
+    init_ref = RecordReference("initiative", "initiative-b", 1, store.scope)
+    entry = json.loads(
+        build_packet(request_b(store, constraints=(init_ref,))).text
+    )["records"][0]
+    assert [decision["decision_id"] for decision in entry["decisions"]] == [
+        "approved-rule"
+    ]
+    assert all(decision["status"] == "approved" for decision in entry["decisions"])
 
 
 @pytest.mark.parametrize("outcome", ["failed", "blocked", "cancelled"])
