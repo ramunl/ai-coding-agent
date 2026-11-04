@@ -369,3 +369,51 @@ def test_task_tracker_rejects_old_pr_after_attempt_failed_before_changes(
         )
         is None
     )
+
+
+@pytest.mark.parametrize("merged", [False, True])
+def test_owner_review_rebinds_only_verified_replacement(evidence, monkeypatch, merged):
+    import asyncio
+    from copy import deepcopy
+    from dataclasses import replace
+
+    gate, dependency, store, pull, _, _ = evidence
+    old = deepcopy(dependency["attempt"])
+    record = store.get("attempt", old["record_id"], old["revision"])
+    store.write(
+        replace(record, record_id="replacement", attempt_id="replacement", revision=0),
+        expected_revision=0,
+    )
+    new = {**old, "record_id": "replacement"}
+    task = {
+        "id": "next",
+        "stage": "todo",
+        "dependencies": [deepcopy(dependency)],
+        "dependency_invalidations": {"first": "attempt reopened"},
+    }
+    data = {"tasks": [task, {"id": "first", "stage": "done", "context_handoff": new}]}
+    pull["merged"] = merged
+    original = gate.evaluate_dependency
+    monkeypatch.setattr(
+        gate, "evaluate_dependency", lambda value: original(value, store=store)
+    )
+    asyncio.run(gate.review_replacements(task, data))
+    assert task["dependencies"][0]["attempt"] == (new if merged else old)
+    assert bool(task.get("dependency_invalidations")) is not merged
+    assert bool(task.get("dependency_reviews")) is merged
+
+
+def test_owner_review_does_not_change_approved_work(evidence):
+    import asyncio
+    from copy import deepcopy
+
+    gate, dependency, _, _, _, _ = evidence
+    task = {
+        "stage": "todo",
+        "run": {"approved": True},
+        "dependencies": [dependency],
+        "dependency_invalidations": {"first": "attempt reopened"},
+    }
+    before = deepcopy(task)
+    asyncio.run(gate.review_replacements(task, {}))
+    assert task == before

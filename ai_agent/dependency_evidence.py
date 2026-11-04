@@ -276,6 +276,57 @@ async def refresh(task: dict, data: dict) -> str | None:
     return cached_reason(task, data)
 
 
+async def review_replacements(task: dict, data: dict) -> None:
+    """An explicit owner start can review replacement handoffs before planning."""
+    if task.get("stage") != "todo" or task.get("run") or task.get("plan_id"):
+        return
+    candidate = deepcopy(task)
+    changed = []
+    for edge in candidate.get("dependencies", []):
+        dependency = decode_dependency(edge, str(CHAT_ID))
+        previous = next(
+            (t for t in data.get("tasks", []) if t.get("id") == dependency.task_id), {}
+        )
+        ref = previous.get("context_handoff")
+        if ref == edge.get("attempt"):
+            continue
+        if (
+            not ref
+            or ref.get("scope") != edge.get("scope")
+            or dependency.override is not None
+            or previous.get("stage") not in {"done", "pr"}
+        ):
+            return
+        changed.append(
+            {
+                "task_id": dependency.task_id,
+                "before": edge.get("attempt"),
+                "after": deepcopy(ref),
+            }
+        )
+        edge["attempt"] = deepcopy(ref)
+        edge["revision"] = edge.get("revision", 1) + 1
+    if not changed:
+        return
+    binding = fingerprint(task, data)
+    candidate.pop("dependency_invalidations", None)
+    if await refresh(candidate, data) is not None:
+        return
+    if fingerprint(task, data) != binding:
+        raise ValueError("Dependencies changed during owner review")
+    task["dependencies"] = candidate["dependencies"]
+    task.pop("dependency_invalidations", None)
+    task.pop("dependency_check", None)
+    task.setdefault("dependency_reviews", []).append(
+        {
+            "at": time.time(),
+            "owner_id": str(CHAT_ID),
+            "source": "start_task",
+            "changes": changed,
+        }
+    )
+
+
 def invalidate_dependents(data: dict, predecessor_id: str) -> None:
     """Retain reopen invalidation on consumers and queued snapshots after eviction."""
     consumers = list(data.get("tasks", []))

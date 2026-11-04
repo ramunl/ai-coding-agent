@@ -22,6 +22,7 @@ from ai_agent.bot import work_actions
 from ai_agent.bot.planning import plan
 from ai_agent.config import redact_sensitive
 from ai_agent.dependency_evidence import refresh as refresh_dependencies
+from ai_agent.dependency_evidence import review_replacements
 from ai_agent.plan_state import parse_plan_document
 from ai_agent.projects import ProjectError, active_project, get_project
 from ai_agent.task_reopen import enforce_attempt_branch, planning_text, reopen_task
@@ -330,6 +331,8 @@ async def run_task_action(
             raise ActionError(
                 "Only a To do, stopped, blocked or Ops-action task can be started."
             )
+        logger.info("Owner prerequisite review requested for task %s", task["id"])
+        await review_replacements(task, data)
         await refresh_dependencies(task, data)
         previous = waiting_for(task, data)
         if previous is not None:

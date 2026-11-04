@@ -62,3 +62,9 @@ Task PR tracking binds modern archived attempts to their recorded commit SHA
 and PR URL when available. Reusing a branch name cannot attach an older merged
 PR to a later failed attempt. Missing archives remain unresolved rather than
 marking the task complete.
+
+For an unstarted To do task, the owner’s Check prerequisites and start action
+can review a replacement predecessor attempt. It retains the same task, scope
+and policy, verifies fresh PR and checkout evidence, then records the old and
+new references in dependency_reviews. Worker polling never performs this review.
+Approved plans and saved runs remain blocked for separate owner review.
