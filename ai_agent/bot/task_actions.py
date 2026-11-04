@@ -52,6 +52,7 @@ TASK_ACTIONS = (
     "create_autopilot_task",
     "set_autopilot",
     "cancel_start",
+    "stop_task",
 )
 REMOVABLE = ("todo", "stopped", "pr", "done", "blocked", "ops_required")
 STARTABLE = ("todo", "stopped", "blocked", "ops_required")
@@ -326,6 +327,17 @@ async def run_task_action(
         return await retry(
             ptb_app, owner_id, task, args["tool"], resume=action == "resume_task"
         )
+    if action == "stop_task":
+        from ai_agent.implementation_stop import request
+
+        try:
+            request(task["id"], task.get("branch", ""), args["token"])
+        except ValueError as error:
+            raise ActionError(str(error)) from error
+        task["stop_requested"] = True
+        task["autopilot"] = False
+        task["worker_failed"] = True
+        return "Stopping implementation; waiting for provider shutdown and recovery."
     if action == "start_task":
         if task.get("stage") not in ("todo", "stopped", "blocked", "ops_required"):
             raise ActionError(

@@ -213,3 +213,29 @@ def test_all_task_starts_block_missing_dependency(actions, monkeypatch, entry):
                 asyncio.run(actions.start(app, 123, task))
     switch.assert_not_called()
     assert task["stage"] == "todo"
+
+
+def test_stop_action_requires_current_attempt_token(actions):
+    from ai_agent.implementation_stop import register, unregister
+
+    task = {"id": "abcd1234", "stage": "implementing", "branch": "feature/test"}
+    app = SimpleNamespace(user_data={123: {"tasks": [task]}})
+    run = register(task["id"], task["branch"])
+    try:
+        with pytest.raises(actions.ActionError):
+            asyncio.run(
+                actions.run_task_action(
+                    app, 123, "stop_task", {"task": task["id"], "token": "stale"}
+                )
+            )
+        assert not run.stop.is_set()
+        result = asyncio.run(
+            actions.run_task_action(
+                app, 123, "stop_task", {"task": task["id"], "token": run.token}
+            )
+        )
+        assert "Stopping" in result
+        assert run.stop.is_set()
+        assert task["stop_requested"] is True
+    finally:
+        unregister(run)

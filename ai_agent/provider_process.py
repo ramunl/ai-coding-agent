@@ -77,8 +77,21 @@ def grouped_run(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess:
     input_text = kwargs.pop("input", None)
     if input_text is not None:
         kwargs["stdin"] = subprocess.PIPE
+    from ai_agent.git_recovery import _session
+    from ai_agent.implementation_stop import (
+        ImplementationStoppedError,
+        register,
+        unregister,
+    )
+
+    session = _session.get()
+    stop_run = register(session.task_id, session.branch) if session else None
     # A crash between launch and recording the PID must fail closed too.
-    marker.write_text(json.dumps({"group": None}))
+    try:
+        marker.write_text(json.dumps({"group": None}))
+    except BaseException:
+        unregister(stop_run)
+        raise
     try:
         process = subprocess.Popen(
             args,
@@ -88,11 +101,36 @@ def grouped_run(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess:
             **kwargs,
         )
     except BaseException:
+        unregister(stop_run)
         marker.unlink(missing_ok=True)
         raise
     try:
         marker.write_text(json.dumps({"group": process.pid}))
-        stdout, stderr = process.communicate(input=input_text, timeout=timeout)
+        if stop_run is None:
+            stdout, stderr = process.communicate(input=input_text, timeout=timeout)
+        else:
+            deadline = None if timeout is None else time.monotonic() + timeout
+            while True:
+                if stop_run.stop.is_set():
+                    raise ImplementationStoppedError(
+                        "Implementation stopped by owner; saved work is preserved."
+                    )
+                remaining = None if deadline is None else deadline - time.monotonic()
+                if remaining is not None and remaining <= 0:
+                    raise subprocess.TimeoutExpired(args, timeout)
+                try:
+                    stdout, stderr = process.communicate(
+                        input=input_text,
+                        timeout=min(0.25, remaining) if remaining is not None else 0.25,
+                    )
+                    if stop_run.stop.is_set():
+                        raise ImplementationStoppedError(
+                            "Implementation stopped by owner; saved work is preserved."
+                        )
+                    break
+                except subprocess.TimeoutExpired:
+                    input_text = None
+
     except BaseException:
         try:
             os.killpg(process.pid, signal.SIGKILL)
@@ -102,6 +140,8 @@ def grouped_run(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess:
         _wait_stopped(process.pid)
         require_no_writer(repo)
         raise
+    finally:
+        unregister(stop_run)
     # A CLI can exit leaving descendants with stdout closed. Kill them too.
     if _alive(process.pid):
         try:

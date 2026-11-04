@@ -110,6 +110,8 @@ def lifecycle_execution(
         try:
             result = await function(update, context, *args, **kwargs)
         except BaseException as error:
+            from ai_agent.implementation_stop import ImplementationStoppedError
+
             stage = (
                 "blocked"
                 if isinstance(error, (ContextBlockedError, NoCodeOutcomeError))
@@ -125,7 +127,13 @@ def lifecycle_execution(
                 for event in attempt.state["events"].values()
             )
             if not publication and not attempt.failed:
-                attempt.finish("blocked" if stage == "blocked" else "failed")
+                attempt.finish(
+                    "cancelled"
+                    if isinstance(error, ImplementationStoppedError)
+                    else "blocked"
+                    if stage == "blocked"
+                    else "failed"
+                )
             else:
                 data["context_recovery_pending"] = True
             raise

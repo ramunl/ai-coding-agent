@@ -189,7 +189,10 @@ async def run_queued_implementation(
     bind_checkpoint(
         checkpoint_task, branch_name, task.get("execution_mode") == "resume"
     )
+    from ai_agent.implementation_stop import ImplementationStoppedError
+
     no_code = False
+    stopped = False
     try:
         pull_request, commit_sha = await _publish_queued_implementation(
             update, context, task
@@ -219,6 +222,9 @@ async def run_queued_implementation(
             f"Done with {confirmation_label}.\nBranch: {branch_name}\nPR: "
             f"{pull_request.url}",
         )
+    except ImplementationStoppedError:
+        stopped = True
+        raise
     except NoCodeOutcomeError as outcome:
         no_code = True
         checkpoint("no_code", outcome=outcome.status, model_report="unverified")
@@ -232,7 +238,12 @@ async def run_queued_implementation(
             "After resolving the blocker, retry the task.",
         )
     finally:
-        context.user_data.pop("active_execution", None)
+        if stopped:
+            set_active_execution(
+                context, branch_name, "Stopping; preserving saved work"
+            )
+        else:
+            context.user_data.pop("active_execution", None)
         refusal = repository_mismatch(task.get("repository_identity"))
         if refusal:
             if task not in task_queue(context):
@@ -240,6 +251,16 @@ async def run_queued_implementation(
             await reply_chunks(update, refusal)
         else:
             restored = await reset_to_base_branch(update)
+        if owner_task is not None:
+            owner_task.pop("stop_requested", None)
+        if stopped and owner_task is not None and not refusal and restored:
+            from ai_agent.tasks import set_stage
+
+            owner_task["autopilot"] = False
+            owner_task["worker_failed"] = True
+            set_stage(owner_task, "stopped", "Stopped by owner; saved work preserved.")
+        if stopped:
+            context.user_data.pop("active_execution", None)
         if no_code and not refusal and restored:
             try:
                 await asyncio.to_thread(discard_empty_branch, branch_name)

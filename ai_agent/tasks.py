@@ -224,8 +224,18 @@ def view(task: dict, data: MutableMapping, *, now: int | None = None) -> dict:
         pending, "id", None
     ) == task.get("plan_id")
     from ai_agent.checkpoints import task_status
+    from ai_agent.implementation_stop import status as stop_status
 
+    stopping = (
+        task.get("stop_requested")
+        and task.get("stage") == "implementing"
+        and (data.get("active_execution") or {}).get("branch") == task.get("branch")
+    )
+    stop = stop_status(task.get("id", ""), task.get("branch", ""))
+    if stopping:
+        stop.update(can_stop=True, stopping=True)
     return {
+        **stop,
         **(
             task_status(task)
             if can_retry(task)

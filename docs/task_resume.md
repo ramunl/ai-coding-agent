@@ -84,3 +84,19 @@ The regression suite includes an ordered-task lifecycle: reopen a predecessor,
 retain the blocked follower, record CI repair commits, reject an unmerged PR,
 verify the merge and checkout, explicitly review the replacement, and repeat
 the review without creating duplicate audit records.
+
+## Stop implementation
+
+The task list offers Stop implementation while a task-bound Claude or Codex
+provider is running. Confirmation sends an opaque capability for that exact
+process invocation; stale requests cannot stop a later attempt. The button
+shows Stopping while provider shutdown and recovery finish. This stops the
+provider process group, preserves edits using the existing checkpoint/recovery
+flow, then marks the task Stopped only after verified cleanup. Autopilot is
+switched off for the stopped task. Resume is offered only by the usual verified
+checkpoint checks; a cleanup failure remains blocked by recovery safeguards.
+
+The control is unavailable during planning, Git publication and passive CI
+polling. It never kills arbitrary persisted PIDs, restarts the service, removes
+a task, or closes its PR. After publication, saved CI edits still follow the
+existing PR recovery rules.
