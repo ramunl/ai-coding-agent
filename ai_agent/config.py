@@ -144,6 +144,12 @@ RULES_REPO_URL = os.environ.get("RULES_REPO_URL", "git@github.com:ramunl/ai-rule
 RULES_PROJECT_NAME = os.environ.get("RULES_PROJECT_NAME", "channel-cast")
 COMMAND_TIMEOUT_SECONDS = int(os.environ.get("COMMAND_TIMEOUT_SECONDS", "120"))
 CODEX_TIMEOUT_SECONDS = int(os.environ.get("CODEX_TIMEOUT_SECONDS", "1800"))
+_implementation_timeout = int(
+    os.environ.get("IMPLEMENTATION_TIMEOUT_SECONDS", str(CODEX_TIMEOUT_SECONDS))
+)
+if _implementation_timeout < 0:
+    raise ValueError("IMPLEMENTATION_TIMEOUT_SECONDS must be zero or positive")
+IMPLEMENTATION_TIMEOUT_SECONDS = _implementation_timeout or None
 CI_POLL_INTERVAL_SECONDS = int(os.environ.get("CI_POLL_INTERVAL_SECONDS", "30"))
 CI_TIMEOUT_SECONDS = int(os.environ.get("CI_TIMEOUT_SECONDS", "1800"))
 CI_FIX_ATTEMPTS = int(os.environ.get("CI_FIX_ATTEMPTS", "3"))

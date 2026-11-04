@@ -9,8 +9,8 @@ from ai_agent.codex_models import model_args
 from ai_agent.config import (
     CLAUDE_CODE_ALLOWED_TOOLS,
     CLAUDE_CODE_ARGS,
-    CODEX_TIMEOUT_SECONDS,
     IMPLEMENTATION_AGENT,
+    IMPLEMENTATION_TIMEOUT_SECONDS,
 )
 from ai_agent.context_attempts import checkpoint, current_attempt, intent
 from ai_agent.context_packets import build_packet, with_context
@@ -126,7 +126,7 @@ def run_implementation_agent(
                 prompt + diagnostic_context() + OUTCOME_INSTRUCTIONS, agent
             ),
             run,
-            timeout=CODEX_TIMEOUT_SECONDS,
+            timeout=IMPLEMENTATION_TIMEOUT_SECONDS,
         )
     selected = normalize_implementation_agent(agent)
     # Claude Code's text output carries no token count, so its calls stay unknown.

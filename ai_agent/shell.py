@@ -43,7 +43,7 @@ def command_text(args: list[str]) -> str:
 def run(
     args: list[str],
     cwd: Path | None = None,
-    timeout: int = COMMAND_TIMEOUT_SECONDS,
+    timeout: int | None = COMMAND_TIMEOUT_SECONDS,
     interactive: bool = False,
     input_text: str | None = None,
     private: bool = False,

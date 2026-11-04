@@ -83,6 +83,9 @@ Optional values:
 - `GITHUB_BASE_BRANCH`, defaults to `main`
 - `COMMAND_TIMEOUT_SECONDS`, defaults to `120`
 - `CODEX_TIMEOUT_SECONDS`, defaults to `1800`
+- `IMPLEMENTATION_TIMEOUT_SECONDS`, defaults to `CODEX_TIMEOUT_SECONDS`; `0`
+  removes the implementation wall-clock limit for both Claude and Codex.
+  Planning, Git commands and CI retain their separate limits.
 - `CI_POLL_INTERVAL_SECONDS`, defaults to `30`
 - `CI_TIMEOUT_SECONDS`, defaults to `1800`
 - `CI_FIX_ATTEMPTS`, defaults to `3`
