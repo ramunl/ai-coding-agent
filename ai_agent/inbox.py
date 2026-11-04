@@ -33,6 +33,7 @@ from ai_agent.actions import (
     use_project,
 )
 from ai_agent.bot.atomic_file import write_json_atomic
+from ai_agent.config import redact_sensitive
 from ai_agent.context_controls import CONTEXT_ACTIONS
 from ai_agent.task_images import ImageError, references_in
 from ai_agent.task_images import remove as remove_images
@@ -349,6 +350,9 @@ async def process_inbox(
             message = await execute(action, args, user_data, rename_bot, work)
             log.record(request_id, action, "done", message)
         except (ActionError, ImageError) as error:
+            logger.info(
+                "Inbox action %s rejected: %s", action, redact_sensitive(str(error))
+            )
             _remove_unowned(refs, user_data)
             log.record(request_id, action, "failed", str(error))
         except Exception as error:  # never let one request stop the inbox

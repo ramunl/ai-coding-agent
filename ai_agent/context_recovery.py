@@ -103,9 +103,14 @@ def _observe(state: dict, data: dict, root: Path) -> None:
     attempt = _restore_attempt(state, data)
     if not matches:
         # Before a PR intent, a quiescent interrupted run is definitively
-        # incomplete. Keep its local/remote work; only explicit retry may act.
+        # incomplete. A recorded failure during PR creation can also settle
+        # after GitHub confirms absence under the recovery lease. Preserve
+        # all work; only an explicit retry may publish it.
         stages = {entry["stage"] for entry in state["events"].values()}
-        if not pulls and not stages.intersection({"pr_intent", "pr"}):
+        if not pulls and (
+            not stages.intersection({"pr_intent", "pr"})
+            or ("crash" in stages and "pr" not in stages)
+        ):
             attempt.checkpoint("interrupted", {"sha": sha, "state": "incomplete"})
             attempt.finish("failed")
         return

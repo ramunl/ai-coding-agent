@@ -376,3 +376,28 @@ def test_execution_rechecks_dependencies_before_provider(setup, bot_modules, arc
     with pytest.raises(ContextBlockedError, match="evidence unknown"):
         asyncio.run(run(None, context, item))
     assert not reached
+
+
+def test_failed_pr_creation_with_confirmed_absence_unblocks_resume(setup, monkeypatch):
+    from ai_agent import github, shell
+
+    spec, _ = setup
+    attempt = journal.Attempt(spec, "feature/task", {})
+    attempt.save()
+    attempt.intent("pr")
+    attempt.checkpoint("crash", {"exception_type": "RuntimeError"})
+    monkeypatch.setattr(
+        shell, "run", lambda args, **kwargs: SimpleNamespace(output="a" * 40)
+    )
+    calls = []
+
+    def absent(method, path, **kwargs):
+        calls.append(method)
+        return []
+
+    monkeypatch.setattr(github, "github_request", absent)
+    data = {}
+    assert recovery.reconcile(data, 123)
+    assert not data["context_recovery_pending"]
+    assert calls == ["GET"]
+    assert attempt.store.get("attempt", attempt.state["attempt_id"]).outcome == "failed"

@@ -41,7 +41,11 @@ After PR publication, use the existing PR/CI repair workflow. Both task Resume
 and Start fresh reject published checkpoints to avoid duplicate PRs. Interrupted
 CI repairs retain a task-bound checkpoint and recovery refs, with an explicit
 manual-recovery reason; restoring those edits is not yet part of the task resume
-flow. A pre-publication push/PR failure remains resumable.
+flow. A pre-publication push/PR failure remains resumable. A journaled PR-creation
+failure is reconciled when GitHub successfully confirms no PR for the saved
+branch and the checkout has no active writer. Uncertain requests and failed
+GitHub lookups remain blocked. Rejected dashboard actions are recorded in both
+action results and the service journal.
 
 Usage-limit failures pause implementation tasks for an explicit owner choice;
 the worker no longer sends them back to To do for an automatic clean run.
