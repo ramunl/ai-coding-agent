@@ -285,9 +285,9 @@ def test_unseeded_old_evidence_is_never_auto_loaded(store, monkeypatch):
     )
     store.write(initiative, expected_revision=0)
     init_ref = RecordReference("initiative", "initiative-b", 1, store.scope)
-    entry = json.loads(
-        build_packet(request_b(store, constraints=(init_ref,))).text
-    )["records"][0]
+    entry = json.loads(build_packet(request_b(store, constraints=(init_ref,))).text)[
+        "records"
+    ][0]
     assert [decision["decision_id"] for decision in entry["decisions"]] == [
         "approved-rule"
     ]
