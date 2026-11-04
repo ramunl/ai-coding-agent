@@ -606,3 +606,63 @@ class ContextInboxTests(ProcessTests):
                 self.inbox.validate({**request, "requested_at": timestamp})
         with self.assertRaises(self.inbox.ActionError):
             self.inbox.validate({**request, "id": "abcdef12\n"})
+
+    def test_retention_pin_context_actions_and_management_signatures(self):
+        from ai_agent.bot import context_management as controls
+        from ai_agent.context_controls import CONTEXT_ACTIONS
+
+        # Action names and argument sets are the inbox/controls contract.
+        self.assertEqual(
+            set(CONTEXT_ACTIONS),
+            {
+                "context_inspect_v1",
+                "context_link_v1",
+                "context_approve_v1",
+                "context_reject_v1",
+            },
+        )
+        self.assertEqual(
+            {action: set(spec) for action, spec in CONTEXT_ACTIONS.items()},
+            {
+                "context_inspect_v1": {"scope", "kind", "record_id", "revision"},
+                "context_link_v1": {
+                    "scope",
+                    "kind",
+                    "record_id",
+                    "revision",
+                    "target_kind",
+                    "target_id",
+                    "target_revision",
+                },
+                "context_approve_v1": {
+                    "scope",
+                    "kind",
+                    "record_id",
+                    "revision",
+                    "decision_id",
+                },
+                "context_reject_v1": {
+                    "scope",
+                    "kind",
+                    "record_id",
+                    "revision",
+                    "decision_id",
+                },
+            },
+        )
+        for action, spec in CONTEXT_ACTIONS.items():
+            self.assertEqual(self.inbox.ACTIONS[action], spec)
+
+        # Management command names and signatures are frozen.
+        self.assertEqual(
+            {action.removesuffix("_v1") for action in CONTEXT_ACTIONS},
+            {"context_inspect", "context_link", "context_approve", "context_reject"},
+        )
+        self.assertEqual(
+            controls.USAGE,
+            "Scope: owner or repo:PROJECT (explicit registered project).\n"
+            "/context_inspect SCOPE KIND ID REV [KIND ID REV ...]\n"
+            "/context_link SCOPE KIND ID REV TARGET_KIND TARGET_ID TARGET_REV\n"
+            "/context_approve SCOPE KIND ID REV DECISION_ID\n"
+            "/context_reject SCOPE KIND ID REV DECISION_ID",
+        )
