@@ -280,7 +280,7 @@ async def refresh(task: dict, data: dict) -> str | None:
     return cached_reason(task, data)
 
 
-async def review_replacements(task: dict, data: dict) -> None:
+async def review_replacements(task: dict, data: dict) -> str | None:
     """An explicit owner start can review replacement handoffs before planning."""
     if task.get("stage") != "todo" or task.get("run") or task.get("plan_id"):
         return
@@ -314,8 +314,9 @@ async def review_replacements(task: dict, data: dict) -> None:
         return
     binding = fingerprint(task, data)
     candidate.pop("dependency_invalidations", None)
-    if await refresh(candidate, data) is not None:
-        return
+    reason = await refresh(candidate, data)
+    if reason is not None:
+        return reason
     if fingerprint(task, data) != binding:
         raise ValueError("Dependencies changed during owner review")
     task["dependencies"] = candidate["dependencies"]

@@ -72,3 +72,15 @@ Approved plans and saved runs remain blocked for separate owner review.
 An attempt may contain several commits from CI repairs. Dependency verification
 checks the live PR head against those archived commits and still requires one
 identity-bound PR; unrelated heads remain blocked.
+
+The planner checks current and historical task branch names before displaying
+or approving a plan. A first attempt whose proposed branch belongs to another
+task receives a task-specific branch; reopened attempts retain their distinct
+attempt branch. A modern run without its archived handoff cannot be marked
+complete from a branch lookup. Failed replacement reviews return the current
+verification reason instead of hiding it behind the previous invalidation.
+
+The regression suite includes an ordered-task lifecycle: reopen a predecessor,
+retain the blocked follower, record CI repair commits, reject an unmerged PR,
+verify the merge and checkout, explicitly review the replacement, and repeat
+the review without creating duplicate audit records.

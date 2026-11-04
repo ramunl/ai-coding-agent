@@ -128,14 +128,31 @@ def reopen_context(task: dict) -> str:
     )
 
 
-def enforce_attempt_branch(task: dict | None, plan: object) -> None:
+def enforce_attempt_branch(
+    task: dict | None, plan: object, others: list[dict] | None = None
+) -> None:
     """Put the fresh branch in the actual plan, before display or approval."""
-    if not task or task.get("attempt", 1) < 2:
+    if not task:
         return
     from ai_agent.plan_document import parse_plan_document
 
     document = asdict(parse_plan_document(plan.plan_text, plan.feature))
-    branch = f"feature/reopen-{task['id']}-{task['attempt']}"
+    if task.get("attempt", 1) < 2:
+        collision = any(
+            other.get("id") != task["id"]
+            and other.get("repo") == task.get("repo")
+            and document["branch"]
+            in {
+                other.get("branch"),
+                *(entry.get("branch") for entry in other.get("attempt_history", [])),
+            }
+            for other in (others or [])
+        )
+        if not collision:
+            return
+        branch = f"feature/task-{task['id']}-1"
+    else:
+        branch = f"feature/reopen-{task['id']}-{task['attempt']}"
     used = {item.get("branch") for item in task.get("attempt_history", [])}
     while branch in used:
         branch += "-fresh"

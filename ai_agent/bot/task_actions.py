@@ -152,7 +152,7 @@ async def _plan_task(
         data.pop("planning_task", None)
         after = data.get("pending_plan")
         if after is not None and after is not before:
-            enforce_attempt_branch(task, after)
+            enforce_attempt_branch(task, after, data.get("tasks", []))
             task["plan_id"] = after.id
             task["branch"] = parse_plan_document(after.plan_text, after.feature).branch
             set_stage(task, "planned")
@@ -332,7 +332,9 @@ async def run_task_action(
                 "Only a To do, stopped, blocked or Ops-action task can be started."
             )
         logger.info("Owner prerequisite review requested for task %s", task["id"])
-        await review_replacements(task, data)
+        review_reason = await review_replacements(task, data)
+        if review_reason:
+            raise ActionError(f"Replacement prerequisite not ready: {review_reason}.")
         await refresh_dependencies(task, data)
         previous = waiting_for(task, data)
         if previous is not None:

@@ -193,3 +193,19 @@ def test_corrected_task_survives_restart_and_can_reopen(modules, monkeypatch):
     assert task["stage"] == "todo"
     assert task["attempt_history"][0]["stage"] == "stopped"
     assert task["attempt_history"][0]["pr_url"] is None
+
+
+@pytest.mark.parametrize("historical", [False, True])
+def test_first_attempt_avoids_another_tasks_current_or_old_branch(modules, historical):
+    from ai_agent.plan_state import new_plan_state, parse_plan_document
+
+    _, reopen = modules
+    task = {"id": "next", "repo": "repo"}
+    other = {"id": "previous", "repo": "repo", "branch": "feature/shared"}
+    if historical:
+        other.update(
+            branch="feature/new", attempt_history=[{"branch": "feature/shared"}]
+        )
+    plan = new_plan_state("fix", '{"summary":"fix","branch":"feature/shared"}')
+    reopen.enforce_attempt_branch(task, plan, [task, other])
+    assert parse_plan_document(plan.plan_text).branch == "feature/task-next-1"

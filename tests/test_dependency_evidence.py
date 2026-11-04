@@ -479,3 +479,82 @@ def test_pr_head_must_belong_to_recorded_repair_commits(monkeypatch, head, accep
     else:
         with pytest.raises(ValueError, match="identity"):
             task_pulls.verified_pull("owner/repo", url, {"a" * 40, "b" * 40})
+
+
+def test_reopened_predecessor_repair_merge_and_next_task_flow(evidence, monkeypatch):
+    import asyncio
+    from copy import deepcopy
+    from dataclasses import replace
+
+    from ai_agent import task_pulls
+    from ai_agent.context_models import EvidenceReference
+    from ai_agent.task_reopen import reopen_task
+
+    gate, dependency, store, pull, _, _ = evidence
+    predecessor = {
+        "id": "first",
+        "stage": "done",
+        "branch": "feature/shared",
+        "context_handoff": deepcopy(dependency["attempt"]),
+    }
+    follower = {"id": "next", "stage": "todo", "dependencies": [deepcopy(dependency)]}
+    data = {"tasks": [predecessor, follower]}
+    original = gate.evaluate_dependency
+    monkeypatch.setattr(
+        gate, "evaluate_dependency", lambda value: original(value, store=store)
+    )
+    monkeypatch.setattr("ai_agent.context_store.ContextStore", lambda scope: store)
+    reopen_task(predecessor, data)
+    assert asyncio.run(gate.refresh(follower, data))
+    assert follower["dependency_invalidations"]
+    record = store.get("attempt", "attempt1", 1)
+    store.write(
+        replace(
+            record,
+            record_id="retry",
+            attempt_id="retry",
+            revision=0,
+            evidence=record.evidence
+            + (EvidenceReference("repair", "commit", "b" * 40, "CI repair"),),
+        ),
+        expected_revision=0,
+    )
+    predecessor.update(
+        stage="pr",
+        branch="feature/reopen-first-2",
+        context_handoff={**dependency["attempt"], "record_id": "retry"},
+    )
+    pull["merged"] = False
+    reason = asyncio.run(gate.review_replacements(follower, data))
+    assert "not merged" in reason
+    assert follower["dependencies"][0] == dependency
+    # Polling alone never replaces the owner's pinned prerequisite.
+    assert asyncio.run(gate.refresh(follower, data))
+    predecessor["stage"] = "done"
+    pull["merged"] = True
+    assert asyncio.run(gate.review_replacements(follower, data)) is None
+    assert asyncio.run(gate.refresh(follower, data)) is None
+    assert follower["dependencies"][0]["attempt"]["record_id"] == "retry"
+    assert len(follower["dependency_reviews"]) == 1
+    assert asyncio.run(gate.review_replacements(follower, data)) is None
+    assert len(follower["dependency_reviews"]) == 1
+    # The PR tracker cannot promote an unrelated old branch head.
+    assert (
+        task_pulls.attempt_pull(
+            predecessor, "owner/predecessor", {"url": "old", "head_sha": "c" * 40}
+        )
+        is None
+    )
+
+
+def test_modern_task_without_handoff_never_adopts_old_branch_pr():
+    from ai_agent.task_pulls import attempt_pull
+
+    assert (
+        attempt_pull(
+            {"run": {"context_spec": {"task_id": "new"}}},
+            "owner/repo",
+            {"url": "old", "head_sha": "a" * 40},
+        )
+        is None
+    )

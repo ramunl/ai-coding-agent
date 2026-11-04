@@ -100,8 +100,12 @@ def apply_pull(task: dict, pull: dict | None) -> bool:
 
 def attempt_pull(task: dict, repository: str, pull: dict | None) -> dict | None:
     """Bind modern task tracking to archived work, never just a reused branch."""
-    if pull is None or not task.get("context_handoff"):
-        return pull
+    if pull is None:
+        return None
+    if not task.get("context_handoff"):
+        # Modern runs require their own archived result. A branch-only lookup
+        # cannot establish completion while that result is missing.
+        return None if (task.get("run") or {}).get("context_spec") else pull
     from ai_agent.context_models import AttemptSnapshot
     from ai_agent.context_store import ContextStore
     from ai_agent.context_validation import decode_dependency

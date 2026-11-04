@@ -78,7 +78,7 @@ async def plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         await report_missing(update, images)
         plan_state = new_plan_state(feature, plan_text, identity)
-        enforce_attempt_branch(task, plan_state)
+        enforce_attempt_branch(task, plan_state, context.user_data.get("tasks", []))
         plan_state.images = list(images)
         context.user_data["pending_plan"] = plan_state
         forget_pending_implementation(context)
@@ -138,7 +138,7 @@ async def discuss(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             ),
             None,
         )
-        enforce_attempt_branch(task, revised)
+        enforce_attempt_branch(task, revised, context.user_data.get("tasks", []))
         context.user_data["pending_plan"] = revised
         forget_pending_implementation(context)
         await reply_chunks(
