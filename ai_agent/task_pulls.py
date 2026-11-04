@@ -102,10 +102,10 @@ def attempt_pull(task: dict, repository: str, pull: dict | None) -> dict | None:
     """Bind modern task tracking to archived work, never just a reused branch."""
     if pull is None or not task.get("context_handoff"):
         return pull
-    from ai_agent.config import CHAT_ID
     from ai_agent.context_models import AttemptSnapshot
     from ai_agent.context_store import ContextStore
     from ai_agent.context_validation import decode_dependency
+    from ai_agent.dependency_evidence import CHAT_ID
 
     ref = task["context_handoff"]
     dependency = decode_dependency(

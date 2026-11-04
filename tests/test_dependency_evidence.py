@@ -22,6 +22,7 @@ def evidence(tmp_path, monkeypatch):
     import subprocess
     from dataclasses import asdict
 
+    import ai_agent.config as config
     from ai_agent import dependency_evidence as gate
     from ai_agent.context_models import (
         AttemptSnapshot,
@@ -32,6 +33,12 @@ def evidence(tmp_path, monkeypatch):
         Scope,
     )
     from ai_agent.context_store import ContextStore
+
+    # attempt_pull and this module both validate the archived attempt scope
+    # against this bound CHAT_ID. dependency_evidence binds CHAT_ID once at
+    # import, while earlier tests can re-import ai_agent.config with another
+    # value, so pin the bound copy to the live config value for this test.
+    monkeypatch.setattr(gate, "CHAT_ID", str(config.CHAT_ID))
 
     repo = tmp_path / "repo"
     repo.mkdir()
