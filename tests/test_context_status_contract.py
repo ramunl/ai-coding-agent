@@ -110,9 +110,7 @@ def test_legacy_missing_metadata_projects_unknown_nulls():
         assert projected["observed_at"] is None
         assert projected["omission_count"] is None
         assert projected["truncation_count"] is None
-        assert projected["packet_refs"] == [
-            {"packet_id": "packet", "sha256": "a" * 64}
-        ]
+        assert projected["packet_refs"] == [{"packet_id": "packet", "sha256": "a" * 64}]
     bare = context_status(now=100).to_dict()
     assert bare["health"] == bare["freshness"] == "unknown"
     assert bare["packet_refs"] == []
