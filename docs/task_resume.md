@@ -68,3 +68,7 @@ can review a replacement predecessor attempt. It retains the same task, scope
 and policy, verifies fresh PR and checkout evidence, then records the old and
 new references in dependency_reviews. Worker polling never performs this review.
 Approved plans and saved runs remain blocked for separate owner review.
+
+An attempt may contain several commits from CI repairs. Dependency verification
+checks the live PR head against those archived commits and still requires one
+identity-bound PR; unrelated heads remain blocked.

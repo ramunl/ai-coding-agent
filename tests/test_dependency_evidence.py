@@ -417,3 +417,65 @@ def test_owner_review_does_not_change_approved_work(evidence):
     before = deepcopy(task)
     asyncio.run(gate.review_replacements(task, {}))
     assert task == before
+
+
+def test_dependency_accepts_ci_repair_history_with_verified_current_head(
+    evidence, monkeypatch
+):
+    from dataclasses import replace
+
+    from ai_agent import task_pulls
+    from ai_agent.context_models import EvidenceReference
+
+    gate, dependency, store, pull, _, _ = evidence
+    ref = dependency["attempt"]
+    record = store.get("attempt", ref["record_id"], ref["revision"])
+    store.write(
+        replace(
+            record,
+            record_id="repaired",
+            attempt_id="repaired",
+            revision=0,
+            evidence=record.evidence
+            + (EvidenceReference("repair", "commit", "b" * 40, "repair"),),
+        ),
+        expected_revision=0,
+    )
+    ref["record_id"] = "repaired"
+    seen = []
+    monkeypatch.setattr(
+        task_pulls,
+        "verified_pull",
+        lambda repo, url, heads: seen.append(heads) or dict(pull),
+    )
+    gate.evaluate_dependency(dependency, store=store)
+    assert seen == [{"a" * 40, "b" * 40}]
+
+
+@pytest.mark.parametrize("head, accepted", [("b" * 40, True), ("c" * 40, False)])
+def test_pr_head_must_belong_to_recorded_repair_commits(monkeypatch, head, accepted):
+    from ai_agent import task_pulls
+
+    url = "https://github.com/owner/repo/pull/1"
+    monkeypatch.setattr(
+        task_pulls,
+        "github_request",
+        lambda *args, **kwargs: {
+            "number": 1,
+            "html_url": url,
+            "base": {"repo": {"full_name": "owner/repo"}},
+            "head": {"repo": {"full_name": "owner/repo"}, "sha": head},
+            "state": "open",
+            "draft": False,
+            "merged": False,
+            "merged_at": None,
+        },
+    )
+    if accepted:
+        assert (
+            task_pulls.verified_pull("owner/repo", url, {"a" * 40, "b" * 40})["head"]
+            == head
+        )
+    else:
+        with pytest.raises(ValueError, match="identity"):
+            task_pulls.verified_pull("owner/repo", url, {"a" * 40, "b" * 40})

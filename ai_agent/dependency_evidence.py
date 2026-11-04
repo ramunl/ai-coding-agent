@@ -185,10 +185,14 @@ def evaluate_dependency(value: dict, *, store: ContextStore | None = None) -> di
         for e in record.evidence
         if e.source == "commit" and re.fullmatch(r"[a-f0-9]{40}", e.locator)
     }
-    if len(urls) != 1 or len(commits) != 1:
+    if len(urls) != 1 or not commits:
         raise ValueError("Incomplete or conflicting attempt PR evidence")
     repository = dependency.scope.repository
-    pull = verified_pull(repository.github_repository, urls.pop(), commits.pop())
+    pull = verified_pull(
+        repository.github_repository,
+        urls.pop(),
+        next(iter(commits)) if len(commits) == 1 else commits,
+    )
     if not 0 <= time.time() - pull["checked_at"] <= EVIDENCE_AGE:
         raise ValueError("PR evidence stale")
     facts = {"dependency": asdict(dependency), "pull": pull}

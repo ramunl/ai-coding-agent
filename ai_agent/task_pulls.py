@@ -171,7 +171,7 @@ async def track_forever(
         await asyncio.sleep(min(interval, ENDED_POLL_SECONDS) if waiting else interval)
 
 
-def verified_pull(repository: str, url: str, head_sha: str) -> dict:
+def verified_pull(repository: str, url: str, head_sha: str | set[str]) -> dict:
     """Fresh exact-PR facts; branch names and cached display stages are insufficient.
 
     Reviewable means open, explicitly non-draft, and bound to the archived
@@ -180,7 +180,15 @@ def verified_pull(repository: str, url: str, head_sha: str) -> dict:
     match = re.fullmatch(
         r"https://github\.com/" + re.escape(repository) + r"/pull/([1-9][0-9]*)", url
     )
-    if not match or not re.fullmatch(r"[0-9a-f]{40}", head_sha):
+    heads = {head_sha} if isinstance(head_sha, str) else head_sha
+    if (
+        not match
+        or not isinstance(heads, set)
+        or not heads
+        or not all(
+            isinstance(sha, str) and re.fullmatch(r"[0-9a-f]{40}", sha) for sha in heads
+        )
+    ):
         raise ValueError("Missing identity-bound PR evidence")
     number = int(match[1])
     pull = github_request(
@@ -191,7 +199,7 @@ def verified_pull(repository: str, url: str, head_sha: str) -> dict:
         or pull.get("html_url") != url
         or pull.get("base", {}).get("repo", {}).get("full_name") != repository
         or pull.get("head", {}).get("repo", {}).get("full_name") != repository
-        or pull.get("head", {}).get("sha") != head_sha
+        or pull.get("head", {}).get("sha") not in heads
         or pull.get("state") not in {"open", "closed"}
         or type(pull.get("draft")) is not bool
         or type(pull.get("merged")) is not bool
@@ -209,7 +217,7 @@ def verified_pull(repository: str, url: str, head_sha: str) -> dict:
         and not pull["merged"],
         "merged": merged,
         "merge_commit": pull.get("merge_commit_sha"),
-        "head": head_sha,
+        "head": pull["head"]["sha"],
         "url": url,
         "checked_at": time.time(),
     }
