@@ -9,7 +9,8 @@
     "steps",
     "risks",
     "repositories",
-    "scope_assessment"
+    "scope_assessment",
+    "repository_accounting"
   ],
   "properties": {
     "branch": {
@@ -95,6 +96,50 @@
                 "maxLength": 500
               }
             }
+          }
+        }
+      }
+    },
+    "repository_accounting": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "role",
+          "reason",
+          "evidence",
+          "checked_at"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "role": {
+            "type": "string",
+            "maxLength": 500,
+            "enum": [
+              "change",
+              "verify",
+              "completed",
+              "context",
+              "unclear"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "evidence": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "checked_at": {
+            "type": "string",
+            "maxLength": 500
           }
         }
       }

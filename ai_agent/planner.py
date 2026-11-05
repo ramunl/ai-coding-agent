@@ -30,6 +30,7 @@ from ai_agent.repository_context import (
     codebase_search_context,
     repo_file_sample,
 )
+from ai_agent.repository_scope import GUIDANCE as REPOSITORY_GUIDANCE
 from ai_agent.rules import rules_prompt_block
 
 __all__ = [
@@ -104,6 +105,7 @@ Project files sample:
 Feature request: {enriched_feature_description}
 
 {SCOPE_GUIDANCE}
+{REPOSITORY_GUIDANCE}
 
 Return only valid JSON with this shape:
 {{
@@ -112,7 +114,9 @@ Return only valid JSON with this shape:
   "files": ["path/or/File.kt"],
   "steps": ["Step one"],
   "risks": ["Risk to verify"],
-  "repositories": [{{"name": "registered-repo", "changes": "What changes there"}}]
+  "repositories": [{{"name": "registered-repo", "changes": "What changes there"}}],
+  "repository_accounting": [{{"name": "registered-repo", "role": "change",
+    "reason": "Implementation owner", "evidence": "", "checked_at": ""}}]
 }}
 
 Use a branch slug that replaces /, \\, :, ?, *, [, ], (, and ) with -.
@@ -183,6 +187,7 @@ User feedback:
 {feedback}
 
 {SCOPE_GUIDANCE}
+{REPOSITORY_GUIDANCE}
 
 Return only valid JSON with this shape:
 {{
@@ -191,7 +196,9 @@ Return only valid JSON with this shape:
   "files": ["path/or/File.kt"],
   "steps": ["Step one"],
   "risks": ["Risk to verify"],
-  "repositories": [{{"name": "registered-repo", "changes": "What changes there"}}]
+  "repositories": [{{"name": "registered-repo", "changes": "What changes there"}}],
+  "repository_accounting": [{{"name": "registered-repo", "role": "change",
+    "reason": "Implementation owner", "evidence": "", "checked_at": ""}}]
 }}
 
 Preserve useful parts of the current plan, incorporate the feedback, and keep the \
@@ -301,6 +308,7 @@ Questions response:
 {{"status":"questions","questions":["short necessary product/UX question"]}}
 
 {SCOPE_GUIDANCE}
+
 Also include optional files, steps and risks describing the actual fix scope
 (at most 8 strings each). Include scope_assessment for ready reports too;
 ready means enough information, not that the task is small.

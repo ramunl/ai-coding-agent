@@ -125,6 +125,15 @@ def plan_binding(plan: object) -> dict:
 
 def approve_plan(plan: object) -> None:
     """Only trusted approval handlers call this after owner authorization."""
+    from ai_agent.repository_scope import review
+
+    problems = review(plan)
+    if problems:
+        raise ContextBlockedError(
+            "Repository scope review required: "
+            + " ".join(problems)
+            + " Revise the plan before approval."
+        )
     plan.approval_binding = plan_binding(plan)
     plan.approved = True
     plan.review_required = False

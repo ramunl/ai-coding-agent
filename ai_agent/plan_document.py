@@ -7,6 +7,7 @@ from typing import Any
 
 from ai_agent.ecosystem import plan_repositories
 from ai_agent.plan_scope import assess_scope
+from ai_agent.repository_scope import accounting
 from ai_agent.workflow import slugify_branch_name
 
 
@@ -22,6 +23,7 @@ class PlanDocument:
     codex_prompt: str
     repositories: list[dict[str, str]] = field(default_factory=list)
     scope_assessment: dict = field(default_factory=dict)
+    repository_accounting: list[dict[str, str]] = field(default_factory=list)
 
 
 def parse_plan_document(plan_text: str, feature: str = "") -> PlanDocument:
@@ -69,6 +71,7 @@ def parse_plan_document(plan_text: str, feature: str = "") -> PlanDocument:
         risks=risks,
         codex_prompt=codex_prompt,
         repositories=repositories,
+        repository_accounting=accounting(data.get("repository_accounting")),
         scope_assessment=assess_scope(
             data.get("scope_assessment"), files, steps, risks
         ),

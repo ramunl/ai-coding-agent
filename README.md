@@ -469,3 +469,8 @@ on stream-json stdin. Provider selection and fallback remain available. Image
 content goes only to the selected provider; snapshots contain aggregate usage
 and task image counts, with no bytes or local paths. See the
 [upload contract](docs/task_images.md) before implementing dashboard part 2.
+
+Plans account for every explicitly named registered repository before approval.
+Implementation, verification, completed work and context are kept distinct;
+only implementation owners drive repository splitting. Missing or unresolved
+scope requires revision. See [repository scope review](docs/repository-scope.md).

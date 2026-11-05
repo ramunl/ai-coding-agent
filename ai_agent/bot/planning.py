@@ -149,6 +149,15 @@ async def discuss(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 def _not_here(plan_state: PlanState) -> str | None:
     """Why this plan can't run in the active project, or None if it can."""
+    from ai_agent.repository_scope import review
+
+    problems = review(plan_state)
+    if problems:
+        return (
+            "Repository scope review required: "
+            + " ".join(problems)
+            + " Revise the plan before approval."
+        )
     document = parse_plan_document(plan_state.plan_text, plan_state.feature)
     names = [item["name"] for item in document.repositories]
     if not names:
@@ -403,6 +412,16 @@ async def prepare_bugfix(
     review: BugfixReview | None = None,
 ) -> None:
     """Prepare pending implementation data for a bugfix branch."""
+    from ai_agent.repository_scope import requested
+
+    if len(requested(bug)) > 1:
+        await reply_chunks(
+            update,
+            "This bug report names several repositories. Use /plan with the same "
+            "request so each repository is accounted for and implementation work "
+            "can be split before approval. No implementation was queued.",
+        )
+        return
     with planning_guard(context, identity=capture_repository_identity()):
         identity = (
             dict(identity) if identity is not None else capture_repository_identity()

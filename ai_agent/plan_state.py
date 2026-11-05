@@ -14,6 +14,7 @@ from ai_agent.ecosystem import repository_note
 from ai_agent.plan_document import PlanDocument, parse_plan_document
 from ai_agent.plan_scope import scope_warning
 from ai_agent.projects import active_project
+from ai_agent.repository_scope import review as repository_scope_review
 
 __all__ = [
     "OUTLINE_ITEMS",
@@ -184,6 +185,21 @@ def render_plan(plan: PlanState) -> str:
         note = repository_note(document.repositories, project_name)
         if note:
             lines.append(note)
+    for row in document.repository_accounting:
+        lines.append(
+            f"Repository scope — {row['name']}: {row['role']}; "
+            f"{row['reason']}; evidence: {row['evidence']} {row['checked_at']}"
+        )
+    problems = repository_scope_review(plan)
+    if problems:
+        lines.extend(
+            [
+                "",
+                "Repository scope review required:",
+                *problems,
+                "Revise before approval.",
+            ]
+        )
     lines.extend(scope_warning(document.scope_assessment))
     if document.files:
         lines.extend(["", "Files:", *[f"- {file}" for file in document.files]])
@@ -229,7 +245,18 @@ def plan_outline(plan: PlanState) -> dict:
         "summary": short(document.summary),
         "files": items(document.files),
         "steps": items(document.steps),
-        "risks": items(document.risks),
+        "risks": items(
+            [
+                "Repository scope review required: " + issue
+                for issue in repository_scope_review(plan)
+            ]
+            + [
+                f"Repository scope: {row['name']} — {row['role']}: "
+                f"{row['reason']}; {row['evidence']} {row['checked_at']}"
+                for row in document.repository_accounting
+            ]
+            + document.risks
+        ),
         "repositories": [
             {"name": short(item["name"]), "changes": short(item["changes"])}
             for item in document.repositories
