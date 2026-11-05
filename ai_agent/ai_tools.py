@@ -1,13 +1,11 @@
-"""A common interface for setting the model of each AI tool.
+"""A thin /model shim over the per-provider modules.
 
-Scope (deliberately limited): this manages the *model dial* per tool, not
-auth, keys, or how each tool is invoked. Those stay tool-specific.
-
-Claude API and Codex have agent-managed model overrides. Claude Code remains
-read-only and uses its own CLI configuration.
-
-Adding a future tool = one new AITool subclass registered below. The /model
-command, registry, and tests do not change.
+The per-tool contract (roles, adapters, model selection, auth, limits, error
+classification, images, structured output, usage, enabled) lives in
+``ai_agent/providers`` and is discovered by ``ai_agent.provider_registry``.
+This module keeps the small AITool surface the /model command, dashboard
+snapshot and tests already use, delegating each method to the same
+implementation modules as before so saved selections and patches keep working.
 """
 
 from __future__ import annotations
@@ -16,6 +14,7 @@ import os
 from dataclasses import dataclass
 
 from ai_agent import codex_models, model_manager
+from ai_agent.providers import claude, claude_code, codex
 
 
 @dataclass(frozen=True)
@@ -61,8 +60,8 @@ class AITool:
 class ClaudeApiTool(AITool):
     """The Anthropic API planner: model is a string we own and can verify."""
 
-    name = "claude"
-    manageable = True
+    name = claude.name
+    manageable = claude.model.manageable
 
     def current_model(self) -> str:
         """Return the model currently selected for this tool."""
@@ -80,12 +79,15 @@ class ClaudeApiTool(AITool):
         """Return available model metadata or a failure explanation."""
         return model_manager.list_models()
 
+    def _note(self) -> str:
+        return claude.model.note
+
 
 class CodexTool(AITool):
     """Select an agent override using the installed CLI's model catalog."""
 
-    name = "codex"
-    manageable = True
+    name = codex.name
+    manageable = codex.model.manageable
 
     def current_model(self) -> str:
         """Return the override, or the explicit CLI-default option."""
@@ -105,7 +107,7 @@ class CodexTool(AITool):
         os.environ["CODEX_MODEL"] = model
 
     def _note(self) -> str:
-        return "Used for every Codex role. Changes apply to the next run."
+        return codex.model.note
 
 
 class CliTool(AITool):
@@ -133,10 +135,10 @@ _TOOLS: dict[str, AITool] = {
     "claude": ClaudeApiTool(),
     "codex": CodexTool(),
     "claude-code": CliTool(
-        "claude-code",
-        env_var="CLAUDE_CODE_MODEL",
-        default="(claude CLI default)",
-        note="Managed by the Claude CLI's own login/config, not this agent.",
+        claude_code.name,
+        env_var=claude_code.MODEL_ENV_VAR,
+        default=claude_code.MODEL_DEFAULT,
+        note=claude_code.model.note,
     ),
 }
 
