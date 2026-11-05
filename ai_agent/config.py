@@ -139,6 +139,12 @@ RULES_ENABLED = os.environ.get("RULES_ENABLED", "true").strip().lower() not in {
     "0",
     "no",
 }
+# Off by default: the autonomous worker may pick DeepSeek only after the CTX07
+# continuity trial and the CTX08 real backup/isolated-restore gate pass. Manual
+# /plan with DeepSeek is unaffected; this is consulted only in ai_agent.worker.
+AUTONOMOUS_DEEPSEEK_ENABLED = os.environ.get(
+    "AUTONOMOUS_DEEPSEEK_ENABLED", "false"
+).strip().lower() not in {"false", "0", "no"}
 RULES_REPO_PATH = Path(os.environ.get("RULES_REPO_PATH", "/opt/ai-rules")).expanduser()
 RULES_REPO_URL = os.environ.get("RULES_REPO_URL", "git@github.com:ramunl/ai-rules.git")
 RULES_PROJECT_NAME = os.environ.get("RULES_PROJECT_NAME", "channel-cast")

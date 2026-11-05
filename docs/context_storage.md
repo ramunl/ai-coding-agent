@@ -113,8 +113,13 @@ records. Capacity management and any future deletion policy must preserve pinned
 references and require a separate design; disk-full errors are explicit.
 
 The default context directory is **outside current backup coverage**. CTX08 backup
-inclusion and restore testing gate **CTX07 rollout**, not CTX01 acceptance. Retain
-the existing **20 MiB backup limit**; this change does not increase it or change any
-backup/deployment/service configuration. Backup-size handling and demonstrated
-restoration of records, scopes and pinned references must be addressed before
-rollout. A rebuilt index alone is not a backup of the archive.
+inclusion and restore testing gate **CTX07 rollout**, not CTX01 acceptance. CTX08
+is the **durable-enable gate**: a real backup and an isolated restore of records,
+scopes and pinned references must pass before durable context is enabled in
+production. Retain the existing **20 MiB backup limit**; this change does not
+increase it or change any backup/deployment/service configuration. Backup-size
+handling and demonstrated restoration of records, scopes and pinned references
+must be addressed before rollout. A rebuilt index alone is not a backup of the
+archive. The CTX07 operator steps (back up protected state, deploy idle, verify
+rollback preserves the archive) are in
+[`docs/ctx07_rollout_runbook.md`](ctx07_rollout_runbook.md).
