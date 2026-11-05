@@ -22,7 +22,9 @@ def test_unknown_tool_is_unsupported() -> None:
 def test_unknown_capability_is_unsupported() -> None:
     fake = SimpleNamespace(name="fake", enabled=False)
     assert provider_registry.capability(fake, "images") == provider_registry.UNSUPPORTED
-    assert provider_registry.capability(fake, "made_up") == provider_registry.UNSUPPORTED
+    assert (
+        provider_registry.capability(fake, "made_up") == provider_registry.UNSUPPORTED
+    )
     assert provider_registry.capability(fake, "enabled") is False
 
 
@@ -33,8 +35,7 @@ def test_registered_fake_provider_resolves_case_insensitively() -> None:
     try:
         assert provider_registry.get_provider("FAKE-TOOL") is fake
         assert (
-            provider_registry.capability(fake, "roles")
-            == provider_registry.UNSUPPORTED
+            provider_registry.capability(fake, "roles") == provider_registry.UNSUPPORTED
         )
     finally:
         provider_registry.reset()
