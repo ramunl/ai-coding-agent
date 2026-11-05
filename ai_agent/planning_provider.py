@@ -19,6 +19,7 @@ from pathlib import Path
 
 import anthropic
 
+from ai_agent.ai_tools import get_tool, tools_for_role
 from ai_agent.claude_code_planner import claude_code_message
 from ai_agent.codex_models import model_args
 from ai_agent.config import (
@@ -44,7 +45,7 @@ from ai_agent.token_usage import (
 )
 
 SCHEMAS_DIR = Path(__file__).parent / "schemas"
-SUPPORTED_PLANNING_AGENTS = ("codex", "claude")
+SUPPORTED_PLANNING_AGENTS = tuple(tools_for_role("planner"))
 
 
 def schema_path(schema_name: str) -> Path:
@@ -66,14 +67,19 @@ def client() -> anthropic.Anthropic:
 def normalize_planning_agent(agent: str | None = None) -> str:
     """Resolve the requested planner or reject an unsupported provider."""
     value = (agent or PLANNING_AGENT).strip().lower()
-    if value not in SUPPORTED_PLANNING_AGENTS:
-        raise ValueError(f"Unsupported planning agent: {value}. Use codex or claude.")
+    supported = tools_for_role("planner")
+    if value not in supported:
+        raise ValueError(
+            f"Unsupported planning agent: {value}. Use {' or '.join(supported)}."
+        )
     return value
 
 
 def planning_agent_label(agent: str | None = None) -> str:
     """Return the display name for the selected planner."""
-    return {"codex": "Codex", "claude": "Claude"}[normalize_planning_agent(agent)]
+    selected = normalize_planning_agent(agent)
+    tool = get_tool(selected)
+    return tool.label if tool else selected
 
 
 def _codex_message(prompt: str, schema_name: str) -> str:
@@ -115,20 +121,8 @@ def _create_message(
         raise RuntimeError(model_error_message()) from error
 
 
-def planner_message(
-    prompt: str,
-    provider: str | None,
-    schema_name: str,
-    max_tokens: int,
-    *,
-    context: ContextRequest | None = None,
-) -> str:
-    """Send a prompt to the selected planner and return its text response."""
-    prompt = context_prompt(prompt, context or current_context.get())
-    prompt += diagnostic_context()
-    selected = normalize_planning_agent(provider)
-    if selected == "codex":
-        return _codex_message(prompt, schema_name)
+def _claude_planner_message(prompt: str, schema_name: str, max_tokens: int) -> str:
+    """Plan with Claude Code or the API, as CLAUDE_PLANNER_VIA decides."""
     if CLAUDE_PLANNER_VIA != "api":
         return claude_code_message(prompt, schema_path(schema_name))
     if not os.environ.get("ANTHROPIC_API_KEY"):
@@ -171,3 +165,23 @@ def planner_message(
     if not text:
         raise RuntimeError("Claude returned no text for the plan. Please retry.")
     return text
+
+
+def planner_message(
+    prompt: str,
+    provider: str | None,
+    schema_name: str,
+    max_tokens: int,
+    *,
+    context: ContextRequest | None = None,
+) -> str:
+    """Send a prompt to the selected planner and return its text response."""
+    prompt = context_prompt(prompt, context or current_context.get())
+    prompt += diagnostic_context()
+    selected = normalize_planning_agent(provider)
+    tool = get_tool(selected)
+    if tool is None:
+        raise ValueError(f"Unsupported planning agent: {selected}.")
+    if selected == "claude":
+        return _claude_planner_message(prompt, schema_name, max_tokens)
+    return tool.planner(prompt, schema_name, max_tokens)

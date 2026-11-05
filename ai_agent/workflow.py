@@ -5,7 +5,7 @@ import os
 import re
 from dataclasses import asdict, dataclass, replace
 
-from ai_agent.codex_models import model_args
+from ai_agent.ai_tools import get_tool, tools_for_role
 from ai_agent.config import (
     CLAUDE_CODE_ALLOWED_TOOLS,
     CLAUDE_CODE_ARGS,
@@ -28,7 +28,7 @@ from ai_agent.ops_context import OUTCOME_INSTRUCTIONS, diagnostic_context
 from ai_agent.projects import active_project
 from ai_agent.run_outcomes import NoCodeOutcomeError
 from ai_agent.shell import CommandResult, run
-from ai_agent.token_usage import UsageRecord, codex_total_tokens, record_usage
+from ai_agent.token_usage import UsageRecord, record_usage
 
 
 @dataclass(frozen=True)
@@ -40,7 +40,7 @@ class ImplementationResult:
     diff: str
 
 
-SUPPORTED_IMPLEMENTATION_AGENTS = ("codex", "claude")
+SUPPORTED_IMPLEMENTATION_AGENTS = tuple(tools_for_role("executor"))
 # GitHub rejects pull request titles longer than this with HTTP 422.
 GITHUB_TITLE_MAX_LENGTH = 256
 
@@ -48,16 +48,19 @@ GITHUB_TITLE_MAX_LENGTH = 256
 def normalize_implementation_agent(agent: str | None = None) -> str:
     """Resolve an implementation provider or reject an unsupported name."""
     value = (agent or IMPLEMENTATION_AGENT).strip().lower()
-    if value not in SUPPORTED_IMPLEMENTATION_AGENTS:
+    supported = tools_for_role("executor")
+    if value not in supported:
         raise ValueError(
-            f"Unsupported implementation agent: {value}. Use codex or claude."
+            f"Unsupported implementation agent: {value}. Use {' or '.join(supported)}."
         )
     return value
 
 
 def implementation_agent_label(agent: str | None = None) -> str:
     """Return the display name for an implementation provider."""
-    return {"codex": "Codex", "claude": "Claude"}[normalize_implementation_agent(agent)]
+    selected = normalize_implementation_agent(agent)
+    tool = get_tool(selected)
+    return tool.label if tool else selected
 
 
 def safe_claude_code_args() -> list[str]:
@@ -96,22 +99,10 @@ def claude_allowed_tools_args() -> list[str]:
 def implementation_command(prompt: str, agent: str | None = None) -> list[str]:
     """Build the selected provider command for an implementation prompt."""
     selected_agent = normalize_implementation_agent(agent)
-    if selected_agent == "claude":
-        return [
-            "claude",
-            "-p",
-            prompt,
-            *safe_claude_code_args(),
-            *claude_allowed_tools_args(),
-        ]
-    # Codex has no TTY to answer a per-directory trust prompt when run non-
-    # interactively,
-    # so it silently falls back to a read-only sandbox for any repo path that isn't
-    # already
-    # marked trusted in ~/.codex/config.toml, producing "no file changes" with no error.
-    # Requesting workspace-write explicitly makes writes work regardless of ambient
-    # trust.
-    return ["codex", "exec", *model_args(), "-s", "workspace-write", prompt]
+    tool = get_tool(selected_agent)
+    if tool is None:
+        raise ValueError(f"Unsupported implementation agent: {selected_agent}.")
+    return tool.command(prompt)
 
 
 @with_context
@@ -129,8 +120,9 @@ def run_implementation_agent(
             timeout=IMPLEMENTATION_TIMEOUT_SECONDS,
         )
     selected = normalize_implementation_agent(agent)
+    tool = get_tool(selected)
     # Claude Code's text output carries no token count, so its calls stay unknown.
-    tokens = codex_total_tokens(result.output) if selected == "codex" else None
+    tokens = tool.tokens(result.output) if tool and tool.tokens is not None else None
     record_usage(UsageRecord("implementer", selected, tokens))
     return result
 

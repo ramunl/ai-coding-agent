@@ -7,13 +7,21 @@ import logging
 import math
 import time
 
-from ai_agent.tool_auth_providers import Reading, check
+# ``check`` is re-exported as the single auth probe: ai_tools' built-in tools
+# call it lazily, and tests patch this module's name to intercept every probe.
+from ai_agent.tool_auth_providers import Reading, check  # noqa: F401
 
 logger = logging.getLogger(__name__)
-TOOLS = ("codex", "claude-code", "claude")
 POLL_SECONDS = 300
 STALE_SECONDS = 900
 WARNING_SECONDS = 7 * 86400
+
+
+def _tools() -> list:
+    """Return the registry tools that declare an auth observation."""
+    from ai_agent.ai_tools import auth_tools
+
+    return auth_tools()
 
 
 def auth_record(reading: Reading, checked_at: float | None, stale: bool) -> dict:
@@ -56,31 +64,31 @@ class ToolAuth:
         """Return new records, computing age and countdown at publication time."""
         now = time.time()
         result = {}
-        for tool in TOOLS:
+        for tool in _tools():
             reading, checked_at, failed = self._readings.get(
-                tool, (Reading("unknown"), None, True)
+                tool.name, (Reading("unknown"), None, True)
             )
             stale = failed or checked_at is None or now - checked_at >= STALE_SECONDS
-            result[tool] = auth_record(reading, checked_at, stale)
-            if failed and "check_unavailable" not in result[tool]["warnings"]:
-                result[tool]["warnings"].append("check_unavailable")
+            result[tool.name] = auth_record(reading, checked_at, stale)
+            if failed and "check_unavailable" not in result[tool.name]["warnings"]:
+                result[tool.name]["warnings"].append("check_unavailable")
         return result
 
     async def refresh(self) -> None:
         """Retain prior evidence on failure, with its original time and stale flag."""
-        for tool in TOOLS:
+        for tool in _tools():
             try:
-                reading = await check(tool)
+                reading = await tool.auth()
             except (OSError, ValueError, TimeoutError):
                 # Never log exceptions: OS errors can contain credential paths.
-                logger.warning("Authentication check failed for %s", tool)
+                logger.warning("Authentication check failed for %s", tool.name)
                 reading = Reading("unavailable")
             failed = reading.status in ("unknown", "unavailable")
-            if failed and tool in self._readings:
-                previous, checked_at, _ = self._readings[tool]
-                self._readings[tool] = (previous, checked_at, True)
+            if failed and tool.name in self._readings:
+                previous, checked_at, _ = self._readings[tool.name]
+                self._readings[tool.name] = (previous, checked_at, True)
             else:
-                self._readings[tool] = (reading, time.time(), failed)
+                self._readings[tool.name] = (reading, time.time(), failed)
 
     async def refresh_forever(self, interval: float = POLL_SECONDS) -> None:
         """Poll independently of snapshot ticks until cancelled."""

@@ -31,8 +31,14 @@ logger = logging.getLogger(__name__)
 FORMAT = 1
 RETENTION_DAYS = 90
 ROLES = ("planner", "implementer")
-TOOLS = ("codex", "claude")
 BUCKET_FIELDS = ("calls", "unknown", "tokens")
+
+
+def _tools() -> tuple[str, ...]:
+    """Return the registry tools that can count implementation tokens."""
+    from ai_agent.ai_tools import token_tools
+
+    return tuple(token_tools())
 # Codex prints "tokens used" and the count on the same line or the next one.
 _CODEX_TOKENS = re.compile(r"tokens used[:\s]*([0-9][0-9,._]*)", re.IGNORECASE)
 _last_omission: str | None = None
@@ -54,7 +60,7 @@ class UsageRecord:
 
     def __post_init__(self) -> None:
         """Reject values outside the published vocabulary before storing them."""
-        if self.role not in ROLES or self.tool not in TOOLS:
+        if self.role not in ROLES or self.tool not in _tools():
             raise ValueError(f"Unknown usage role or tool: {self.role}/{self.tool}")
         if self.tokens is not None and not _is_count(self.tokens):
             raise ValueError("Token totals must be non-negative integers or None")
@@ -124,7 +130,7 @@ def _validate_days(days: object) -> dict[str, Any]:
             if role not in ROLES or not isinstance(tools, dict):
                 raise ValueError("token usage has an unknown role")
             for tool, bucket in tools.items():
-                if tool not in TOOLS or not _valid_bucket(bucket):
+                if tool not in _tools() or not _valid_bucket(bucket):
                     raise ValueError("token usage has a malformed bucket")
     return days
 
@@ -207,7 +213,7 @@ def _rows(day_buckets: dict[str, Any]) -> list[dict]:
     """List one day's buckets in a fixed order, copying only whitelisted fields."""
     rows = []
     for role in ROLES:
-        for tool in TOOLS:
+        for tool in _tools():
             bucket = day_buckets.get(role, {}).get(tool)
             if bucket is not None:
                 counts = {name: bucket[name] for name in BUCKET_FIELDS}

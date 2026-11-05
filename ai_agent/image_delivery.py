@@ -12,6 +12,7 @@ from collections.abc import Callable, Iterator
 from contextvars import ContextVar
 from typing import Any
 
+from ai_agent.ai_tools import get_tool
 from ai_agent.task_images import resolve
 
 _references: ContextVar[list[dict]] = ContextVar("task_images", default=[])
@@ -95,19 +96,36 @@ def codex_files(images: list[tuple[str, bytes]]) -> Iterator[list[str]]:
         yield paths
 
 
-def run_with_images(command: list[str], run: Callable, **kwargs: Any) -> Any:
-    """Run Codex or Claude Code with native image input and private diagnostics."""
-    images, missing = attachments()
-    if not images and not missing:
-        return run(command, **kwargs)
-    prompt = command[-1] if command[0] == "codex" else command[2]
+def _codex_image_run(
+    command: list[str],
+    run: Callable,
+    *,
+    images: list[tuple[str, bytes]],
+    missing: int,
+    **kwargs: Any,
+) -> Any:
+    """Deliver images to Codex through RAM-backed --image flags."""
+    prompt = command[-1]
     if missing:
         prompt += "\n" + WARNING
-    if command[0] == "codex":
-        with codex_files(images) as flags:
-            if "--ephemeral" not in command:
-                flags.append("--ephemeral")
-            return run([*command[:-1], *flags, "--", prompt], private=True, **kwargs)
+    with codex_files(images) as flags:
+        if "--ephemeral" not in command:
+            flags.append("--ephemeral")
+        return run([*command[:-1], *flags, "--", prompt], private=True, **kwargs)
+
+
+def _claude_image_run(
+    command: list[str],
+    run: Callable,
+    *,
+    images: list[tuple[str, bytes]],
+    missing: int,
+    **kwargs: Any,
+) -> Any:
+    """Deliver images to Claude Code through the stream-json envelope."""
+    prompt = command[2]
+    if missing:
+        prompt += "\n" + WARNING
     # Claude Code accepts the SDK user envelope on stream-json stdin.
     content = blocks(prompt, images)
     payload = (
@@ -150,3 +168,16 @@ def run_with_images(command: list[str], run: Callable, **kwargs: Any) -> Any:
     if not output:
         raise RuntimeError("Claude Code returned no image-run result.")
     return type(result)(args=["claude"], returncode=result.returncode, output=output)
+
+
+def run_with_images(command: list[str], run: Callable, **kwargs: Any) -> Any:
+    """Run a registered tool with native image input and private diagnostics."""
+    images, missing = attachments()
+    if not images and not missing:
+        return run(command, **kwargs)
+    tool = get_tool(command[0])
+    if tool is None:
+        raise RuntimeError(f"Unknown image tool: {command[0]}")
+    if not tool.images:
+        raise RuntimeError(f"{tool.name} does not support image input")
+    return tool.image_run(command, run, images=images, missing=missing, **kwargs)

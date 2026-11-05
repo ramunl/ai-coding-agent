@@ -8,7 +8,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from ai_agent.actions import ActionError, set_implementer, set_planner, switch_model
-from ai_agent.ai_tools import AITool, all_info, get_tool, known_tools
+from ai_agent.ai_tools import AITool, all_info, get_tool, known_tools, tools_for_role
 from ai_agent.anthropic_limits import get_anthropic_limits
 from ai_agent.bot.state import current_implementation_agent, current_planning_agent
 from ai_agent.bot.transport import reply_chunks, require_authorized
@@ -24,14 +24,16 @@ async def limits(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not require_authorized(update):
         return
 
+    limit_tools = tools_for_role("planner")
     requested = context.args[0].strip().lower() if context.args else "all"
     if requested == "planner":
         requested = current_planning_agent(context)
     elif requested == "agent":
         requested = current_implementation_agent(context)
 
-    if requested not in {"all", "codex", "claude"}:
-        await reply_chunks(update, "Usage: /limits [all|codex|claude|planner|agent]")
+    if requested != "all" and requested not in limit_tools:
+        usage = "|".join(["all", *limit_tools, "planner", "agent"])
+        await reply_chunks(update, f"Usage: /limits [{usage}]")
         return
 
     async def claude_limits() -> str:
@@ -75,7 +77,7 @@ async def planner_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await update.message.reply_text(
             f"Planning agent: {planning_agent_label(selected)}\n\nTap to choose:",
             reply_markup=choice_keyboard(
-                "planner", ["codex", "claude"], active=selected
+                "planner", tools_for_role("planner"), active=selected
             ),
         )
         return
@@ -102,7 +104,7 @@ async def agent_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 f"to choose:"
             ),
             reply_markup=choice_keyboard(
-                "agent", ["codex", "claude"], active=selected_agent
+                "agent", tools_for_role("executor"), active=selected_agent
             ),
         )
         return
