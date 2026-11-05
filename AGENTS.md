@@ -38,6 +38,11 @@ bots and the `ai-dashboard` Mini App.
 
 ## Commands
 
+- Baseline: `scripts/baseline.sh` — the one-command reproducible check that
+  mirrors CI: runs the unit tests (`pytest`), then `ruff check` and
+  `ruff format --check` over `agent.py ai_agent tests
+  deploy/claude-code-statusline.py`. Offline and side-effect free (no network,
+  no real `/etc` or `/var/lib`, no deploy/restart/backup mutation).
 - Tests: `python3 -m pytest -q` (unit tests only; no network, no real
   `/etc` or `/var/lib` – use temp dirs and env vars).
 - Lint: `ruff check agent.py ai_agent tests` and `ruff format --check …`
