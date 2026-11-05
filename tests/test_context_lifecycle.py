@@ -548,3 +548,53 @@ def test_receipt_metadata_is_additive_and_does_not_change_approval(setup, monkey
         assert lifecycle.run_binding(item) == before
     finally:
         lifecycle.packet_receipt.reset(token)
+
+
+def test_receipt_and_journal_expose_packet_metrics_without_secrets(setup, monkeypatch):
+    from ai_agent import context_packets
+
+    spec, _ = setup
+    receipt = {}
+    token = lifecycle.packet_receipt.set(receipt)
+    try:
+        monkeypatch.setattr(context_packets.time, "time", lambda: 100)
+        packet = lifecycle.build_packet(lifecycle.request_from_spec(spec))
+        context_packets.context_prompt(
+            "prompt with token=journal-secret", lifecycle.request_from_spec(spec)
+        )
+        meta = receipt["packet_metadata"]
+        assert meta["byte_size"] == len(packet.text.encode())
+        assert type(meta["build_latency_ms"]) is int
+        assert meta["build_latency_ms"] >= 0
+        assert set(meta) == {
+            "schema_version",
+            "observed_at",
+            "verified",
+            "omission_count",
+            "truncation_count",
+            "byte_size",
+            "build_latency_ms",
+        }
+        assert "journal-secret" not in json.dumps(receipt)
+    finally:
+        lifecycle.packet_receipt.reset(token)
+
+    attempt = journal.Attempt(spec, "feature/a", {})
+    attempt.save()
+    attempt.checkpoint(
+        "checkout",
+        {
+            "sha": "a" * 40,
+            "packet": asdict(packet.reference),
+            "packet_metadata": packet.metadata.to_dict(),
+            "note": "token=journal-secret",
+        },
+    )
+    event = next(iter(attempt.state["events"].values()))
+    facts = event["facts"]
+    assert facts["packet_metadata"]["byte_size"] == len(packet.text.encode())
+    assert facts["packet_metadata"]["build_latency_ms"] >= 0
+    # Redaction strips the seeded secret while leaving integer metrics intact.
+    assert "journal-secret" not in json.dumps(attempt.state)
+    projected = packet.metadata.to_dict()
+    assert facts["packet_metadata"]["byte_size"] == projected["byte_size"]

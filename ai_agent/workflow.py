@@ -313,7 +313,12 @@ def _run_and_capture_changes(
             attempt = current_attempt.get()
             if attempt:
                 attempt.packets.append(packet.reference)
-            checkpoint("checkout", sha=head, packet=asdict(packet.reference))
+            checkpoint(
+                "checkout",
+                sha=head,
+                packet=asdict(packet.reference),
+                packet_metadata=packet.metadata.to_dict(),
+            )
             agent_result = run_implementation_agent(prompt, agent, context=context)
         else:
             agent_result = run_implementation_agent(prompt, agent)

@@ -64,6 +64,8 @@ def test_sidecar_and_safe_reference_field_sets_are_exact():
         "verified",
         "omission_count",
         "truncation_count",
+        "byte_size",
+        "build_latency_ms",
     }
     assert set(SafePacketReference("packet", "a" * 64).to_dict()) == {
         "packet_id",

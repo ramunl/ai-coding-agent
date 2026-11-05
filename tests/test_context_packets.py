@@ -345,9 +345,28 @@ def test_metadata_is_separate_from_packet_bytes_and_digest(archive, monkeypatch)
     assert first.text == second.text
     assert first.reference == second.reference
     assert first.reference.sha256 == hashlib.sha256(first.text.encode()).hexdigest()
-    assert first.metadata == PacketMetadata(100, True, 2, 0)
-    assert second.metadata == PacketMetadata(200, False, 2, 0)
+    assert first.metadata.observed_at == 100
+    assert first.metadata.verified is True
+    assert first.metadata.omission_count == 2
+    assert first.metadata.truncation_count == 0
+    assert second.metadata.observed_at == 200
+    assert second.metadata.verified is False
+    assert second.metadata.omission_count == 2
+    assert second.metadata.truncation_count == 0
+    # Additive size/latency observations are exact, non-negative and integer.
+    assert first.metadata.byte_size == len(first.text.encode())
+    assert second.metadata.byte_size == len(second.text.encode())
+    assert type(first.metadata.build_latency_ms) is int
+    assert first.metadata.build_latency_ms >= 0
+    assert second.metadata.build_latency_ms >= 0
     assert "observed_at" not in json.loads(first.text)
+    assert "byte_size" not in json.loads(first.text)
+    assert "build_latency_ms" not in json.loads(first.text)
+    # Equality and digest ignore metadata; only text/reference matter.
+    assert first == second
+    assert first == context_packets.ContextPacket(
+        first.text, first.reference, PacketMetadata(300, True, 9, 9, 1, 1)
+    )
     assert (
         context_packets.ContextPacket(first.text, first.reference).metadata
         == PacketMetadata()
