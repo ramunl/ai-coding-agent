@@ -89,7 +89,8 @@ def test_grouped_provider_can_read_private_memory_attachment(repo):
     provider_process.require_no_writer()
 
 
-def test_owner_stop_kills_descendants_and_preserves_edits(repo):
+@pytest.mark.parametrize("via_shell", [False, True])
+def test_owner_stop_kills_descendants_and_preserves_edits(repo, via_shell):
     import contextvars
     from concurrent.futures import ThreadPoolExecutor
 
@@ -103,16 +104,20 @@ def test_owner_stop_kills_descendants_and_preserves_edits(repo):
         "\"import time,pathlib; time.sleep(1.5); pathlib.Path('late').write_text('bad')\"]); "
         "time.sleep(30)"
     )
+    from ai_agent import shell
+
+    runner = shell.run if via_shell else provider_process.grouped_run
+    options = {"provider_run": True} if via_shell else {"text": True}
     context = contextvars.copy_context()
     try:
         with ThreadPoolExecutor() as pool:
             future = pool.submit(
                 context.run,
-                provider_process.grouped_run,
+                runner,
                 [sys.executable, "-c", script],
                 cwd=repo,
                 timeout=None,
-                text=True,
+                **options,
             )
             deadline = time.monotonic() + 5
             while not (repo / "saved").exists() and time.monotonic() < deadline:

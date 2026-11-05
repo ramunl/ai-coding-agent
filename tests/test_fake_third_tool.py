@@ -63,3 +63,19 @@ class FakeThirdToolTests(unittest.TestCase):
         ):
             asyncio.run(cache.refresh())
         self.assertEqual(cache.snapshot()[fake.NAME]["status"], "authenticated")
+
+    def test_executor_without_token_parser_records_unknown_usage(self) -> None:
+        from ai_agent.shell import CommandResult
+        from ai_agent.token_usage import UsageRecord
+
+        completed = CommandResult([fake.NAME], 0, "implemented")
+        with (
+            patch.object(workflow, "run_with_images", return_value=completed) as run,
+            patch.object(workflow, "record_usage") as record,
+        ):
+            self.assertIs(workflow.run_implementation_agent("p", fake.NAME), completed)
+        self.assertTrue(run.call_args.kwargs["provider_run"])
+        usage = record.call_args.args[0]
+        self.assertIsInstance(usage, UsageRecord)
+        self.assertEqual(usage.tool, fake.NAME)
+        self.assertIsNone(usage.tokens)

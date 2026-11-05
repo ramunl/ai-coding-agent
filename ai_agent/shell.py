@@ -47,6 +47,7 @@ def run(
     interactive: bool = False,
     input_text: str | None = None,
     private: bool = False,
+    provider_run: bool = False,
 ) -> CommandResult:
     # Resolved per call, not at import: the active project can change at runtime.
     """Run a command with a timeout and raise on failure."""
@@ -60,7 +61,7 @@ def run(
     )
     try:
         runner = subprocess.run
-        if args[0] in ("codex", "claude") and not interactive:
+        if (provider_run or args[0] in ("codex", "claude")) and not interactive:
             from ai_agent.provider_process import grouped_run
 
             runner = grouped_run

@@ -363,11 +363,11 @@ def limits_tools() -> list[AITool]:
 
 
 def token_tools() -> list[str]:
-    """Return tools that can count implementation tokens, in display order."""
+    """Return usage-capable tools, including those with unknown token counts."""
     return [
         tool.name
         for tool in sorted(
-            (tool for tool in _TOOLS.values() if tool.tokens is not None),
+            (tool for tool in _TOOLS.values() if tool.roles),
             key=lambda tool: (tool.order, tool.name),
         )
     ]

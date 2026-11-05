@@ -118,6 +118,7 @@ def run_implementation_agent(
             ),
             run,
             timeout=IMPLEMENTATION_TIMEOUT_SECONDS,
+            provider_run=True,
         )
     selected = normalize_implementation_agent(agent)
     tool = get_tool(selected)
