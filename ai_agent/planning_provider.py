@@ -184,4 +184,6 @@ def planner_message(
         raise ValueError(f"Unsupported planning agent: {selected}.")
     if selected == "claude":
         return _claude_planner_message(prompt, schema_name, max_tokens)
+    if selected == "codex":
+        return _codex_message(prompt, schema_name)
     return tool.planner(prompt, schema_name, max_tokens)

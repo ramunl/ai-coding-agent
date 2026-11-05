@@ -185,7 +185,7 @@ class ClaudeApiTool(AITool):
         """Deliver images to Claude Code through the stream-json envelope."""
         from ai_agent.image_delivery import _claude_image_run
 
-        return _claude_image_run(command, run, images, missing, **kwargs)
+        return _claude_image_run(command, run, images=images, missing=missing, **kwargs)
 
     def limits(self) -> dict:
         """Return the last recorded Claude API rate-limit reading."""
@@ -256,7 +256,7 @@ class CodexTool(AITool):
         """Deliver images to Codex through RAM-backed --image flags."""
         from ai_agent.image_delivery import _codex_image_run
 
-        return _codex_image_run(command, run, images, missing, **kwargs)
+        return _codex_image_run(command, run, images=images, missing=missing, **kwargs)
 
     def limits(self) -> dict:
         """Return the last recorded Codex account-limit reading."""
