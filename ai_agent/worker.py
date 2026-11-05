@@ -26,10 +26,21 @@ from collections.abc import MutableMapping
 from dataclasses import dataclass
 from typing import Any
 
+from ai_agent.ai_tools import tools_for_role
 from ai_agent.config import AUTONOMOUS_DEEPSEEK_ENABLED
 from ai_agent.plan_state import parse_plan_document
 from ai_agent.planner import normalize_planning_agent
 from ai_agent.projects import active_project
+from ai_agent.provider_availability import (
+    AUTH_BLOCKED,
+    AVAILABLE,
+    DISABLED,
+    FUNDS_INSUFFICIENT,
+    availability,
+    is_wired,
+    limits_key,
+    provider_name,
+)
 from ai_agent.tasks import waiting_for
 from ai_agent.workflow import normalize_implementation_agent
 
@@ -40,7 +51,10 @@ DEFAULTS = {
     "auto_tool": True,
     "review_proposals": 3,  # per daily code review; 0 = no reviews
 }
-TOOLS = ("codex", "claude")
+# The wired tools the worker may pick for a run, in registry display order.
+# This is the same role query normalize_planning_agent/normalize_implementation_agent
+# use, so a pick here never drifts from the tools the dispatch accepts.
+TOOLS = tuple(tools_for_role("executor"))
 LIMIT_FALLBACK_SECONDS = 3600
 MAX_FAILURES = 3
 DAY = 24 * 3600
@@ -87,8 +101,10 @@ def short_window(limits: dict, tool: str, reserve: int, now: float) -> dict | No
 
     Codex reports its windows; Claude Code's are readable only from an
     interactive session, so without a reading Claude is assumed available.
+    The limits key comes from the registry, not a hardcoded table.
     """
-    reading = limits.get("codex" if tool == "codex" else "claude_code") or {}
+    key = limits_key(tool)
+    reading = (limits.get(key) if key else None) or {}
     for window in reading.get("windows") or []:
         remaining = window.get("remaining_percent")
         resets = window.get("resets_at")
@@ -134,20 +150,77 @@ def autonomous_tool_allowed(tool: str) -> bool:
     return tool != "deepseek" or AUTONOMOUS_DEEPSEEK_ENABLED
 
 
+def _fallback_tools(role: str) -> list[str]:
+    """The registry's wired candidate tools for role, in display order."""
+    return list(tools_for_role(role))
+
+
+def _blocked_reason(
+    tool: str,
+    auth: dict | None,
+    limits: dict,
+    now: float,
+    worker: dict,
+) -> str | None:
+    """Why tool cannot run right now, from registry/auth/limits; None when it can."""
+    state = availability(
+        tool,
+        auth=auth,
+        limits=limits,
+        now=now,
+        reserve=int(worker["reserve"]),
+        out_until=worker.get("out_until"),
+    )
+    if state == AVAILABLE:
+        return None
+    if state == DISABLED:
+        return f"{tool} is disabled in the registry"
+    if state == AUTH_BLOCKED:
+        record = auth.get(provider_name(tool)) if isinstance(auth, dict) else None
+        if isinstance(record, dict):
+            status = record.get("status", "unavailable")
+        else:
+            status = "unavailable"
+        return f"{tool} is {status}"
+    if state == FUNDS_INSUFFICIENT:
+        return f"{tool} has no funds left"
+    # Transient: reuse the window/out-until detail already built for limits.
+    return _tool_wait(limits, tool, int(worker["reserve"]), now, worker) or (
+        f"{tool} hit its usage limit"
+    )
+
+
 def pick_tool(
-    preferred: str, limits: dict, worker: dict, now: float
+    preferred: str,
+    limits: dict,
+    worker: dict,
+    now: float,
+    *,
+    role: str = "executor",
+    auth: dict | None = None,
 ) -> tuple[str | None, str]:
-    """The tool to use (preferred first, the other if auto_tool), or None and why."""
-    reserve = int(worker["reserve"])
+    """The tool to use (preferred first, the other if auto_tool), or None and why.
+
+    Candidates come from the registry's roles plus the preferred tool; each is
+    checked against its enabled state, auth reading, limits and out-until. A
+    non-wired preferred tool is skipped for the next wired one. DeepSeek is the
+    exception: it is picked by the autonomous gate alone, not the registry.
+    """
     order = [preferred]
     if worker.get("auto_tool", True):
-        order += [tool for tool in TOOLS if tool != preferred]
+        order += [tool for tool in _fallback_tools(role) if tool != preferred]
     reasons = []
     for tool in order:
         if not autonomous_tool_allowed(tool):
             reasons.append(f"{tool} is gated off for autonomous use")
             continue
-        reason = _tool_wait(limits, tool, reserve, now, worker)
+        if tool == "deepseek":
+            note = f" ({reasons[0].removeprefix('waiting: ')})" if reasons else ""
+            return tool, note
+        if not is_wired(tool):
+            reasons.append(f"{tool} is disabled")
+            continue
+        reason = _blocked_reason(tool, auth, limits, now, worker)
         if reason is None:
             note = f" ({reasons[0].removeprefix('waiting: ')})" if reasons else ""
             return tool, note
@@ -239,9 +312,14 @@ def _approved_task(data: MutableMapping, tasks: list[dict]) -> dict | None:
 
 
 def decide(
-    data: MutableMapping, tasks: list[dict], limits: dict, now: float
+    data: MutableMapping,
+    tasks: list[dict],
+    limits: dict,
+    now: float,
+    *,
+    auth: dict | None = None,
 ) -> Decision:
-    """The next step, given the agent's state, the tasks and the limits."""
+    """The next step, given the agent's state, the tasks, limits and auth."""
     worker = settings(data)
     if not worker["enabled"]:
         return Decision("wait", "off")
@@ -259,7 +337,9 @@ def decide(
         if cap and runs_today(worker, now) >= cap:
             return Decision("wait", f"waiting: {cap} runs today, the daily cap")
         preferred = normalize_implementation_agent(data.get("implementation_agent"))
-        tool, note = pick_tool(preferred, limits, worker, now)
+        tool, note = pick_tool(
+            preferred, limits, worker, now, role="executor", auth=auth
+        )
         if tool is None:
             return Decision("wait", note)
         return Decision(
@@ -299,7 +379,9 @@ def decide(
             return Decision("wait", f"waiting: {blocked['title']}")
         return Decision("wait", "idle: no To do tasks")
     preferred = normalize_planning_agent(data.get("planning_agent"))
-    tool, note = pick_tool(preferred, limits, worker, now)
+    tool, note = pick_tool(
+        preferred, limits, worker, now, role="planner", auth=auth
+    )
     if tool is None:
         return Decision("wait", note)
     return Decision("plan", f"planning {todo['title']} with {tool}{note}", todo, tool)

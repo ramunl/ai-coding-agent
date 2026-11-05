@@ -21,6 +21,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from ai_agent import tool_auth
 from ai_agent.bot.atomic_file import write_json_atomic
 from ai_agent.bot.setup_view import ModelChoices, files_part, state_part
 from ai_agent.bot.state import snapshot
@@ -30,7 +31,11 @@ from ai_agent.task_images import usage
 from ai_agent.task_pulls import track_forever as track_pulls
 from ai_agent.tasks import sync as sync_tasks
 from ai_agent.token_usage import usage_section
-from ai_agent.tool_auth import ToolAuth
+
+# ToolAuth stays importable as snapshot_publisher.ToolAuth: the loop test
+# patches ToolAuth.refresh_forever on the shared cache.
+ToolAuth = tool_auth.ToolAuth
+auth_cache = tool_auth.shared
 
 logger = logging.getLogger(__name__)
 
@@ -127,7 +132,7 @@ async def publish_forever(
         versions = {"version": "unknown", "core": "unknown"}
     limits_task = asyncio.create_task(poll_limits())
     pulls_task = asyncio.create_task(track_pulls(ptb_app, owner_id))
-    auth = ToolAuth()
+    auth = auth_cache
     auth_task = asyncio.create_task(auth.refresh_forever())
     choices = ModelChoices()
     choices_task = asyncio.create_task(choices.refresh_forever())

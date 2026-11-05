@@ -7,6 +7,7 @@ import copy
 import json
 import logging
 import os
+import re
 import time
 from collections.abc import Mapping
 from pathlib import Path
@@ -34,6 +35,30 @@ def saved_claude_limits() -> dict:
     except (OSError, ValueError):
         pass
     return {}
+
+
+# Account-level funds/spending blocks, distinct from retryable usage limits.
+FUNDS_STATUSES = ("exceeded", "blocked", "insufficient")
+_FUNDS_MESSAGE = re.compile(
+    r"insufficient\s+funds|spending\s+limit|api.?spending|billing|"
+    r"credits?|balance|funding",
+    re.IGNORECASE,
+)
+
+
+def funds_insufficient(reading: dict | None) -> bool:
+    """Whether a limits reading reports an account-level funds/spending block.
+
+    Funds exhaustion is not a rate limit: it never resets on its own, so it
+    must not mark a tool out until a made-up time.
+    """
+    if not isinstance(reading, dict):
+        return False
+    if reading.get("spending_status") in FUNDS_STATUSES:
+        return True
+    if reading.get("collection_error") == "api_spending_limit":
+        return True
+    return bool(_FUNDS_MESSAGE.search(str(reading.get("message", ""))))
 
 
 class LimitResponse(Protocol):

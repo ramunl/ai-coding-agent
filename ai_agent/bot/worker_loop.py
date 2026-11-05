@@ -20,9 +20,15 @@ from ai_agent.context_recovery import reconcile
 from ai_agent.dependency_evidence import refresh as refresh_dependencies
 from ai_agent.planner import normalize_planning_agent
 from ai_agent.projects import active_project, list_projects
+from ai_agent.provider_availability import (
+    FUNDS_INSUFFICIENT,
+    TRANSIENT,
+    classify_failure,
+)
 from ai_agent.provider_limits import limits_snapshot
 from ai_agent.task_split import SplitError, split_pending
 from ai_agent.tasks import find_task, set_stage, tasks_of
+from ai_agent.tool_auth import shared as auth_cache
 from ai_agent.worker import (
     MAX_FAILURES,
     TOOLS,
@@ -46,19 +52,29 @@ async def _tell(ptb_app: Any, owner_id: int, text: str) -> None:
         logger.warning("Worker message not sent: %s", error)
 
 
+def _recent_error_text(data: Any, current: dict, task: dict) -> str:
+    """The current run's failure text: the recent work error, else the task note."""
+    error = data.get("last_work_error") or {}
+    recent = error.get("at", 0) >= current.get("started_at", 0)
+    text = error.get("text", "") if recent else ""
+    return text or str(task.get("note") or "")
+
+
 async def _limit_failure(
     ptb_app: Any, owner_id: int, data: Any, worker: dict, current: dict, task: dict
 ) -> bool:
     """A failure caused by a tool's usage limit: mark the tool out, retry later.
 
     Not the task's fault, so it neither counts towards switching the worker
-    off nor marks the task as failed; a stopped run goes back to To do.
+    off nor marks the task as failed; a stopped run goes back to To do. Only a
+    transient limit failure sets ``out_until``: funds and execution failures
+    have no reset time to wait out and are classified elsewhere.
     """
-    error = data.get("last_work_error") or {}
-    recent = error.get("at", 0) >= current.get("started_at", 0)
-    text = error.get("text", "") if recent else ""
+    text = _recent_error_text(data, current, task)
+    if classify_failure(text) != TRANSIENT:
+        return False
     now = time.time()
-    until = limit_reset(text or str(task.get("note") or ""), now)
+    until = limit_reset(text, now)
     tool = current.get("tool")
     if until is None or tool is None:
         return False
@@ -107,7 +123,17 @@ async def _settle(
     record(worker, current, "failed", task["title"], now)
     worker["failures"] = int(worker.get("failures", 0)) + 1
     task["worker_failed"] = True  # not picked again until started by hand
-    await _tell(ptb_app, owner_id, f"“{task['title']}” failed ({task.get('note')}).")
+    if classify_failure(_recent_error_text(data, current, task)) == FUNDS_INSUFFICIENT:
+        tool = current.get("tool") or "the tool"
+        await _tell(
+            ptb_app,
+            owner_id,
+            f"{tool} has no funds; check billing before retrying.",
+        )
+    else:
+        await _tell(
+            ptb_app, owner_id, f"“{task['title']}” failed ({task.get('note')})."
+        )
     if worker["failures"] >= MAX_FAILURES:
         worker["enabled"] = False
         await _tell(
@@ -149,7 +175,9 @@ async def tick(ptb_app: Any, owner_id: int, now: float | None = None) -> str:
         )
         for candidate in candidates[:2]:
             await refresh_dependencies(candidate, data)
-    decision = decide(data, tasks_of(data), limits_snapshot(), now)
+    decision = decide(
+        data, tasks_of(data), limits_snapshot(), now, auth=auth_cache.snapshot()
+    )
     data["worker_status"] = decision.status
     if worker["enabled"] and auto_todos.is_due(data, now):
         await take_auto_todos(ptb_app, owner_id, now)
@@ -248,7 +276,14 @@ async def review_next(ptb_app: Any, owner_id: int, now: float | None = None) -> 
     if repo is None:
         return "No registered repositories to review."
     preferred = normalize_planning_agent(data.get("planning_agent"))
-    tool, note = pick_tool(preferred, limits_snapshot(), worker, now)
+    tool, note = pick_tool(
+        preferred,
+        limits_snapshot(),
+        worker,
+        now,
+        role="planner",
+        auth=auth_cache.snapshot(),
+    )
     if tool is None:
         return f"Code review waits: {note.removeprefix('waiting: ')}."
     data["worker_status"] = f"reviewing {repo} with {tool}"
@@ -264,9 +299,10 @@ async def review_next(ptb_app: Any, owner_id: int, now: float | None = None) -> 
         )
     except Exception as error:  # a failed review must not stop the worker
         message = work_actions.error_text(error).splitlines()[0][:200]
-        until = limit_reset(message, now)
-        if until is not None:
-            worker["out_until"][tool] = until
+        if classify_failure(message) == TRANSIENT:
+            until = limit_reset(message, now)
+            if until is not None:
+                worker["out_until"][tool] = until
         reply = f"code review of {repo} failed: {message}"
         await _tell(ptb_app, owner_id, reply)
         return reply

@@ -57,7 +57,12 @@ model = ModelControl(
 
 
 async def auth() -> Reading:
-    """Probe the Claude Code login status without running inference."""
+    """Observe the runner's auth route without running inference.
+
+    On the token/DeepSeek route (CLAUDE_CODE_AUTH=api_key) this reports
+    configured_unverified instead of probing the native Anthropic login, which
+    is meaningless there and must never gate the runner.
+    """
     return await check("claude-code")
 
 
