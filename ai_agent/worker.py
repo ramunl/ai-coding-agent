@@ -379,9 +379,7 @@ def decide(
             return Decision("wait", f"waiting: {blocked['title']}")
         return Decision("wait", "idle: no To do tasks")
     preferred = normalize_planning_agent(data.get("planning_agent"))
-    tool, note = pick_tool(
-        preferred, limits, worker, now, role="planner", auth=auth
-    )
+    tool, note = pick_tool(preferred, limits, worker, now, role="planner", auth=auth)
     if tool is None:
         return Decision("wait", note)
     return Decision("plan", f"planning {todo['title']} with {tool}{note}", todo, tool)

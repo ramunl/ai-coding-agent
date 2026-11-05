@@ -31,9 +31,7 @@ class AvailabilityTests(unittest.TestCase):
         for status in ("logged_out", "unavailable"):
             with self.subTest(status=status):
                 self.assertEqual(
-                    availability(
-                        "codex", auth={"codex": {"status": status}}, now=NOW
-                    ),
+                    availability("codex", auth={"codex": {"status": status}}, now=NOW),
                     AUTH_BLOCKED,
                 )
 
