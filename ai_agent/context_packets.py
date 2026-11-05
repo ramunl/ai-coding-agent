@@ -196,6 +196,7 @@ def build_packet(
     verify_dependencies: bool = True,
 ) -> ContextPacket:
     """Include mandatory evidence whole; omit optional records with a trace."""
+    started = time.perf_counter()
     try:
         request.validate()
     except ContextValidationError as error:
@@ -290,6 +291,8 @@ def build_packet(
             verify_dependencies,
             len(omitted),
             len(envelope["truncations"]),
+            len(text.encode()),
+            int((time.perf_counter() - started) * 1000),
         ),
     )
 

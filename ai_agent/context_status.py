@@ -46,6 +46,8 @@ class PacketMetadata:
     verified: bool = False
     omission_count: int | None = None
     truncation_count: int | None = None
+    byte_size: int | None = None
+    build_latency_ms: int | None = None
 
     def to_dict(self) -> dict:
         """Project only bounded v1 capture fields, including explicit nulls."""
@@ -55,6 +57,8 @@ class PacketMetadata:
             "verified": self.verified is True,
             "omission_count": bounded_count(self.omission_count),
             "truncation_count": bounded_count(self.truncation_count),
+            "byte_size": bounded_count(self.byte_size),
+            "build_latency_ms": bounded_count(self.build_latency_ms),
         }
 
     @classmethod
@@ -69,6 +73,8 @@ class PacketMetadata:
             value.get("verified") is True,
             bounded_count(value.get("omission_count")),
             bounded_count(value.get("truncation_count")),
+            bounded_count(value.get("byte_size")),
+            bounded_count(value.get("build_latency_ms")),
         )
 
 

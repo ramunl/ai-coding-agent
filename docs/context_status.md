@@ -85,27 +85,39 @@ never parsed or published.
 
 ## Capture boundary and legacy defaults
 
-Successful packet assembly captures integer `observed_at`, `verified`, and
-omission/truncation counts in `ContextPacket.metadata`. Omission counts count
-omitted optional records; truncation counts count envelope truncation events
-(current assembly omits whole records, so this is observed zero). This is not a
-count of all possible repository context or redactions. Skipping dependency
-verification marks the observation unverified. Failed assembly emits no success
-metadata; it retains existing fail-closed behavior.
+Successful packet assembly captures integer `observed_at`, `verified`,
+omission/truncation counts, `byte_size` and `build_latency_ms` in
+`ContextPacket.metadata`. Omission counts count omitted optional records;
+truncation counts count envelope truncation events (current assembly omits
+whole records, so this is observed zero). This is not a count of all possible
+repository context or redactions. Skipping dependency verification marks the
+observation unverified. Failed assembly emits no success metadata; it retains
+existing fail-closed behavior.
+
+`byte_size` is the exact UTF-8 byte length of the assembled packet text.
+`build_latency_ms` is the monotonic-clock build duration in whole milliseconds.
+Both are additive integer observations bounded 0–65535 (larger observed values
+saturate at 65535) with a null legacy default, and both are measured only from
+successful assembly. They are not inserted into packet text, packet ID/digest,
+reference records, plan approval bindings or run bindings. Packet equality and
+the packet digest remain based on content/reference, not these observations, so
+only the per-attempt sidecar keys change between builds.
 
 Receipt creation stores the bounded versioned projection under
-`packet_metadata`, next to the existing internal `packet`. The sidecar is not
-inserted into packet text, packet ID/digest, reference records, plan approval
-bindings or run bindings. Packet equality remains based on content/reference,
-not observation time. No approval is refreshed or invalidated by observing time.
+`packet_metadata`, next to the existing internal `packet`; the implementation
+checkout checkpoint records the same `packet_metadata` so the durable journal
+exposes the metrics too. The sidecar is not inserted into packet text, packet
+ID/digest, reference records, plan approval bindings or run bindings. No
+approval is refreshed or invalidated by observing time or size.
 
 Old packets can still be constructed without metadata. Missing sidecars,
-unsupported versions and malformed fields remain unknown with nullable counts
-and timestamps; never derive freshness from load time or infer zero omissions
-from absence. `PacketMetadata.from_dict` reads sidecars conservatively. Current
-plan/archive consumers may discard the additive receipt metadata. Publication
-therefore reports unknown when observations are absent; it does not add
-persistence or migrate historical records.
+unsupported versions and malformed fields remain unknown with nullable counts,
+`byte_size`, `build_latency_ms` and timestamps; never derive freshness from
+load time or infer zero omissions, size or latency from absence.
+`PacketMetadata.from_dict` reads sidecars conservatively. Current plan/archive
+consumers may discard the additive receipt metadata. Publication therefore
+reports unknown when observations are absent; it does not add persistence or
+migrate historical records.
 
 
 ## Snapshot publication (milestone 2)

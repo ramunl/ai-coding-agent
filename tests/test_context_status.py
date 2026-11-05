@@ -118,6 +118,32 @@ def test_bounds_and_canonical_serialization():
         context_status(now=100, blockers=("token=secret /private/path",))
 
 
+def test_sidecar_size_and_latency_bounds_and_legacy_defaults():
+    saturated = PacketMetadata(100, True, 0, 0, 10**20, 10**20)
+    assert saturated.to_dict()["byte_size"] == MAX_COUNT
+    assert saturated.to_dict()["build_latency_ms"] == MAX_COUNT
+    for invalid in (-1, True, 1.2, "secret"):
+        assert replace(saturated, byte_size=invalid).to_dict()["byte_size"] is None
+        assert (
+            replace(saturated, build_latency_ms=invalid).to_dict()["build_latency_ms"]
+            is None
+        )
+    for value in (None, {}, {"schema_version": 2}, {"schema_version": 1}):
+        metadata = PacketMetadata.from_dict(value)
+        assert metadata.byte_size is None
+        assert metadata.build_latency_ms is None
+    parsed = PacketMetadata.from_dict(
+        {"schema_version": 1, "byte_size": 12, "build_latency_ms": 3}
+    )
+    assert parsed.byte_size == 12
+    assert parsed.build_latency_ms == 3
+    saturated_parsed = PacketMetadata.from_dict(
+        {"schema_version": 1, "byte_size": 10**20, "build_latency_ms": 10**20}
+    )
+    assert saturated_parsed.byte_size == MAX_COUNT
+    assert saturated_parsed.build_latency_ms == MAX_COUNT
+
+
 def test_dependency_mapping_ignores_exception_text_and_unverified_success():
     for evidence in (
         ValueError("token=secret /private/path"),
