@@ -49,7 +49,9 @@ def requested(feature: str, names: list[str] | None = None) -> list[str]:
             name
             for name in names
             if re.search(
-                r"(?<![A-Za-z0-9_.-])" + re.escape(name) + r"(?![A-Za-z0-9_.-])",
+                r"(?<![A-Za-z0-9_.-])"
+                + re.escape(name)
+                + r"(?![A-Za-z0-9_-]|\.[A-Za-z0-9_-])",
                 feature,
             )
         ]

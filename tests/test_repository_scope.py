@@ -202,3 +202,13 @@ def test_direct_multi_repository_bugfix_cannot_bypass_scope_review(monkeypatch):
     )
     assert "Use /plan" in reply.call_args.args[1]
     assert "pending_implementation" not in context.user_data
+
+
+@pytest.mark.parametrize("punctuation", [".", ",", ":", ";", "!"])
+def test_repository_name_before_sentence_punctuation_is_accounted(punctuation):
+    p = plan(feature="Change ai-coding-agent and ai-dashboard" + punctuation)
+    assert any("ai-dashboard" in problem for problem in scope.review(p))
+
+
+def test_repository_name_does_not_match_dot_suffix():
+    assert scope.review(plan(feature="Change ai-dashboard.extra only")) == []
