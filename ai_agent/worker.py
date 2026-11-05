@@ -26,6 +26,7 @@ from collections.abc import MutableMapping
 from dataclasses import dataclass
 from typing import Any
 
+from ai_agent.config import AUTONOMOUS_DEEPSEEK_ENABLED
 from ai_agent.plan_state import parse_plan_document
 from ai_agent.planner import normalize_planning_agent
 from ai_agent.projects import active_project
@@ -123,6 +124,16 @@ def _tool_wait(
     return f"waiting: {tool} has {left}% left, below the {reserve}% reserve{until}"
 
 
+def autonomous_tool_allowed(tool: str) -> bool:
+    """Whether the worker may use tool on its own.
+
+    Only DeepSeek is gated: it stays off until AUTONOMOUS_DEEPSEEK_ENABLED is
+    set, pending the CTX07 continuity trial and the CTX08 backup/restore gate.
+    This is consulted only by pick_tool, so manual /plan is never affected.
+    """
+    return tool != "deepseek" or AUTONOMOUS_DEEPSEEK_ENABLED
+
+
 def pick_tool(
     preferred: str, limits: dict, worker: dict, now: float
 ) -> tuple[str | None, str]:
@@ -133,6 +144,9 @@ def pick_tool(
         order += [tool for tool in TOOLS if tool != preferred]
     reasons = []
     for tool in order:
+        if not autonomous_tool_allowed(tool):
+            reasons.append(f"{tool} is gated off for autonomous use")
+            continue
         reason = _tool_wait(limits, tool, reserve, now, worker)
         if reason is None:
             note = f" ({reasons[0].removeprefix('waiting: ')})" if reasons else ""
