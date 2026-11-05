@@ -145,7 +145,13 @@ class TaskPullTests(unittest.IsolatedAsyncioTestCase):
             patch.object(self.pulls, "ENDED_POLL_SECONDS", 0.01),
         ):
             loop = asyncio.create_task(self.pulls.track_forever(app, 123, interval=60))
-            await asyncio.sleep(0.05)
+            # Wait for the first pass to settle both ended tasks instead of a
+            # fixed sleep: check_once runs each GitHub lookup in a worker
+            # thread, so a short sleep flakes under load.
+            for _ in range(200):
+                if self.task["stage"] == "stopped" and other["stage"] == "pr":
+                    break
+                await asyncio.sleep(0.01)
             loop.cancel()
             with self.assertRaises(asyncio.CancelledError):
                 await loop
