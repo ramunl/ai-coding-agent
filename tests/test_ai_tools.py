@@ -11,19 +11,25 @@ class AIToolsTests(unittest.TestCase):
         os.environ["TELEGRAM_BOT_TOKEN"] = "t"
         os.environ["YOUR_CHAT_ID"] = "1"
         os.environ["ANTHROPIC_API_KEY"] = "k"
-        for module in (
+        self._reloaded = (
             "ai_agent.config",
             "ai_agent.model_errors",
             "ai_agent.anthropic_limits",
             "ai_agent.model_manager",
             "ai_agent.ai_tools",
-        ):
+        )
+        self.previous_modules = {name: sys.modules.get(name) for name in self._reloaded}
+        for module in self._reloaded:
             sys.modules.pop(module, None)
         self.ai_tools = importlib.import_module("ai_agent.ai_tools")
 
     def tearDown(self) -> None:
         os.environ.clear()
         os.environ.update(self.previous_env)
+        for name, module in self.previous_modules.items():
+            sys.modules.pop(name, None)
+            if module is not None:
+                sys.modules[name] = module
 
     def test_all_known_tools_present(self) -> None:
         self.assertEqual(

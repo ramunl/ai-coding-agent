@@ -186,13 +186,15 @@ def validate_required_config() -> None:
         raise RuntimeError(
             f"Missing required environment variables: {', '.join(missing)}"
         )
+    from ai_agent.ai_tools import tools_for_role
+
     implementation_agent = (
         os.environ.get("IMPLEMENTATION_AGENT", "codex").strip().lower()
     )
-    if implementation_agent not in {"codex", "claude"}:
+    if implementation_agent not in tools_for_role("executor"):
         raise RuntimeError("IMPLEMENTATION_AGENT must be codex or claude")
     planning_agent = os.environ.get("PLANNING_AGENT", "codex").strip().lower()
-    if planning_agent not in {"codex", "claude"}:
+    if planning_agent not in tools_for_role("planner"):
         raise RuntimeError("PLANNING_AGENT must be codex or claude")
     if planning_agent == "claude" and not os.environ.get("ANTHROPIC_API_KEY"):
         raise RuntimeError("ANTHROPIC_API_KEY is required when PLANNING_AGENT=claude")

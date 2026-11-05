@@ -48,9 +48,21 @@ def record_claude_response(response: LimitResponse) -> None:
     cache_claude_limits(response.status_code, dict(response.headers))
 
 
-def limits_snapshot() -> dict:
-    """Return cached readings without exposing credentials or mutable state."""
-    claude = _LIMITS.get(
+def _codex_reading() -> dict:
+    """Return the last recorded Codex account-limit reading."""
+    return _LIMITS.get(
+        "codex",
+        {
+            "status": "loading",
+            "message": "Checking account limits",
+            "windows": [],
+        },
+    )
+
+
+def _claude_reading() -> dict:
+    """Return the last recorded Claude API rate-limit reading."""
+    return _LIMITS.get(
         "claude",
         saved_claude_limits()
         or {
@@ -61,22 +73,24 @@ def limits_snapshot() -> dict:
             "windows": [],
         },
     )
+
+
+def _claude_code_reading() -> dict:
+    """Return the last recorded Claude Code subscription reading."""
     from ai_agent.claude_code_limits import read_limits
 
-    return copy.deepcopy(
-        {
-            "codex": _LIMITS.get(
-                "codex",
-                {
-                    "status": "loading",
-                    "message": "Checking account limits",
-                    "windows": [],
-                },
-            ),
-            "claude": claude,
-            "claude_code": read_limits(CLAUDE_CODE_LIMITS_FILE),
-        }
-    )
+    return read_limits(CLAUDE_CODE_LIMITS_FILE)
+
+
+def limits_snapshot() -> dict:
+    """Return cached readings without exposing credentials or mutable state."""
+    from ai_agent.ai_tools import limits_tools
+
+    snapshot = {}
+    for tool in limits_tools():
+        if tool.limits_key is not None:
+            snapshot[tool.limits_key] = tool.limits()
+    return copy.deepcopy(snapshot)
 
 
 def cache_claude_limits(status: int, headers: dict[str, str]) -> None:

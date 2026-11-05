@@ -80,3 +80,23 @@ def test_a_failure_shows_the_tool_error_not_the_whole_prompt(monkeypatch, tmp_pa
         "Implement the following change in this repository.…\n"
         "ERROR: You've hit your usage limit.\n"
     )
+
+
+def test_explicit_provider_uses_supervised_runner(monkeypatch, tmp_path):
+    from ai_agent import provider_process, shell
+
+    calls = []
+
+    def supervised(args, **kwargs):
+        calls.append(args)
+        return subprocess.CompletedProcess(args, 0, stdout="done", stderr="")
+
+    def unsupervised(*args, **kwargs):
+        pytest.fail("Provider bypassed process supervision")
+
+    monkeypatch.setattr(provider_process, "grouped_run", supervised)
+    monkeypatch.setattr(shell.subprocess, "run", unsupervised)
+    # The executable deliberately differs from the registered provider ID.
+    result = shell.run(["/custom/provider-cli", "run"], cwd=tmp_path, provider_run=True)
+    assert result.output == "done"
+    assert calls == [["/custom/provider-cli", "run"]]
