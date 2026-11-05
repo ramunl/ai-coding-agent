@@ -13,7 +13,6 @@ from ai_agent import (
 )
 from ai_agent.ai_tools import get_tool, tools_for_role
 from ai_agent.tool_auth_providers import Reading
-
 from tests import fake_third_tool as fake
 
 

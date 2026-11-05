@@ -39,6 +39,8 @@ def _tools() -> tuple[str, ...]:
     from ai_agent.ai_tools import token_tools
 
     return tuple(token_tools())
+
+
 # Codex prints "tokens used" and the count on the same line or the next one.
 _CODEX_TOKENS = re.compile(r"tokens used[:\s]*([0-9][0-9,._]*)", re.IGNORECASE)
 _last_omission: str | None = None
