@@ -8,6 +8,10 @@ published, secret-free, in the Coding snapshot for the separate
 Part 1 (this change) records and publishes the data. Part 2, in `ai-dashboard`,
 reads the `token_usage` section. Until then nothing displays it.
 
+A second, versioned store (`ai_agent/usage_details.py`) records one bounded
+per-call record alongside the untouched format-1 aggregate store. It is
+published as the optional `usage_details` snapshot section.
+
 ## What is recorded
 
 Each provider call becomes one `UsageRecord`:
@@ -123,6 +127,116 @@ and bumps `format` from 1 to 2. Existing keys are unchanged.
 - Readers must treat `token_usage` as optional. The key is absent when there
   is no readable store, and format 1 snapshots never have it.
 - Readers must ignore roles and tools they do not recognise.
+
+## Versioned per-call details
+
+`ai_agent/usage_details.py` keeps a second store (`USAGE_DETAILS_PATH`, default
+`/var/lib/ai-coding-agent/usage-details.json`) with one record per provider
+call. The legacy format-1 aggregate store above is not changed.
+
+Each `UsageDetail` holds:
+
+| Field                 | Meaning                                                              |
+|-----------------------|----------------------------------------------------------------------|
+| `role`                | `planner` or `implementer`                                           |
+| `runner`              | `codex`, `claude-api` or `claude-code`                               |
+| `provider`            | `codex`, `claude` or `claude-code` (the actual provider, not a guess)|
+| `model`               | actual model id, or `None` when unknown/CLI-default                  |
+| `day`                 | UTC calendar day, `YYYY-MM-DD`                                       |
+| `input_tokens`        | input tokens, or `None`                                              |
+| `output_tokens`       | output tokens, or `None`                                             |
+| `cache_read_tokens`   | cache reads, or `None`                                               |
+| `cache_creation_tokens`| cache writes, or `None`                                              |
+| `reasoning_tokens`    | reasoning tokens, or `None`                                          |
+| `total_tokens`        | tool-reported total; `input + output` only, never cache/reasoning    |
+| `cost`                | tool-reported cost only, never a dated estimate or subscription fee  |
+| `duration_seconds`    | whole seconds of the call, or `None`                                 |
+| `output_chars`        | bounded output length, never the text                                |
+| `attempt_id`/`call_id`| dedupe identity, stored but never published                          |
+
+Rules enforced by the dataclass:
+
+- Missing fields stay `None` (unknown), never zero.
+- When both `input_tokens` and `output_tokens` are known, `total_tokens` must
+  equal their sum; cache and reasoning fields are never added into the total.
+- `cost` accepts only a non-negative number and is only ever set from a
+  tool-reported cost. No price table or subscription fee is derived from it,
+  and a missing total is never turned into a dollar cap.
+- The Claude planner through the API pins the Anthropic usage shape
+  (`input_tokens`, `output_tokens`, `cache_read_input_tokens`,
+  `cache_creation_input_tokens`); cache fields are kept separate so they are
+  never silently double-counted.
+- The Claude Code text runner (`claude -p`) reports no tokens or cost, so its
+  implementer records stay unknown and are never attributed to the Anthropic
+  subscription.
+- DeepSeek is disabled and unsupported; no provider/model facts are invented.
+
+The store reuses `token_usage.locked`, the atomic writer and the 90-day UTC
+retention discipline, made configurable via `USAGE_DETAILS_RETENTION_DAYS`
+(default 90), with a hard `USAGE_DETAILS_MAX_RECORDS` cap (default 5000). A
+duplicate `(attempt_id, call_id)` is not appended twice. Cancelled
+implementations still leave a record behind (unknown tokens), because the
+implementer writes its detail in a `finally` block that reuses the existing
+`implementation_stop`/`git_recovery` cleanup.
+
+```json
+{
+  "format": 1,
+  "records": [
+    {
+      "role": "planner",
+      "runner": "claude-api",
+      "provider": "claude",
+      "model": "claude-sonnet-4-6",
+      "day": "2026-10-21",
+      "input_tokens": 10,
+      "output_tokens": 5,
+      "cache_read_tokens": 99,
+      "cache_creation_tokens": 50,
+      "reasoning_tokens": null,
+      "total_tokens": 15,
+      "cost": null,
+      "duration_seconds": 3,
+      "output_chars": 12,
+      "attempt_id": "abc",
+      "call_id": "def"
+    }
+  ]
+}
+```
+
+## Snapshot: usage_details section
+
+`ai_agent/bot/snapshot_publisher.py` bumps `format` from 2 to 3 and adds the
+optional `usage_details` section next to `token_usage`. The section holds only
+the published fields above: `attempt_id` and `call_id` are excluded, and no
+prompt or output text is ever stored, so the snapshot stays secret-free.
+
+```json
+"usage_details": {
+  "window_days": 90,
+  "records": [
+    {
+      "role": "planner",
+      "runner": "claude-api",
+      "provider": "claude",
+      "model": "claude-sonnet-4-6",
+      "day": "2026-10-21",
+      "input_tokens": 10,
+      "output_tokens": 5,
+      "cache_read_tokens": 99,
+      "cache_creation_tokens": 50,
+      "reasoning_tokens": null,
+      "total_tokens": 15,
+      "cost": null,
+      "duration_seconds": 3,
+      "output_chars": 12
+    }
+  ]
+}
+```
+
+Readers must treat `usage_details` as optional, exactly like `token_usage`.
 
 ## Tests
 

@@ -21,7 +21,7 @@ import anthropic
 
 from ai_agent.ai_tools import get_tool, tools_for_role
 from ai_agent.claude_code_planner import claude_code_message
-from ai_agent.codex_models import model_args
+from ai_agent.codex_models import DEFAULT_MODEL, current_model, model_args
 from ai_agent.config import (
     ANTHROPIC_KEY,
     ANTHROPIC_MODEL,
@@ -40,8 +40,16 @@ from ai_agent.shell import run
 from ai_agent.token_usage import (
     UsageRecord,
     claude_total_tokens,
+    claude_usage_fields,
     codex_total_tokens,
     record_usage,
+)
+from ai_agent.usage_details import (
+    UsageDetail,
+    bounded_output_chars,
+    current_attempt_id,
+    new_call_id,
+    record_detail,
 )
 
 SCHEMAS_DIR = Path(__file__).parent / "schemas"
@@ -83,6 +91,7 @@ def planning_agent_label(agent: str | None = None) -> str:
 
 
 def _codex_message(prompt: str, schema_name: str) -> str:
+    call_id = new_call_id()
     with tempfile.NamedTemporaryFile(
         prefix="ai-agent-codex-", suffix=".json"
     ) as output:
@@ -104,8 +113,28 @@ def _codex_message(prompt: str, schema_name: str) -> str:
                 run,
                 timeout=CODEX_TIMEOUT_SECONDS,
             )
-        record_usage(UsageRecord("planner", "codex", codex_total_tokens(result.output)))
-        return Path(output.name).read_text(encoding="utf-8").strip()
+        tokens = codex_total_tokens(result.output)
+        text = Path(output.name).read_text(encoding="utf-8").strip()
+        record_usage(UsageRecord("planner", "codex", tokens))
+        record_detail(
+            UsageDetail(
+                role="planner",
+                runner="codex",
+                provider="codex",
+                model=_codex_model(),
+                attempt_id=current_attempt_id(),
+                call_id=call_id,
+                total_tokens=tokens,
+                output_chars=bounded_output_chars(text),
+            )
+        )
+        return text
+
+
+def _codex_model() -> str | None:
+    """The Codex model actually selected, or None when the CLI default decides."""
+    model = current_model()
+    return None if model == DEFAULT_MODEL else model
 
 
 def _create_message(
@@ -154,14 +183,32 @@ def _claude_planner_message(prompt: str, schema_name: str, max_tokens: int) -> s
         raise RuntimeError(
             "Claude image planning failed; retry or switch planner."
         ) from None
+    usage = getattr(response, "usage", None)
+    fields = claude_usage_fields(usage)
+    text = "\n".join(
+        block.text for block in response.content if block.type == "text"
+    ).strip()
     record_usage(
         UsageRecord(
             "planner", "claude", claude_total_tokens(getattr(response, "usage", None))
         )
     )
-    text = "\n".join(
-        block.text for block in response.content if block.type == "text"
-    ).strip()
+    record_detail(
+        UsageDetail(
+            role="planner",
+            runner="claude-api",
+            provider="claude",
+            model=ANTHROPIC_MODEL,
+            attempt_id=current_attempt_id(),
+            call_id=new_call_id(),
+            input_tokens=(fields or {}).get("input_tokens"),
+            output_tokens=(fields or {}).get("output_tokens"),
+            cache_read_tokens=(fields or {}).get("cache_read_tokens"),
+            cache_creation_tokens=(fields or {}).get("cache_creation_tokens"),
+            total_tokens=(fields or {}).get("total_tokens"),
+            output_chars=bounded_output_chars(text),
+        )
+    )
     if not text:
         raise RuntimeError("Claude returned no text for the plan. Please retry.")
     return text

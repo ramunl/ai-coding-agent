@@ -5,10 +5,10 @@ crashes. It therefore never talks to this process; it reads the file written
 here. The file is the contract between the two.
 
 What it contains is snapshot() (secret-free: no prompts, diffs, or logs) plus
-the active project, versions, and daily token counts (see token_usage.py). It is
-written when the content changes, and
-at least every HEARTBEAT_SECONDS, so the dashboard can tell "idle" apart from
-"the coding agent stopped publishing".
+the active project, versions, daily token counts (see token_usage.py) and
+versioned per-call usage details (see usage_details.py). It is written when the
+content changes, and at least every HEARTBEAT_SECONDS, so the dashboard can tell
+"idle" apart from "the coding agent stopped publishing".
 """
 
 from __future__ import annotations
@@ -31,6 +31,7 @@ from ai_agent.task_images import usage
 from ai_agent.task_pulls import track_forever as track_pulls
 from ai_agent.tasks import sync as sync_tasks
 from ai_agent.token_usage import usage_section
+from ai_agent.usage_details import detail_section
 
 # ToolAuth stays importable as snapshot_publisher.ToolAuth: the loop test
 # patches ToolAuth.refresh_forever on the shared cache.
@@ -39,7 +40,7 @@ auth_cache = tool_auth.shared
 
 logger = logging.getLogger(__name__)
 
-SNAPSHOT_FORMAT = 2
+SNAPSHOT_FORMAT = 3
 INTERVAL_SECONDS = 3.0
 HEARTBEAT_SECONDS = 30.0
 
@@ -71,6 +72,7 @@ def build_content(
     setup: dict | None = None,
     token_usage: dict | None = None,
     image_storage: dict[str, int] | None = None,
+    usage_details: dict | None = None,
 ) -> dict:
     """Everything the Coding window shows, minus the timestamps."""
     content = {
@@ -89,6 +91,8 @@ def build_content(
         content["setup"] = setup
     if token_usage is not None:
         content["token_usage"] = token_usage
+    if usage_details is not None:
+        content["usage_details"] = usage_details
     return content
 
 
@@ -152,6 +156,7 @@ async def publish_forever(
                 # None (store missing or unreadable) omits the section; the rest
                 # of the snapshot still publishes.
                 tokens = await asyncio.to_thread(usage_section)
+                details = await asyncio.to_thread(detail_section)
                 images = await asyncio.to_thread(usage)
                 content = build_content(
                     user_data,
@@ -160,6 +165,7 @@ async def publish_forever(
                     {**files, **state_part(user_data)},
                     tokens,
                     image_storage=images,
+                    usage_details=details,
                 )
                 publisher.publish(content)
             except Exception as error:

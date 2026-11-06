@@ -342,6 +342,7 @@ class ImplementerUsageTests(unittest.TestCase):
                 return_value=CommandResult([], 0, output),
             ),
             patch.object(workflow, "record_usage") as record,
+            patch.object(workflow, "record_detail"),
         ):
             workflow.run_implementation_agent("fix", agent)
         return [
@@ -356,6 +357,46 @@ class ImplementerUsageTests(unittest.TestCase):
     def test_claude_run_records_implementer_as_unknown(self):
         records = self._run("claude", "tokens used: 999")
         self.assertEqual(records, [("implementer", "claude", None)])
+
+    def test_detail_attributes_the_actual_runner_and_provider(self):
+        from ai_agent import workflow
+
+        with (
+            patch.object(
+                workflow,
+                "run_with_images",
+                return_value=CommandResult([], 0, "done"),
+            ),
+            patch.object(workflow, "record_usage"),
+            patch.object(workflow, "record_detail") as record,
+        ):
+            workflow.run_implementation_agent("fix", "claude")
+        detail = record.call_args.args[0]
+        self.assertEqual(detail.role, "implementer")
+        self.assertEqual((detail.runner, detail.provider), ("claude-code", "claude-code"))
+        self.assertIsNone(detail.model)
+        self.assertIsNone(detail.total_tokens)
+
+    def test_detail_survives_an_owner_stop(self):
+        from ai_agent import workflow
+        from ai_agent.implementation_stop import ImplementationStoppedError
+
+        with (
+            patch.object(
+                workflow,
+                "run_with_images",
+                side_effect=ImplementationStoppedError("stopped"),
+            ),
+            patch.object(workflow, "record_usage"),
+            patch.object(workflow, "record_detail") as record,
+        ):
+            with self.assertRaises(ImplementationStoppedError):
+                workflow.run_implementation_agent("fix", "codex")
+        self.assertTrue(record.called)
+        detail = record.call_args.args[0]
+        self.assertEqual(detail.role, "implementer")
+        self.assertEqual((detail.runner, detail.provider), ("codex", "codex"))
+        self.assertIsNone(detail.total_tokens)
 
 
 if __name__ == "__main__":
