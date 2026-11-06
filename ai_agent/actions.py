@@ -12,7 +12,7 @@ from collections.abc import MutableMapping
 
 from ai_agent.ai_tools import get_tool
 from ai_agent.config import redact_sensitive
-from ai_agent.planner import normalize_planning_agent, planning_agent_label
+from ai_agent.planner import planning_agent_label
 from ai_agent.projects import (
     Project,
     ProjectError,
@@ -20,9 +20,14 @@ from ai_agent.projects import (
     clone_url,
     set_active,
 )
+from ai_agent.provider_capabilities import (
+    is_enabled_tool,
+    require_enabled_tool,
+    valid_model_id,
+)
 from ai_agent.self_update import schedule_restart
 from ai_agent.shell import run
-from ai_agent.workflow import implementation_agent_label, normalize_implementation_agent
+from ai_agent.workflow import implementation_agent_label
 
 
 class ActionError(Exception):
@@ -96,9 +101,12 @@ async def add_repository(
 def set_planner(value: str, user_data: MutableMapping) -> str:
     """Choose who writes plans; return the confirmation text."""
     try:
-        selected = normalize_planning_agent(value)
+        selected = require_enabled_tool(value, "planner")
     except ValueError as error:
         raise ActionError(str(error)) from error
+    if user_data.get("planning_agent") != selected:
+        # The old provider's model override does not carry over to a new one.
+        user_data.pop("planner_model", None)
     user_data["planning_agent"] = selected
     return f"Planning agent set to {planning_agent_label(selected)}."
 
@@ -106,22 +114,35 @@ def set_planner(value: str, user_data: MutableMapping) -> str:
 def set_implementer(value: str, user_data: MutableMapping) -> str:
     """Choose who implements; return the confirmation text."""
     try:
-        selected = normalize_implementation_agent(value)
+        selected = require_enabled_tool(value, "executor")
     except ValueError as error:
         raise ActionError(str(error)) from error
+    if user_data.get("implementation_agent") != selected:
+        # The old provider's model override does not carry over to a new one.
+        user_data.pop("implementer_model", None)
     user_data["implementation_agent"] = selected
     return f"Implementation agent set to {implementation_agent_label(selected)}."
 
 
-async def switch_model(tool_name: str, model: str) -> str:
+async def switch_model(
+    tool_name: str, model: str, user_data: MutableMapping | None = None
+) -> str:
     """Verify a model, save it, and restart; refuse read-only tools.
 
     Returns the confirmation text. The restart is scheduled, not immediate,
-    so callers can record the result first.
+    so callers can record the result first. When ``user_data`` is provided
+    (the inbox path), the selection is also persisted per role so a later
+    snapshot or queued run resolves the same model.
     """
     tool = get_tool(tool_name)
     if tool is None:
         raise ActionError(f"Unknown AI tool '{tool_name}'.")
+    if not is_enabled_tool(tool_name):
+        raise ActionError(
+            f"Refusing to switch: {tool_name} is disabled in the provider registry."
+        )
+    if not valid_model_id(model):
+        raise ActionError(f"Refusing to switch: '{model}' is not a valid model id.")
     if not tool.manageable:
         raise ActionError(f"{tool.name} is read-only here. {tool.info().note}")
     reachable, detail = await asyncio.to_thread(tool.verify, model)
@@ -130,6 +151,12 @@ async def switch_model(tool_name: str, model: str) -> str:
             f"Refusing to switch: {model} is {detail}. The current model is unchanged."
         )
     await asyncio.to_thread(tool.set_model, model)
+    if user_data is not None:
+        roles = getattr(tool, "roles", ())
+        if "planner" in roles:
+            user_data["planner_model"] = model
+        if "executor" in roles:
+            user_data["implementer_model"] = model
     if tool.name == "codex":
         return (
             f"Saved Codex model = {model}. Applies to the next run; no restart needed."

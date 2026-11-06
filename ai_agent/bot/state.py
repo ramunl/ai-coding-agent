@@ -40,6 +40,7 @@ from ai_agent.plan_state import (
     render_diff_summary,
 )
 from ai_agent.planner import normalize_planning_agent
+from ai_agent.provider_capabilities import resolved_model
 from ai_agent.tasks import remember_run
 from ai_agent.tasks import view as task_view
 from ai_agent.worker import view as worker_view
@@ -60,7 +61,9 @@ PERSISTENT_KEYS = frozenset(
         "next_task_id",
         "verbosity",
         "planning_agent",
+        "planner_model",
         "implementation_agent",
+        "implementer_model",
         "last_execution",
         "last_run_outcome",
         "tasks",
@@ -183,6 +186,16 @@ def enqueue_pending_implementation(
     if reason:
         raise RuntimeError(reason)
     require_run(pending)
+    data = _data(context)
+    agent = pending.get("implementation_agent") or current_implementation_agent(context)
+    # A retry reuses the saved run's provider, but its model must come from the
+    # current selection, not the previous attempt's snapshot.
+    if pending.get("checkpoint_task"):
+        model = resolved_model(agent, "executor", data)
+    else:
+        model = pending.get("implementation_model") or resolved_model(
+            agent, "executor", data
+        )
     task = {
         "context_spec": pending.get("context_spec"),
         "dependency_task": pending.get("dependency_task"),
@@ -204,11 +217,11 @@ def enqueue_pending_implementation(
         "commit_type": pending.get("commit_type", "feat"),
         "pr_body_label": pending.get("pr_body_label", "Plan"),
         "confirmation_label": pending.get("confirmation_label", "implementation"),
-        "implementation_agent": pending.get("implementation_agent")
-        or current_implementation_agent(context),
+        "implementation_agent": agent,
+        "implementation_model": model,
     }
     task_queue(context).append(task)
-    remember_run(_data(context), task)
+    remember_run(data, task)
     return task
 
 
@@ -373,6 +386,7 @@ def snapshot(context: Any) -> dict:
                 "branch": task.get("branch_name"),
                 "label": task.get("confirmation_label", "implementation"),
                 "agent": task.get("implementation_agent"),
+                "model": task.get("implementation_model"),
             }
             for task in task_queue(context)
         ],

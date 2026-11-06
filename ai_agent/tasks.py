@@ -61,6 +61,8 @@ RUN_KEYS = (
     "commit_type",
     "pr_body_label",
     "confirmation_label",
+    "implementation_agent",
+    "implementation_model",
 )
 RUN_PROMPT_LIMIT = 20000
 RETRYABLE = ("stopped", "ended", "blocked", "ops_required")
