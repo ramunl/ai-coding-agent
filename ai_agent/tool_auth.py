@@ -18,10 +18,26 @@ WARNING_SECONDS = 7 * 86400
 
 
 def _tools() -> list:
-    """Return the registry tools that declare an auth observation."""
+    """Return the registry tools that declare an auth observation.
+
+    A tool whose provider is disabled is never probed: its auth output is
+    meaningless and it must stay out of the snapshot's auth section. A tool
+    with no matching provider stays in — the ai_tools registry is the source
+    of truth for auth observations.
+    """
+    from ai_agent import provider_registry
     from ai_agent.ai_tools import auth_tools
 
-    return auth_tools()
+    result = []
+    for tool in auth_tools():
+        provider = provider_registry.get_provider(tool.name)
+        if (
+            provider is not None
+            and provider_registry.capability(provider, "enabled") is False
+        ):
+            continue
+        result.append(tool)
+    return result
 
 
 def auth_record(reading: Reading, checked_at: float | None, stale: bool) -> dict:
@@ -95,3 +111,8 @@ class ToolAuth:
         while True:
             await self.refresh()
             await asyncio.sleep(interval)
+
+
+# One cache for the whole process: snapshot_publisher refreshes it, worker_loop
+# reads it, so the worker sees the same auth readings the dashboard shows.
+shared = ToolAuth()

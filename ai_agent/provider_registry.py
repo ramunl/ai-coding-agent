@@ -150,3 +150,29 @@ def capability(provider: object, name: str) -> Any:
         return UNSUPPORTED
     value = getattr(provider, name, None)
     return UNSUPPORTED if value is None else value
+
+
+def roles_of(provider: object) -> tuple[str, ...]:
+    """The roles a provider declares, or the empty tuple when unsupported."""
+    value = capability(provider, "roles")
+    return value if isinstance(value, tuple) else ()
+
+
+def supports_role(provider: object, role: str) -> bool:
+    """Whether provider declares it can serve role."""
+    return role in roles_of(provider)
+
+
+def providers_for_role(role: str) -> list[Any]:
+    """Enabled providers that declare ``role``, in discovery order."""
+    _ensure_discovered()
+    return [
+        provider
+        for provider in _providers.values()
+        if getattr(provider, "enabled", False) and role in roles_of(provider)
+    ]
+
+
+def names_for_role(role: str) -> list[str]:
+    """Names of the enabled providers serving ``role``, in discovery order."""
+    return [provider.name for provider in providers_for_role(role)]

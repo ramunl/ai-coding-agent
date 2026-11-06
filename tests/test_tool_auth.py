@@ -86,11 +86,16 @@ class PollTests(unittest.IsolatedAsyncioTestCase):
         ) as run:
             self.assertEqual((await providers.check("codex")).status, "unavailable")
             self.assertEqual(run.await_count, 1)
-        with patch.object(
-            providers,
-            "run_probe",
-            AsyncMock(side_effect=[(0, "  status Show status"), (0, "--text only")]),
-        ) as run:
+        with (
+            patch.object(providers, "CLAUDE_CODE_AUTH", "subscription"),
+            patch.object(
+                providers,
+                "run_probe",
+                AsyncMock(
+                    side_effect=[(0, "  status Show status"), (0, "--text only")]
+                ),
+            ) as run,
+        ):
             self.assertEqual(
                 (await providers.check("claude-code")).status, "unavailable"
             )
@@ -109,17 +114,20 @@ class PollTests(unittest.IsolatedAsyncioTestCase):
         ) as run:
             self.assertEqual((await providers.check("codex")).status, "authenticated")
             run.assert_awaited_with("codex", "login", "status")
-        with patch.object(
-            providers,
-            "run_probe",
-            AsyncMock(
-                side_effect=[
-                    (0, "  status [options] Show status"),
-                    (0, "--json"),
-                    (0, '{"loggedIn":true,"authMethod":"claude.ai"}'),
-                ]
-            ),
-        ) as run:
+        with (
+            patch.object(providers, "CLAUDE_CODE_AUTH", "subscription"),
+            patch.object(
+                providers,
+                "run_probe",
+                AsyncMock(
+                    side_effect=[
+                        (0, "  status [options] Show status"),
+                        (0, "--json"),
+                        (0, '{"loggedIn":true,"authMethod":"claude.ai"}'),
+                    ]
+                ),
+            ) as run,
+        ):
             self.assertEqual(
                 (await providers.check("claude-code")).status, "authenticated"
             )

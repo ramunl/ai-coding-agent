@@ -11,7 +11,7 @@ import signal
 from dataclasses import dataclass
 
 from ai_agent.claude_env import env_for
-from ai_agent.config import ANTHROPIC_KEY
+from ai_agent.config import ANTHROPIC_KEY, CLAUDE_CODE_AUTH
 
 PROBE_TIMEOUT = 5.0
 OUTPUT_LIMIT = 16_384
@@ -99,6 +99,10 @@ async def check(tool: str) -> Reading:
             "configured_unverified" if ANTHROPIC_KEY else "logged_out",
             "api_key" if ANTHROPIC_KEY else "none",
         )
+    if tool == "claude-code" and CLAUDE_CODE_AUTH == "api_key":
+        # The runner is routed through a token/DeepSeek backend: the native
+        # Anthropic login probe is meaningless and must never gate the runner.
+        return Reading("configured_unverified", "api_key")
     binary, group = ("codex", "login") if tool == "codex" else ("claude", "auth")
     code, help_text = await run_probe(binary, group, "--help")
     if code != 0 or not re.search(r"(?m)^\s+status(?:\s|\[)", help_text):
