@@ -373,7 +373,9 @@ class ImplementerUsageTests(unittest.TestCase):
             workflow.run_implementation_agent("fix", "claude")
         detail = record.call_args.args[0]
         self.assertEqual(detail.role, "implementer")
-        self.assertEqual((detail.runner, detail.provider), ("claude-code", "claude-code"))
+        self.assertEqual(
+            (detail.runner, detail.provider), ("claude-code", "claude-code")
+        )
         self.assertIsNone(detail.model)
         self.assertIsNone(detail.total_tokens)
 

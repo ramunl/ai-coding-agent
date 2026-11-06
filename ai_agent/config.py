@@ -98,9 +98,7 @@ TOKEN_USAGE_PATH = Path(
 # snapshot; the store is bounded by USAGE_DETAILS_MAX_RECORDS and the
 # configurable USAGE_DETAILS_RETENTION_DAYS UTC window.
 USAGE_DETAILS_PATH = Path(
-    os.environ.get(
-        "USAGE_DETAILS_PATH", "/var/lib/ai-coding-agent/usage-details.json"
-    )
+    os.environ.get("USAGE_DETAILS_PATH", "/var/lib/ai-coding-agent/usage-details.json")
 ).expanduser()
 _usage_details_retention = int(os.environ.get("USAGE_DETAILS_RETENTION_DAYS", "90"))
 if _usage_details_retention < 1:

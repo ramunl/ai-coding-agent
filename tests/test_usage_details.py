@@ -123,9 +123,7 @@ class TestStore:
         monkeypatch.setattr(usage_details, "USAGE_DETAILS_MAX_RECORDS", 3)
         path = tmp_path / "usage-details.json"
         for index in range(5):
-            record_detail(
-                _detail(call_id=f"call-{index}", output_chars=index), path
-            )
+            record_detail(_detail(call_id=f"call-{index}", output_chars=index), path)
         records = json.loads(path.read_text())["records"]
         assert len(records) == 3
         assert [record["output_chars"] for record in records] == [2, 3, 4]
@@ -137,9 +135,7 @@ class TestStore:
         path = tmp_path / "usage-details.json"
         record_detail(_detail(day=_day(90), call_id="old"), path)
         record_detail(_detail(day=TODAY, call_id="new"), path)
-        days = [
-            record["day"] for record in json.loads(path.read_text())["records"]
-        ]
+        days = [record["day"] for record in json.loads(path.read_text())["records"]]
         assert days == [TODAY]
 
     def test_corrupt_store_is_started_again(self, tmp_path) -> None:

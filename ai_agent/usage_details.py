@@ -203,17 +203,13 @@ def _read_records(path: Path) -> list[dict]:
 
 
 def _oldest_kept(today: str) -> date:
-    return date.fromisoformat(today) - timedelta(
-        days=USAGE_DETAILS_RETENTION_DAYS - 1
-    )
+    return date.fromisoformat(today) - timedelta(days=USAGE_DETAILS_RETENTION_DAYS - 1)
 
 
 def _prune(records: list[dict], today: str) -> list[dict]:
     """Drop records outside the window and past the hard record cap."""
     oldest = _oldest_kept(today)
-    kept = [
-        record for record in records if date.fromisoformat(record["day"]) >= oldest
-    ]
+    kept = [record for record in records if date.fromisoformat(record["day"]) >= oldest]
     if len(kept) > USAGE_DETAILS_MAX_RECORDS:
         kept = kept[-USAGE_DETAILS_MAX_RECORDS:]
     return kept
@@ -271,9 +267,7 @@ def _omit(level: int, reason: str) -> None:
         logger.log(level, "Usage details omitted from the snapshot: %s", reason)
 
 
-def detail_section(
-    path: Path | None = None, today: str | None = None
-) -> dict | None:
+def detail_section(path: Path | None = None, today: str | None = None) -> dict | None:
     """Return the snapshot's optional usage_details section, or None.
 
     Secret-free: attempt/call identifiers are left out and no prompt or output
@@ -292,13 +286,9 @@ def detail_section(
         return None
     _last_omission = None
     oldest = _oldest_kept(today or utc_day())
-    kept = [
-        record for record in records if date.fromisoformat(record["day"]) >= oldest
-    ]
+    kept = [record for record in records if date.fromisoformat(record["day"]) >= oldest]
     kept = kept[-USAGE_DETAILS_MAX_RECORDS:]
-    published = [
-        {name: record[name] for name in PUBLISHED_FIELDS} for record in kept
-    ]
+    published = [{name: record[name] for name in PUBLISHED_FIELDS} for record in kept]
     return {
         "window_days": USAGE_DETAILS_RETENTION_DAYS,
         "records": published,
