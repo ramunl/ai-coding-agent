@@ -33,12 +33,18 @@ def planner(monkeypatch, tmp_path):
     monkeypatch.setattr(module, "attachments", lambda: ([], 0))
     usage = []
     monkeypatch.setattr(module, "record_usage", usage.append)
+    details = []
+    monkeypatch.setattr(module, "record_detail", details.append)
     schema = tmp_path / "plan.json"
     schema.write_text(
         '{"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object"}'
     )
     return SimpleNamespace(
-        module=module, usage=usage, schema=schema, limits=tmp_path / "limits.json"
+        module=module,
+        usage=usage,
+        details=details,
+        schema=schema,
+        limits=tmp_path / "limits.json",
     )
 
 
@@ -75,6 +81,11 @@ def test_plans_read_only_on_stdin_and_returns_the_json(planner):
     assert kwargs["private"] is False
     assert planner.usage[0].tool == "claude"
     assert planner.usage[0].tokens == 1500
+    detail = planner.details[0]
+    assert (detail.runner, detail.provider) == ("claude-code", "claude-code")
+    assert detail.input_tokens == 1200
+    assert detail.output_tokens == 300
+    assert detail.total_tokens == 1500
     (window,) = json.loads(planner.limits.read_text())["windows"]
     assert (window["window_minutes"], window["remaining_percent"]) == (300, 75.0)
 

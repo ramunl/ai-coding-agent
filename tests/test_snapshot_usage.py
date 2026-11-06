@@ -1,17 +1,18 @@
-"""The Coding snapshot's optional token_usage section (format 2)."""
+"""The Coding snapshot's optional token_usage and usage_details sections."""
 
 import json
 import tempfile
 import unittest
 from pathlib import Path
 
-from ai_agent import token_usage
+from ai_agent import token_usage, usage_details
 from ai_agent.bot.snapshot_publisher import (
     SNAPSHOT_FORMAT,
     SnapshotPublisher,
     build_content,
 )
 from ai_agent.token_usage import UsageRecord, record_usage, usage_section
+from ai_agent.usage_details import UsageDetail, detail_section, record_detail
 
 PROJECT = {"name": "channel-cast", "repository": "ramunl/x", "branch": "main"}
 IMAGE_USAGE = {"used_bytes": 0, "cap_bytes": 10, "count": 0}
@@ -37,12 +38,13 @@ class SnapshotUsageTests(unittest.TestCase):
         self.dir = Path(directory.name)
         self.store = self.dir / "token-usage.json"
 
-    def test_format_is_two_and_the_section_is_optional(self) -> None:
-        self.assertEqual(SNAPSHOT_FORMAT, 2)
+    def test_format_is_three_and_the_sections_are_optional(self) -> None:
+        self.assertEqual(SNAPSHOT_FORMAT, 3)
         content = build_content(
             _user_data(), PROJECT, VERSIONS, image_storage=IMAGE_USAGE
         )
         self.assertNotIn("token_usage", content)
+        self.assertNotIn("usage_details", content)
 
     def test_existing_keys_are_still_published(self) -> None:
         content = build_content(
@@ -50,7 +52,7 @@ class SnapshotUsageTests(unittest.TestCase):
         )
         for key in ("format", "image_storage", "queue", "running", "project"):
             self.assertIn(key, content)
-        self.assertEqual(content["format"], 2)
+        self.assertEqual(content["format"], 3)
 
     def test_section_is_published_when_the_store_is_readable(self) -> None:
         record_usage(UsageRecord("planner", "codex", 12, TODAY), self.store)
@@ -78,7 +80,7 @@ class SnapshotUsageTests(unittest.TestCase):
         self.assertTrue(SnapshotPublisher(path).publish(content, now=1000.0))
         written = json.loads(path.read_text())
         self.assertNotIn("token_usage", written)
-        self.assertEqual(written["format"], 2)
+        self.assertEqual(written["format"], 3)
 
     def test_published_section_holds_only_counts_dates_roles_and_tools(self) -> None:
         record_usage(UsageRecord("planner", "codex", 120, TODAY), self.store)
@@ -104,6 +106,83 @@ class SnapshotUsageTests(unittest.TestCase):
                 self.assertIn(row["tool"], {"codex", "claude"})
                 for name in ("calls", "unknown", "tokens"):
                     self.assertIsInstance(row[name], int)
+
+
+class SnapshotUsageDetailsTests(unittest.TestCase):
+    def setUp(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.dir = Path(directory.name)
+        self.store = self.dir / "usage-details.json"
+
+    def test_section_is_published_when_the_store_is_readable(self) -> None:
+        record_detail(
+            UsageDetail(
+                role="planner",
+                runner="claude-api",
+                provider="claude",
+                model="claude-sonnet-4-6",
+                day=TODAY,
+                attempt_id="attempt-1",
+                call_id="call-1",
+                input_tokens=10,
+                output_tokens=5,
+                total_tokens=15,
+                cost=0.0,
+                duration_seconds=3,
+                output_chars=12,
+            ),
+            self.store,
+        )
+        section = detail_section(self.store, today=TODAY)
+        content = build_content(
+            _user_data(),
+            PROJECT,
+            VERSIONS,
+            image_storage=IMAGE_USAGE,
+            usage_details=section,
+        )
+        self.assertEqual(content["usage_details"], section)
+
+    def test_published_details_never_leak_prompts_or_identifiers(self) -> None:
+        record_detail(
+            UsageDetail(
+                role="implementer",
+                runner="claude-code",
+                provider="claude-code",
+                day=TODAY,
+                attempt_id="secret-attempt-id",
+                call_id="secret-call-id",
+                output_chars=7,
+            ),
+            self.store,
+        )
+        section = detail_section(self.store, today=TODAY)
+        text = json.dumps(section)
+        for word in (
+            "secret-attempt-id",
+            "secret-call-id",
+            "attempt_id",
+            "call_id",
+            "SECRET",
+            "prompt",
+            "diff",
+        ):
+            self.assertNotIn(word, text)
+        self.assertEqual(set(section), {"window_days", "records"})
+        self.assertEqual(set(section["records"][0]) & {"attempt_id", "call_id"}, set())
+
+    def test_missing_details_store_omits_the_section(self) -> None:
+        with self.assertLogs(usage_details.logger.name, level="INFO"):
+            section = detail_section(self.store, today=TODAY)
+        content = build_content(
+            _user_data(),
+            PROJECT,
+            VERSIONS,
+            image_storage=IMAGE_USAGE,
+            usage_details=section,
+        )
+        self.assertNotIn("usage_details", content)
 
 
 if __name__ == "__main__":

@@ -3,8 +3,10 @@
 import hashlib
 import os
 import re
+import time
 from dataclasses import asdict, dataclass, replace
 
+from ai_agent import codex_models
 from ai_agent.ai_tools import get_tool, tools_for_role
 from ai_agent.config import (
     CLAUDE_CODE_ALLOWED_TOOLS,
@@ -29,6 +31,13 @@ from ai_agent.projects import active_project
 from ai_agent.run_outcomes import NoCodeOutcomeError
 from ai_agent.shell import CommandResult, run
 from ai_agent.token_usage import UsageRecord, record_usage
+from ai_agent.usage_details import (
+    UsageDetail,
+    bounded_output_chars,
+    current_attempt_id,
+    new_call_id,
+    record_detail,
+)
 
 
 @dataclass(frozen=True)
@@ -105,27 +114,85 @@ def implementation_command(prompt: str, agent: str | None = None) -> list[str]:
     return tool.command(prompt)
 
 
+def _implementer_facts(agent: str) -> tuple[str, str, str | None] | None:
+    """Runner/provider/model for a known implementer; None for unsupported.
+
+    The Claude implementer runs the Claude Code CLI on the subscription, so it
+    is attributed to the ``claude-code`` provider, never the Anthropic API.
+    """
+    if agent == "codex":
+        model = codex_models.current_model()
+        return (
+            "codex",
+            "codex",
+            None if model == codex_models.DEFAULT_MODEL else model,
+        )
+    if agent == "claude":
+        return "claude-code", "claude-code", None
+    return None
+
+
+def _implementer_tokens(agent: str, output: str) -> int | None:
+    """The tool's reported token total, or None when it reports none."""
+    tool = get_tool(agent)
+    if tool is not None and tool.tokens is not None:
+        return tool.tokens(output)
+    return None
+
+
+def _elapsed_seconds(started: float) -> int:
+    """Whole seconds since ``started``, never negative."""
+    return max(0, int(time.monotonic() - started))
+
+
 @with_context
 def run_implementation_agent(
     prompt: str, agent: str | None = None, *, context: ContextRequest | None = None
 ) -> CommandResult:
-    """Run a provider command, count its usage, and explain capacity failures."""
+    """Run a provider command, count its usage, and explain capacity failures.
+
+    The detailed record is written in a ``finally`` block so a run cancelled
+    through ``implementation_stop`` still leaves an unknown-token record behind
+    while ``git_recovery`` preserves the partial edits as it already does.
+    """
     intent("implementation")
-    with codex_capacity_explained():
-        result = run_with_images(
-            implementation_command(
-                prompt + diagnostic_context() + OUTCOME_INSTRUCTIONS, agent
-            ),
-            run,
-            timeout=IMPLEMENTATION_TIMEOUT_SECONDS,
-            provider_run=True,
-        )
     selected = normalize_implementation_agent(agent)
-    tool = get_tool(selected)
-    # Claude Code's text output carries no token count, so its calls stay unknown.
-    tokens = tool.tokens(result.output) if tool and tool.tokens is not None else None
-    record_usage(UsageRecord("implementer", selected, tokens))
-    return result
+    facts = _implementer_facts(selected)
+    attempt_id = current_attempt_id()
+    call_id = new_call_id()
+    started = time.monotonic()
+    result: CommandResult | None = None
+    tokens: int | None = None
+    try:
+        with codex_capacity_explained():
+            result = run_with_images(
+                implementation_command(
+                    prompt + diagnostic_context() + OUTCOME_INSTRUCTIONS, agent
+                ),
+                run,
+                timeout=IMPLEMENTATION_TIMEOUT_SECONDS,
+                provider_run=True,
+            )
+        tokens = _implementer_tokens(selected, result.output)
+        record_usage(UsageRecord("implementer", selected, tokens))
+        return result
+    finally:
+        if facts is not None:
+            record_detail(
+                UsageDetail(
+                    role="implementer",
+                    runner=facts[0],
+                    provider=facts[1],
+                    model=facts[2],
+                    attempt_id=attempt_id,
+                    call_id=call_id,
+                    total_tokens=tokens,
+                    duration_seconds=_elapsed_seconds(started),
+                    output_chars=bounded_output_chars(
+                        result.output if result is not None else None
+                    ),
+                )
+            )
 
 
 def slugify_branch_name(

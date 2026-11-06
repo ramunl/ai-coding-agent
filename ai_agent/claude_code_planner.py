@@ -30,6 +30,13 @@ from ai_agent.config import (
 from ai_agent.image_delivery import WARNING, attachments, blocks
 from ai_agent.shell import run
 from ai_agent.token_usage import UsageRecord, record_usage
+from ai_agent.usage_details import (
+    UsageDetail,
+    bounded_output_chars,
+    current_attempt_id,
+    new_call_id,
+    record_detail,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -126,14 +133,19 @@ def json_text(text: str) -> str:
     return text
 
 
-def _tokens(event: dict) -> int | None:
+def _usage_tokens(event: dict) -> tuple[int | None, int | None, int | None]:
+    """Input, output and cache-safe total from a result event's usage block."""
     usage = event.get("usage")
     if not isinstance(usage, dict):
-        return None
-    counts = [usage.get("input_tokens"), usage.get("output_tokens")]
-    if all(isinstance(n, int) and not isinstance(n, bool) for n in counts):
-        return counts[0] + counts[1]
-    return None
+        return None, None, None
+    input_tokens = usage.get("input_tokens")
+    output_tokens = usage.get("output_tokens")
+    if not all(
+        isinstance(n, int) and not isinstance(n, bool)
+        for n in (input_tokens, output_tokens)
+    ):
+        return None, None, None
+    return input_tokens, output_tokens, input_tokens + output_tokens
 
 
 def _save_limits(output: str, limits_file: Path) -> None:
@@ -158,6 +170,7 @@ def claude_code_message(
     limits_file: Path = CLAUDE_CODE_LIMITS_FILE,
 ) -> str:
     """Plan with Claude Code; return its JSON reply as text."""
+    call_id = new_call_id()
     images, missing = attachments()
     if missing:
         prompt += "\n" + WARNING
@@ -184,7 +197,22 @@ def claude_code_message(
         raise _failure(_plain_lines(output) or "Claude Code returned no result")
     if event.get("is_error"):
         raise _failure(str(event.get("result") or event.get("subtype") or ""))
-    record_usage(UsageRecord("planner", "claude", _tokens(event)))
+    input_tokens, output_tokens, total = _usage_tokens(event)
+    record_usage(UsageRecord("planner", "claude", total))
+    record_detail(
+        UsageDetail(
+            role="planner",
+            runner="claude-code",
+            provider="claude-code",
+            model=CLAUDE_PLANNER_MODEL or None,
+            attempt_id=current_attempt_id(),
+            call_id=call_id,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=total,
+            output_chars=bounded_output_chars(str(event.get("result") or "")),
+        )
+    )
     structured = event.get("structured_output")
     if isinstance(structured, dict):
         return json.dumps(structured)

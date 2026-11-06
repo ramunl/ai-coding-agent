@@ -13,8 +13,20 @@ from ai_agent import model_manager
 from ai_agent.config import ANTHROPIC_MODEL
 from ai_agent.model_errors import is_model_not_found, model_error_message
 from ai_agent.provider_registry import ErrorAdapter, ModelControl
-from ai_agent.token_usage import UsageRecord, claude_total_tokens, record_usage
+from ai_agent.token_usage import (
+    UsageRecord,
+    claude_total_tokens,
+    claude_usage_fields,
+    record_usage,
+)
 from ai_agent.tool_auth_providers import Reading, check
+from ai_agent.usage_details import (
+    UsageDetail,
+    bounded_output_chars,
+    current_attempt_id,
+    new_call_id,
+    record_detail,
+)
 
 name = "claude"
 enabled = True
@@ -91,12 +103,29 @@ def _planner(prompt: str, schema_name: str, max_tokens: int) -> str:
         raise RuntimeError(
             "Claude image planning failed; retry or switch planner."
         ) from None
-    record_usage(
-        UsageRecord("planner", "claude", usage(getattr(response, "usage", None)))
-    )
+    fields = claude_usage_fields(getattr(response, "usage", None))
     text = "\n".join(
         block.text for block in response.content if block.type == "text"
     ).strip()
+    record_usage(
+        UsageRecord("planner", "claude", usage(getattr(response, "usage", None)))
+    )
+    record_detail(
+        UsageDetail(
+            role="planner",
+            runner="claude-api",
+            provider="claude",
+            model=ANTHROPIC_MODEL,
+            attempt_id=current_attempt_id(),
+            call_id=new_call_id(),
+            input_tokens=(fields or {}).get("input_tokens"),
+            output_tokens=(fields or {}).get("output_tokens"),
+            cache_read_tokens=(fields or {}).get("cache_read_tokens"),
+            cache_creation_tokens=(fields or {}).get("cache_creation_tokens"),
+            total_tokens=(fields or {}).get("total_tokens"),
+            output_chars=bounded_output_chars(text),
+        )
+    )
     if not text:
         raise RuntimeError("Claude returned no text for the plan. Please retry.")
     return text

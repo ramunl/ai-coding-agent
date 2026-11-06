@@ -94,6 +94,20 @@ SNAPSHOT_FILE = Path(
 TOKEN_USAGE_PATH = Path(
     os.environ.get("TOKEN_USAGE_PATH", "/var/lib/ai-coding-agent/token-usage.json")
 ).expanduser()
+# Versioned per-call usage details (see usage_details.py). Secret-free in the
+# snapshot; the store is bounded by USAGE_DETAILS_MAX_RECORDS and the
+# configurable USAGE_DETAILS_RETENTION_DAYS UTC window.
+USAGE_DETAILS_PATH = Path(
+    os.environ.get("USAGE_DETAILS_PATH", "/var/lib/ai-coding-agent/usage-details.json")
+).expanduser()
+_usage_details_retention = int(os.environ.get("USAGE_DETAILS_RETENTION_DAYS", "90"))
+if _usage_details_retention < 1:
+    raise ValueError("USAGE_DETAILS_RETENTION_DAYS must be at least 1")
+USAGE_DETAILS_RETENTION_DAYS = _usage_details_retention
+_usage_details_max = int(os.environ.get("USAGE_DETAILS_MAX_RECORDS", "5000"))
+if _usage_details_max < 1:
+    raise ValueError("USAGE_DETAILS_MAX_RECORDS must be at least 1")
+USAGE_DETAILS_MAX_RECORDS = _usage_details_max
 # Setup requests from the dashboard, and their results (see ai_agent/inbox.py).
 INBOX_DIR = Path(
     os.environ.get("AGENT_INBOX_DIR", "/var/lib/ai-coding-agent/inbox")

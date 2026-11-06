@@ -85,16 +85,39 @@ def codex_total_tokens(output: str) -> int | None:
     return int(re.sub(r"[,._]", "", matches[-1]))
 
 
+def claude_usage_fields(usage: object) -> dict | None:
+    """Return Anthropic usage fields kept separate, or None when unusable.
+
+    Input and output tokens stay separate from cache reads and cache writes;
+    the total is input plus output only, so cache tokens are never
+    double-counted. Missing fields stay None (unknown), never zero. The pinned
+    fixture shape is ``input_tokens``, ``output_tokens``,
+    ``cache_read_input_tokens`` and ``cache_creation_input_tokens``.
+    """
+    if usage is None:
+        return None
+    input_tokens = getattr(usage, "input_tokens", None)
+    output_tokens = getattr(usage, "output_tokens", None)
+    if not _is_count(input_tokens) or not _is_count(output_tokens):
+        return None
+    cache_read = getattr(usage, "cache_read_input_tokens", None)
+    cache_creation = getattr(usage, "cache_creation_input_tokens", None)
+    return {
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "cache_read_tokens": cache_read if _is_count(cache_read) else None,
+        "cache_creation_tokens": cache_creation if _is_count(cache_creation) else None,
+        "total_tokens": input_tokens + output_tokens,
+    }
+
+
 def claude_total_tokens(usage: object) -> int | None:
     """Return input plus output tokens from an Anthropic usage object, or None.
 
     Cache reads and writes are reported separately and are not included.
     """
-    input_tokens = getattr(usage, "input_tokens", None)
-    output_tokens = getattr(usage, "output_tokens", None)
-    if _is_count(input_tokens) and _is_count(output_tokens):
-        return input_tokens + output_tokens
-    return None
+    fields = claude_usage_fields(usage)
+    return None if fields is None else fields["total_tokens"]
 
 
 def _parse_day(key: object) -> date | None:
@@ -166,8 +189,13 @@ def _add(days: dict[str, Any], record: UsageRecord) -> None:
 
 
 @contextlib.contextmanager
-def _locked(path: Path) -> Iterator[None]:
-    """Hold an exclusive lock across a read-modify-write of the store."""
+def locked(path: Path) -> Iterator[None]:
+    """Hold an exclusive lock across a read-modify-write of a usage store.
+
+    Shared by the legacy aggregate store and the versioned detail store, so a
+    caller can reuse the same lock, atomic-write and prune discipline without
+    duplicating it.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.with_name(f"{path.name}.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
@@ -187,7 +215,7 @@ def record_usage(record: UsageRecord, path: Path | None = None) -> bool:
             record.tool,
         )
     try:
-        with _locked(target):
+        with locked(target):
             try:
                 days = _read_days(target)
             except FileNotFoundError:

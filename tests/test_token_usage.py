@@ -15,6 +15,7 @@ from ai_agent.token_usage import (
     RETENTION_DAYS,
     UsageRecord,
     claude_total_tokens,
+    claude_usage_fields,
     codex_total_tokens,
     record_usage,
     usage_section,
@@ -46,6 +47,29 @@ class ParsingTests(unittest.TestCase):
             input_tokens=10, output_tokens=5, cache_read_input_tokens=99
         )
         self.assertEqual(claude_total_tokens(usage), 15)
+
+    def test_claude_usage_fields_pin_cache_fields_without_double_count(self) -> None:
+        usage = types.SimpleNamespace(
+            input_tokens=10,
+            output_tokens=5,
+            cache_read_input_tokens=99,
+            cache_creation_input_tokens=50,
+        )
+        self.assertEqual(
+            claude_usage_fields(usage),
+            {
+                "input_tokens": 10,
+                "output_tokens": 5,
+                "cache_read_tokens": 99,
+                "cache_creation_tokens": 50,
+                "total_tokens": 15,
+            },
+        )
+
+    def test_claude_usage_fields_missing_cache_stays_unknown(self) -> None:
+        usage = types.SimpleNamespace(input_tokens=10, output_tokens=5)
+        self.assertEqual(claude_usage_fields(usage)["cache_read_tokens"], None)
+        self.assertEqual(claude_usage_fields(usage)["cache_creation_tokens"], None)
 
     def test_claude_missing_or_partial_usage_is_unknown(self) -> None:
         self.assertIsNone(claude_total_tokens(None))
