@@ -18,7 +18,7 @@ def test_build_content_uses_collected_counts(monkeypatch):
     counts = {"used_bytes": 7, "cap_bytes": 10, "count": 2}
     content = publisher.build_content({}, {}, {}, image_storage=counts)
     assert content["image_storage"] == counts
-    assert content["format"] == 2
+    assert content["format"] == 3
 
 
 def test_image_usage_keeps_event_loop_responsive(tmp_path, monkeypatch):
