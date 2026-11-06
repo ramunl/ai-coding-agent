@@ -218,9 +218,7 @@ class ActionValidationTests(CapabilitiesTestCase):
         state = {}
         with (
             patch.object(self.actions, "get_tool", return_value=tool),
-            patch.object(
-                self.actions, "schedule_restart", return_value="Restarting."
-            ),
+            patch.object(self.actions, "schedule_restart", return_value="Restarting."),
         ):
             asyncio.run(
                 self.actions.switch_model("claude", "deepseek/deepseek-chat", state)

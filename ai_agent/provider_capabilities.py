@@ -101,8 +101,7 @@ def require_enabled_tool(value: str, role: str) -> str:
     allowed = enabled_tools_for_role(role)
     if selected not in allowed:
         raise ValueError(
-            f"Unsupported {_ROLE_LABELS[role]}: {selected}. "
-            f"Use {' or '.join(allowed)}."
+            f"Unsupported {_ROLE_LABELS[role]}: {selected}. Use {' or '.join(allowed)}."
         )
     return selected
 
