@@ -17,6 +17,7 @@ from ai_agent.actions import busy_reason
 from ai_agent.ai_tools import all_info, get_tool
 from ai_agent.planner import SUPPORTED_PLANNING_AGENTS, normalize_planning_agent
 from ai_agent.projects import active_project, list_projects
+from ai_agent.provider_capabilities import provider_blocks, resolved_model
 from ai_agent.tool_auth import ToolAuth
 from ai_agent.workflow import (
     SUPPORTED_IMPLEMENTATION_AGENTS,
@@ -97,18 +98,21 @@ def files_part(
             for info in all_info()
         ],
         "actions": results if isinstance(results, list) else [],
+        "capabilities": provider_blocks(),
         "checked_at": time.time(),
     }
 
 
 def state_part(user_data: Mapping) -> dict:
     """The in-memory part of the setup (call on the event loop, where it changes)."""
+    planner = normalize_planning_agent(user_data.get("planning_agent"))
+    implementer = normalize_implementation_agent(user_data.get("implementation_agent"))
     return {
-        "planner": normalize_planning_agent(user_data.get("planning_agent")),
-        "implementer": normalize_implementation_agent(
-            user_data.get("implementation_agent")
-        ),
+        "planner": planner,
+        "implementer": implementer,
         "planner_options": list(SUPPORTED_PLANNING_AGENTS),
         "implementer_options": list(SUPPORTED_IMPLEMENTATION_AGENTS),
+        "planner_model": resolved_model(planner, "planner", user_data),
+        "implementer_model": resolved_model(implementer, "executor", user_data),
         "busy": busy_reason(user_data),
     }

@@ -32,10 +32,14 @@ from ai_agent.actions import (
     switch_model,
     use_project,
 )
-from ai_agent.ai_tools import manageable_tools, tools_for_role
 from ai_agent.bot.atomic_file import write_json_atomic
 from ai_agent.config import redact_sensitive
 from ai_agent.context_controls import CONTEXT_ACTIONS
+from ai_agent.provider_capabilities import (
+    MODEL_PATTERN,
+    enabled_manageable_tools,
+    enabled_tools_for_role,
+)
 from ai_agent.task_images import ImageError, references_in
 from ai_agent.task_images import remove as remove_images
 
@@ -48,7 +52,7 @@ KEEP_RESULTS = 20
 _ID = re.compile(r"^[0-9a-f]{8,32}$")
 _NAME = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 _REPOSITORY = re.compile(r"^[A-Za-z0-9._-]{1,100}/[A-Za-z0-9._-]{1,100}$")
-_MODEL = re.compile(r"^[A-Za-z0-9._:-]{1,100}$")
+_MODEL = MODEL_PATTERN
 _TASK = re.compile(r"^[0-9]{1,9}$")
 # Free text for a plan or bug report: one line, something visible in it.
 _TEXT = re.compile(r"^(?=.*\S)[^\x00-\x1f\x7f]{1,4000}$")
@@ -79,11 +83,11 @@ def _resolve_allowed(allowed: Any) -> Any:
     if not isinstance(allowed, _RegistryValues):
         return allowed
     if allowed.kind == "planner":
-        return tuple(tools_for_role("planner"))
+        return tuple(enabled_tools_for_role("planner"))
     if allowed.kind == "executor":
-        return tuple(tools_for_role("executor"))
+        return tuple(enabled_tools_for_role("executor"))
     if allowed.kind == "manageable":
-        return tuple(manageable_tools())
+        return tuple(enabled_manageable_tools())
     return allowed
 
 
@@ -228,7 +232,7 @@ async def execute(
         return set_planner(args["value"], user_data)
     if action == "set_implementer":
         return set_implementer(args["value"], user_data)
-    return await switch_model(args["tool"], args["model"])
+    return await switch_model(args["tool"], args["model"], user_data)
 
 
 class ResultLog:
