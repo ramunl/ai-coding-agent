@@ -81,12 +81,46 @@ def test_matching_plan_takes_precedence_without_borrowing_task_metadata():
     )
 
 
-def test_initiatives_are_sorted_unique_and_never_inherit_child_health():
+def test_initiatives_are_sorted_unique_and_aggregate_conservatively():
     tasks = [receipt("a", "z"), receipt("b", "a"), receipt("c", "z")]
     rows = initiative_statuses({"tasks": tasks}, now=100)
     assert [row["id"] for row in rows] == ["a", "z"]
-    assert all(row["context_status"]["health"] == "unknown" for row in rows)
+    assert all(row["context_status"]["health"] == "healthy" for row in rows)
+    assert all(
+        row["context_status"]["evidence_state"] == "verified_current" for row in rows
+    )
     assert rows == initiative_statuses({"tasks": tasks[::-1]}, now=100)
+    # One stale receipt keeps the whole initiative coverage unknown.
+    stale = receipt("a", "z")
+    stale["packet_metadata"]["observed_at"] = 39
+    rows = initiative_statuses({"tasks": [stale, receipt("b", "z")]}, now=100)
+    assert [row["id"] for row in rows] == ["z"]
+    assert rows[0]["context_status"]["health"] == "unknown"
+    assert rows[0]["context_status"]["evidence_state"] == "stale"
+
+
+def test_evidence_state_distinguishes_not_planned_legacy_and_unavailable():
+    # A task that can still be planned is known to carry no identity yet.
+    todo = {"id": "t", "stage": "todo"}
+    assert task_context_status(todo, {}, now=100)["evidence_state"] == "not_planned"
+    # A finished legacy task without an identity stays unknown.
+    done = {"id": "t", "stage": "done"}
+    assert task_context_status(done, {}, now=100)["evidence_state"] == "unknown"
+    # An identity with unverifiable metadata is metadata-unavailable, not stale.
+    task = receipt()
+    task["packet_metadata"] = {"schema_version": 1}
+    status = task_context_status(task, {}, now=100)
+    assert status["evidence_state"] == "metadata_unavailable"
+    assert status["health"] == "unknown"
+
+
+def test_initiative_coverage_reports_worst_evidence_state():
+    tasks = [receipt("a", "z"), receipt("b", "z")]
+    tasks[1]["packet_metadata"] = {"schema_version": 1}
+    rows = initiative_statuses({"tasks": tasks}, now=100)
+    assert [row["id"] for row in rows] == ["z"]
+    assert rows[0]["context_status"]["health"] == "unknown"
+    assert rows[0]["context_status"]["evidence_state"] == "metadata_unavailable"
 
 
 def test_private_data_and_arbitrary_enums_are_excluded_without_mutation():

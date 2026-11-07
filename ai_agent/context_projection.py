@@ -3,12 +3,24 @@
 from collections.abc import Mapping
 
 from ai_agent.context_status import (
+    ContextStatus,
     PacketMetadata,
     context_status,
     dependency_blockers,
     freshness,
 )
 from ai_agent.context_validation import ContextValidationError, opaque_id
+
+# A task with no context identity is "not planned" only while it can still be
+# planned; finished legacy work without an identity stays unknown.
+NOT_PLANNED_STAGES = frozenset({"proposed", "todo", "planning"})
+_EVIDENCE_ORDER = (
+    "unknown",
+    "not_planned",
+    "metadata_unavailable",
+    "stale",
+    "verified_current",
+)
 
 
 def _identifier(value: object) -> str | None:
@@ -47,12 +59,14 @@ def _identity(task: Mapping, source: Mapping) -> Mapping:
     return spec
 
 
-def task_context_status(task: Mapping, data: Mapping, *, now: int) -> dict:
-    """Project one identity-bound receipt; missing observations stay unknown."""
-    source = _source(task, data)
-    spec = _identity(task, source)
-    if not spec:
-        return context_status(now=now).to_dict()
+def _receipt_status(
+    task: Mapping,
+    source: Mapping,
+    spec: Mapping,
+    *,
+    now: int,
+) -> ContextStatus:
+    """Project one identity-bound receipt into the typed v1 status."""
     metadata = PacketMetadata.from_dict(source.get("packet_metadata"))
     packet = source.get("context_packet", source.get("packet"))
     blockers = ()
@@ -75,22 +89,103 @@ def task_context_status(task: Mapping, data: Mapping, *, now: int) -> dict:
         metadata,
         now=now,
         blockers=blockers,
-    ).to_dict()
+        planned=True,
+    )
+
+
+def _no_receipt_status(task: Mapping, source: Mapping, *, now: int) -> ContextStatus:
+    """A subject without a receipt: not planned yet, or legacy/unknown."""
+    if _mapping(source).get("context_spec"):
+        return context_status(now=now)
+    planned = False if task.get("stage") in NOT_PLANNED_STAGES else None
+    return context_status(now=now, planned=planned)
+
+
+def task_context_status(task: Mapping, data: Mapping, *, now: int) -> dict:
+    """Project one identity-bound receipt; missing observations stay unknown."""
+    source = _source(task, data)
+    spec = _identity(task, source)
+    if not spec:
+        return _no_receipt_status(task, source, now=now).to_dict()
+    return _receipt_status(task, source, spec, now=now).to_dict()
+
+
+def _sum_or_none(values: list[int | None]) -> int | None:
+    """Conservative aggregation: one unknown count keeps the total unknown."""
+    if any(value is None for value in values):
+        return None
+    return sum(values)
+
+
+def _worst_evidence(states: list[str]) -> str:
+    """The most conservative evidence state wins; never promote child health."""
+    return min(states, key=_EVIDENCE_ORDER.index)
+
+
+def _initiative_status(entries: list[dict], *, now: int) -> ContextStatus:
+    """Aggregate retained receipts into conservative initiative coverage.
+
+    Health stays unknown unless every retained receipt is verified-current;
+    otherwise the most conservative child evidence state is reported.
+    """
+    statuses = [
+        _receipt_status(entry["task"], entry["source"], entry["spec"], now=now)
+        for entry in entries
+    ]
+    if not all(status.evidence_state == "verified_current" for status in statuses):
+        return ContextStatus(
+            "unknown",
+            (),
+            "unknown",
+            None,
+            None,
+            None,
+            (),
+            _worst_evidence([status.evidence_state for status in statuses]),
+        )
+    refs = tuple(sorted({ref for status in statuses for ref in status.packet_refs}))
+    metadata = PacketMetadata(
+        min(
+            status.observed_at for status in statuses if status.observed_at is not None
+        ),
+        True,
+        _sum_or_none([status.omission_count for status in statuses]),
+        _sum_or_none([status.truncation_count for status in statuses]),
+    )
+    blockers = tuple(
+        sorted({code for status in statuses for code in status.dependency_blockers})
+    )
+    return context_status(
+        tuple(ref.to_dict() for ref in refs),
+        metadata,
+        now=now,
+        blockers=blockers,
+        planned=True,
+    )
 
 
 def initiative_statuses(data: Mapping, *, now: int) -> list[dict]:
-    """List known initiative IDs deterministically, without promoting child health.
+    """List known initiative IDs deterministically with conservative coverage.
 
-    Task receipts cover one task/attempt, not the entire initiative. There is
-    currently no initiative-wide observation producer, so its status is unknown.
+    Retained receipts cover one task/attempt each. An initiative is healthy
+    only when every retained receipt is verified-current; any stale, missing
+    or unknown receipt keeps coverage unknown with the worst child state.
     """
-    identities = set()
+    receipts: dict[str, list[dict]] = {}
     for task in data.get("tasks") or []:
-        if isinstance(task, Mapping):
-            spec = _identity(task, _source(task, data))
-            if spec:
-                identities.add(spec["initiative_id"])
+        if not isinstance(task, Mapping):
+            continue
+        source = _source(task, data)
+        spec = _identity(task, source)
+        if not spec:
+            continue
+        receipts.setdefault(spec["initiative_id"], []).append(
+            {"task": task, "source": source, "spec": spec}
+        )
     return [
-        {"id": identity, "context_status": context_status(now=now).to_dict()}
-        for identity in sorted(identities)
+        {
+            "id": identity,
+            "context_status": _initiative_status(entries, now=now).to_dict(),
+        }
+        for identity, entries in sorted(receipts.items())
     ]

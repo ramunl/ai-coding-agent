@@ -50,6 +50,8 @@ FINISHED = ("pr", "done", "stopped")
 # same approved plan (and another tool) instead of planning it again.
 RUN_KEYS = (
     "context_spec",
+    "context_packet",
+    "packet_metadata",
     "dependency_task",
     "approval_binding",
     "run_binding",

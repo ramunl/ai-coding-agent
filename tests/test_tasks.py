@@ -114,6 +114,25 @@ class StageTests(unittest.TestCase):
         self.data["pending_plan"] = self.plan("other")
         self.assertIsNone(self.tasks.view(self.task, self.data)["plan_revision"])
 
+    def test_remember_run_retains_context_receipt_fields(self) -> None:
+        self.tasks.set_stage(self.task, "planned")
+        item = {
+            "branch_name": "feature/login",
+            "plan_id": "p1",
+            "repository_identity": {"project_name": "repo"},
+            "context_spec": {"task_id": self.task["id"]},
+            "context_packet": {"packet_id": "packet", "sha256": "a" * 64},
+            "packet_metadata": {
+                "schema_version": 1,
+                "verified": True,
+                "observed_at": 100,
+            },
+        }
+        self.tasks.remember_run(self.data, item)
+        self.assertEqual(self.task["run"]["context_packet"], item["context_packet"])
+        self.assertEqual(self.task["run"]["packet_metadata"], item["packet_metadata"])
+        self.assertEqual(self.task["run"]["context_spec"], item["context_spec"])
+
     def test_list_is_capped_by_dropping_finished_tasks_first(self) -> None:
         for _ in range(self.tasks.MAX_TASKS + 5):
             done = self.tasks.add_task(self.data, "old", "repo", None)

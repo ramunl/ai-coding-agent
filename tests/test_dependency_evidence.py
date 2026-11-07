@@ -558,3 +558,59 @@ def test_modern_task_without_handoff_never_adopts_old_branch_pr():
         )
         is None
     )
+
+
+def _context_spec(task_id="consumer"):
+    return {
+        "task_id": task_id,
+        "initiative_id": "initiative",
+        "attempt_id": "attempt",
+        "scope": {"owner_id": "123", "repo_path": "/tmp"},
+    }
+
+
+def test_refresh_writes_structured_observation_to_task_and_run():
+    import asyncio
+
+    from ai_agent import dependency_evidence as gate
+
+    task = {"id": "consumer", "stage": "todo", "run": {"context_spec": _context_spec()}}
+    assert asyncio.run(gate.refresh(task, {"tasks": [task]})) is None
+    observation = task["dependency_observation"]
+    assert observation["status"] == "satisfied"
+    assert observation["context_spec"] == task["run"]["context_spec"]
+    assert observation["metadata"]["verified"] is True
+    assert observation["metadata"]["observed_at"] >= 0
+    assert observation["access_failed"] is False
+    assert observation["invalidated"] is False
+    assert observation["recovery_pending"] is False
+    assert task["run"]["dependency_observation"] == observation
+
+
+def test_unknown_observation_never_synthesizes_finer_flags():
+    import asyncio
+
+    from ai_agent import dependency_evidence as gate
+
+    task = {
+        "id": "consumer",
+        "stage": "todo",
+        "after": "missing",
+        "run": {"context_spec": _context_spec()},
+    }
+    assert asyncio.run(gate.refresh(task, {"tasks": [task]})) is not None
+    observation = task["dependency_observation"]
+    assert observation["status"] == "unknown"
+    assert "access_failed" not in observation
+    assert "invalidated" not in observation
+    assert "recovery_pending" not in observation
+
+
+def test_no_observation_is_synthesized_without_context_identity():
+    import asyncio
+
+    from ai_agent import dependency_evidence as gate
+
+    task = {"id": "consumer", "stage": "todo"}
+    assert asyncio.run(gate.refresh(task, {"tasks": [task]})) is None
+    assert "dependency_observation" not in task

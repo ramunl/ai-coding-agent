@@ -12,11 +12,14 @@ import typing
 from ai_agent.context_models import PacketReference
 from ai_agent.context_status import (
     BLOCKER_CODES,
+    EVIDENCE_STATES,
     FRESHNESS_SECONDS,
     MAX_COUNT,
     MAX_PACKET_REFS,
     MAX_TIMESTAMP,
     BlockerCode,
+    ContextStatus,
+    EvidenceState,
     Freshness,
     Health,
     PacketMetadata,
@@ -26,6 +29,13 @@ from ai_agent.context_status import (
 
 HEALTH_VALUES = {"healthy", "degraded", "blocked", "unknown", "unavailable"}
 FRESHNESS_VALUES = {"fresh", "stale", "unknown"}
+EVIDENCE_VALUES = {
+    "not_planned",
+    "metadata_unavailable",
+    "stale",
+    "verified_current",
+    "unknown",
+}
 BLOCKER_VALUES = {
     "dependency_unknown",
     "dependency_unavailable",
@@ -37,7 +47,7 @@ REF = PacketReference("packet", "a" * 64)
 
 
 def test_context_status_field_set_is_exact():
-    """to_dict projects exactly the eight documented fields, including nulls."""
+    """to_dict projects exactly the nine documented fields, including nulls."""
     status = context_status((REF,), PacketMetadata(100, True, 0, 0), now=100)
     assert set(status.to_dict()) == {
         "schema_version",
@@ -48,6 +58,7 @@ def test_context_status_field_set_is_exact():
         "omission_count",
         "truncation_count",
         "dependency_blockers",
+        "evidence_state",
     }
     # Legacy projection keeps every field present even when nothing is known.
     unknown = context_status(now=100).to_dict()
@@ -55,6 +66,7 @@ def test_context_status_field_set_is_exact():
     assert unknown["observed_at"] is None
     assert unknown["omission_count"] is None
     assert unknown["truncation_count"] is None
+    assert unknown["evidence_state"] == "unknown"
 
 
 def test_sidecar_and_safe_reference_field_sets_are_exact():
@@ -76,8 +88,10 @@ def test_sidecar_and_safe_reference_field_sets_are_exact():
 def test_enum_value_sets_are_closed():
     assert set(typing.get_args(Health)) == HEALTH_VALUES
     assert set(typing.get_args(Freshness)) == FRESHNESS_VALUES
+    assert set(typing.get_args(EvidenceState)) == EVIDENCE_VALUES
     assert set(typing.get_args(BlockerCode)) == BLOCKER_VALUES
     assert BLOCKER_CODES == frozenset(BLOCKER_VALUES)
+    assert EVIDENCE_STATES == frozenset(EVIDENCE_VALUES)
 
 
 def test_documented_bounds_are_pinned():
@@ -119,11 +133,25 @@ def test_legacy_missing_metadata_projects_unknown_nulls():
     assert bare["dependency_blockers"] == []
 
 
+def test_legacy_records_default_evidence_state_to_unknown():
+    status = context_status((REF,), PacketMetadata(100, True, 0, 0), now=100)
+    legacy = status.to_dict()
+    assert legacy["evidence_state"] == "verified_current"
+    legacy.pop("evidence_state")
+    restored = ContextStatus.from_dict(legacy)
+    assert restored.evidence_state == "unknown"
+    assert restored.to_dict()["evidence_state"] == "unknown"
+    # Invalid or missing evidence states never raise and never migrate.
+    for value in (None, "future", 1, [], {}):
+        assert ContextStatus.from_dict(value).evidence_state == "unknown"
+
+
 def test_canonical_json_bytes_are_pinned():
     status = context_status((REF,), PacketMetadata(100, True, 1, 2), now=100)
     sha = "a" * 64
     expected = (
-        '{"dependency_blockers":[],"freshness":"fresh","health":"degraded",'
+        '{"dependency_blockers":[],"evidence_state":"verified_current",'
+        '"freshness":"fresh","health":"degraded",'
         '"observed_at":100,"omission_count":1,'
         f'"packet_refs":[{{"packet_id":"packet","sha256":"{sha}"}}],'
         '"schema_version":1,"truncation_count":2}'

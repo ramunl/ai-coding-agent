@@ -18,6 +18,7 @@ All fields are present, including nulls:
 | `omission_count` | Integer 0–65535, or null; larger observed counts saturate |
 | `truncation_count` | Same bound and null semantics as omission count |
 | `dependency_blockers` | Sorted unique allowlisted codes; at most four |
+| `evidence_state` | `not_planned`, `metadata_unavailable`, `stale`, `verified_current`, `unknown` |
 
 Packet IDs accept 1–64 ASCII letters, digits, underscores and hyphens; digests
 must be exactly 64 lowercase hexadecimal characters. Invalid refs are excluded
@@ -31,8 +32,10 @@ an internal receipt: those contain scoped record refs with repository paths.
 `ContextStatus.to_json()` uses sorted keys, compact separators and ASCII JSON.
 The same inputs and explicit evaluation time yield the same bytes. Boolean,
 negative, floating-point and nonnumeric count values become null, not zero.
-Invalid timestamps become null. Unknown enum or blocker values are rejected
-with fixed errors that do not echo inputs.
+Invalid timestamps become null. Unknown `health`, `freshness`, `evidence_state`
+or blocker values are rejected with fixed errors that do not echo inputs when
+writing a status; `ContextStatus.from_dict` instead defaults missing or invalid
+`evidence_state` to `unknown` so legacy records never raise on read.
 
 ## Versioning and compatibility
 
@@ -64,6 +67,16 @@ Health precedence, highest first:
    `dependency_unknown`: unknown.
 4. Stale evidence, positive omission/truncation counts, or excess refs: degraded.
 5. Otherwise: healthy.
+
+`evidence_state` is an additive field that reports what the projection can say
+about retained evidence, independent of health. It is `verified_current` when
+freshness is `fresh`, `stale` when freshness is `stale`, `metadata_unavailable`
+when a receipt exists but its metadata is missing/unverified, `not_planned` when
+the subject is known to have no context identity yet, and `unknown` for legacy or
+indeterminate records. The v1 helpers select it from a `planned` flag plus
+freshness; it never changes health or freshness. Legacy records predating the
+field, and invalid or missing values, default to `unknown` on read and never
+raise or migrate.
 
 Freshness evaluates the packet assembly observation, not the age of each source
 or a promise of current dependency readiness. It is fresh only with verified
@@ -110,6 +123,16 @@ exposes the metrics too. The sidecar is not inserted into packet text, packet
 ID/digest, reference records, plan approval bindings or run bindings. No
 approval is refreshed or invalidated by observing time or size.
 
+`packet_metadata` and the matching `context_packet` are retained through
+planning and execution: `PlanState` carries both, `set_pending_from_plan` and
+the bugfix pending builder copy them into pending implementation data,
+`enqueue_pending_implementation` copies them into the queued run, and
+`remember_run` keeps them on the task's `run` via `RUN_KEYS`. The snapshot
+therefore reflects the planning receipt captured at enqueue, not any run-time
+HEAD packet (which is only journaled by the checkpoint and never written back).
+Neither field enters `plan_binding` or `run_binding` digests, so approval and
+revision bindings stay unchanged.
+
 Old packets can still be constructed without metadata. Missing sidecars,
 unsupported versions and malformed fields remain unknown with nullable counts,
 `byte_size`, `build_latency_ms` and timestamps; never derive freshness from
@@ -151,14 +174,23 @@ Tasks with dependency edges default to `dependency_unknown`. The optional
 `dependency_observation` input must contain an exactly matching `context_spec`
 and fresh, verified v1 `metadata` before its structured `status`, `access_failed`,
 `invalidated`, or `recovery_pending` facts can be used by the v1 mapping helper.
-There is currently no producer retaining that observation in task state. Legacy
+`dependency_evidence.refresh` is the producer: it writes the structured
+observation into the task and its retained `run` from real checks, with explicit
+false flags only for `status=satisfied` and no synthesized flags otherwise; a
+task without a context identity gets no observation. The observation shares the
+60-second freshness window, so a long run can report `dependency_unknown`
+afterward unless re-checked; publication never refreshes it. Legacy
 `dependency_check` reasons, invalidation messages and arbitrary blocker codes
 are never interpreted as finer dependency evidence.
 
 Initiative IDs come from identity-matched task sources. These receipts establish
-only task/attempt observations: even a healthy child cannot establish complete
-initiative coverage. Until an initiative-wide evidence producer exists, every
-initiative status is unknown with empty refs and nullable observation fields.
+only task/attempt observations, so `initiative_statuses` aggregates retained
+identity-bound receipts into conservative coverage: an initiative is `healthy`
+with `verified_current` evidence only when every retained receipt is
+verified-current, and otherwise reports unknown health with the most conservative
+child `evidence_state` (`unknown` < `not_planned` < `metadata_unavailable` <
+`stale` < `verified_current`). Empty refs and nullable counts never inherit a
+single child's observation.
 
 Tests cover the new projection and its snapshot placement with seeded private
 data. Existing task notes, dependency reasons and other legacy snapshot fields

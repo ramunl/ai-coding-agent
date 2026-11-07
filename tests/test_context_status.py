@@ -15,6 +15,7 @@ from ai_agent.context_status import (
     MAX_COUNT,
     MAX_PACKET_REFS,
     MAX_TIMESTAMP,
+    ContextStatus,
     PacketMetadata,
     context_status,
     dependency_blockers,
@@ -162,3 +163,34 @@ def test_dependency_mapping_ignores_exception_text_and_unverified_success():
         assert dependency_blockers({field: "true"}, verified=True) == (
             "dependency_unknown",
         )
+
+
+def test_evidence_state_distinguishes_receipt_lifecycle():
+    assert context_status((REF,), META, now=100).evidence_state == "verified_current"
+    assert context_status((REF,), META, now=161).evidence_state == "stale"
+    assert (
+        context_status(
+            (REF,),
+            PacketMetadata.from_dict({"schema_version": 1}),
+            now=100,
+            planned=True,
+        ).evidence_state
+        == "metadata_unavailable"
+    )
+    # A subject known not to be planned is distinct from an unknown legacy record.
+    assert context_status(now=100, planned=False).evidence_state == "not_planned"
+    assert context_status(now=100).evidence_state == "unknown"
+    assert (
+        context_status((REF,), META, now=100, planned=False).evidence_state
+        == "verified_current"
+    )
+
+
+def test_evidence_state_round_trip_and_legacy_default():
+    status = context_status((REF,), META, now=100)
+    assert ContextStatus.from_dict(status.to_dict()) == status
+    legacy = status.to_dict()
+    legacy.pop("evidence_state")
+    assert ContextStatus.from_dict(legacy).evidence_state == "unknown"
+    for value in (None, {}, {"evidence_state": "future"}, {"evidence_state": 1}):
+        assert ContextStatus.from_dict(value).evidence_state == "unknown"

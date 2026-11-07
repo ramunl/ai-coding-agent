@@ -58,6 +58,7 @@ class PlanState:
     images: list[dict] = field(default_factory=list)
     repository_identity: dict[str, str] | None = None
     context_packet: dict | None = None
+    packet_metadata: dict | None = None
     context_spec: dict | None = None
     approval_binding: dict | None = None
     review_required: bool = False
@@ -116,6 +117,7 @@ def new_plan_state(
     feature: str, plan_text: str, repository_identity: dict[str, str] | None = None
 ) -> PlanState:
     """Create an unapproved first revision for a feature."""
+    receipt = packet_receipt.get() or {}
     return PlanState(
         id=str(uuid.uuid4())[:8],
         feature=feature,
@@ -124,13 +126,15 @@ def new_plan_state(
         approved=False,
         history=[],
         context_spec=spec_from_request(current_context.get()),
-        context_packet=(packet_receipt.get() or {}).get("packet"),
+        context_packet=receipt.get("packet"),
+        packet_metadata=receipt.get("packet_metadata"),
         repository_identity=dict(repository_identity) if repository_identity else None,
     )
 
 
 def revise_plan_state(plan: PlanState, plan_text: str) -> PlanState:
     """Create an unapproved revision while preserving prior plan text."""
+    receipt = packet_receipt.get() or {}
     return PlanState(
         id=plan.id,
         feature=plan.feature,
@@ -140,8 +144,8 @@ def revise_plan_state(plan: PlanState, plan_text: str) -> PlanState:
         history=[*plan.history, plan.plan_text],
         images=list(plan.images),
         context_spec=spec_from_request(current_context.get()) or plan.context_spec,
-        context_packet=(packet_receipt.get() or {}).get("packet")
-        or plan.context_packet,
+        context_packet=receipt.get("packet") or plan.context_packet,
+        packet_metadata=receipt.get("packet_metadata") or plan.packet_metadata,
         repository_identity=(
             dict(plan.repository_identity) if plan.repository_identity else None
         ),

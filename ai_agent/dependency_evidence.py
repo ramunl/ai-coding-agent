@@ -241,6 +241,35 @@ def _evaluate(values: list[dict]) -> list[dict]:
     return facts
 
 
+def _dependency_observation(task: dict, result: dict, checked_at: float) -> dict | None:
+    """Record a structured fact bound to this task's context identity.
+
+    Free-text reasons and exceptions are never parsed into finer flags. A task
+    without a context identity has no matching spec, so no observation is
+    synthesized for it.
+    """
+    run = task.get("run") if isinstance(task.get("run"), dict) else {}
+    spec = run.get("context_spec") or task.get("context_spec")
+    if not spec:
+        return None
+    observation = {
+        "context_spec": spec,
+        "metadata": {
+            "schema_version": 1,
+            "verified": True,
+            "observed_at": int(checked_at),
+            "omission_count": 0,
+            "truncation_count": 0,
+        },
+        "status": result["status"],
+    }
+    if result["status"] == "satisfied":
+        observation.update(
+            access_failed=False, invalidated=False, recovery_pending=False
+        )
+    return observation
+
+
 async def refresh(task: dict, data: dict) -> str | None:
     """Fresh admission check off the event loop; never reuse a saved decision."""
     task.pop("dependency_check", None)
@@ -276,7 +305,14 @@ async def refresh(task: dict, data: dict) -> str | None:
             + (str(error) if type(error) is ValueError else type(error).__name__),
         }
         binding = fingerprint(task, data)
-    task["dependency_check"] = {**result, "binding": binding, "checked_at": time.time()}
+    checked_at = time.time()
+    task["dependency_check"] = {**result, "binding": binding, "checked_at": checked_at}
+    observation = _dependency_observation(task, result, checked_at)
+    if observation is not None:
+        task["dependency_observation"] = observation
+        run = task.get("run")
+        if isinstance(run, dict):
+            run["dependency_observation"] = observation
     return cached_reason(task, data)
 
 
