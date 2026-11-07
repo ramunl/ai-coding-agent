@@ -614,3 +614,70 @@ def test_no_observation_is_synthesized_without_context_identity():
     task = {"id": "consumer", "stage": "todo"}
     assert asyncio.run(gate.refresh(task, {"tasks": [task]})) is None
     assert "dependency_observation" not in task
+
+
+@pytest.mark.parametrize("change", ["consumer_stage", "unrelated_stage", "list_order"])
+def test_verification_ignores_non_dependency_updates(evidence, monkeypatch, change):
+    import asyncio
+
+    gate, dependency, store, _, _, _ = evidence
+    monkeypatch.setattr(gate, "ContextStore", lambda scope: store)
+    predecessor = {
+        "id": "first",
+        "stage": "done",
+        "context_handoff": dependency["attempt"],
+    }
+    consumer = {"id": "second", "stage": "planned", "dependencies": [dependency]}
+    unrelated = {"id": "other", "stage": "pr"}
+    data = {"tasks": [predecessor, consumer, unrelated]}
+    evaluate = gate._evaluate
+
+    def concurrent_update(values):
+        facts = evaluate(values)
+        if change == "consumer_stage":
+            consumer["stage"] = "implementing"
+        elif change == "unrelated_stage":
+            unrelated["stage"] = "done"
+        else:
+            data["tasks"].reverse()
+        return facts
+
+    monkeypatch.setattr(gate, "_evaluate", concurrent_update)
+    assert asyncio.run(gate.refresh(consumer, data)) is None
+    assert consumer["dependency_check"]["status"] == "satisfied"
+
+
+@pytest.mark.parametrize(
+    "change", ["stage", "branch", "attempt", "removal", "edge_revision"]
+)
+def test_verification_still_rejects_actual_dependency_changes(
+    evidence, monkeypatch, change
+):
+    import asyncio
+
+    gate, dependency, store, _, _, _ = evidence
+    monkeypatch.setattr(gate, "ContextStore", lambda scope: store)
+    predecessor = {
+        "id": "first",
+        "stage": "done",
+        "context_handoff": dependency["attempt"],
+    }
+    consumer = {"id": "second", "dependencies": [dependency]}
+    data = {"tasks": [predecessor, consumer]}
+    evaluate = gate._evaluate
+
+    def concurrent_update(values):
+        facts = evaluate(values)
+        if change == "removal":
+            data["tasks"].remove(predecessor)
+        elif change == "edge_revision":
+            consumer["dependencies"][0]["revision"] += 1
+        else:
+            predecessor[change] = "changed"
+        return facts
+
+    monkeypatch.setattr(gate, "_evaluate", concurrent_update)
+    assert "Dependencies changed during verification" in asyncio.run(
+        gate.refresh(consumer, data)
+    )
+    assert consumer["dependency_check"]["status"] == "unknown"
