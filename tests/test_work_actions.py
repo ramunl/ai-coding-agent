@@ -44,6 +44,22 @@ class WorkActionTests(unittest.IsolatedAsyncioTestCase):
             mark_data_for_update_persistence=MagicMock(),
         )
 
+    async def test_approval_refusal_is_an_action_error(self):
+        self.data["pending_plan"] = self.plan
+        with (
+            patch("ai_agent.plan_state.repository_mismatch", return_value=None),
+            patch.object(
+                self.work,
+                "_not_here",
+                return_value="Wrong repository; move and replan.",
+            ),
+            patch.object(self.work, "approve", new=AsyncMock()) as approve,
+        ):
+            with self.assertRaisesRegex(self.work.ActionError, "Wrong repository"):
+                await self.run_action("approve_plan")
+        approve.assert_not_awaited()
+        self.assertFalse(self.plan.approved)
+
     def tearDown(self) -> None:
         os.environ.clear()
         os.environ.update(self.previous_env)
@@ -320,11 +336,11 @@ class WorkActionTests(unittest.IsolatedAsyncioTestCase):
         planning = importlib.import_module("ai_agent.bot.planning")
         active = SimpleNamespace(name="ai-coding-agent")
         with patch.object(planning, "active_project", return_value=active):
-            await self.run_action("approve_plan")
+            with self.assertRaisesRegex(self.work.ActionError, "can't run here"):
+                await self.run_action("approve_plan")
         self.assertFalse(self.plan.approved)
         self.assertNotIn("pending_implementation", self.data)
-        self.assertIn("does not change ai-coding-agent", self.sent()[-1])
-        self.assertIn("/split", self.sent()[-1])
+        self.app.bot.send_message.assert_not_awaited()
 
     async def test_cancel_discards_pending_work(self) -> None:
         self.data.update(pending_plan=self.plan, pending_implementation={"x": 1})

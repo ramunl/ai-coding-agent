@@ -27,6 +27,7 @@ from ai_agent.actions import ActionError
 from ai_agent.bot.execution import confirm
 from ai_agent.bot.inspection import cancel
 from ai_agent.bot.planning import (
+    _not_here,
     answer,
     approve,
     bugfix_cmd,
@@ -113,7 +114,13 @@ def refusal(action: str, args: dict[str, Any], user_data: MutableMapping) -> str
     if action == "approve_plan":
         if not pending_plan:
             return "There is no plan to approve."
-        return "The plan is already approved." if pending_plan.approved else None
+        if pending_plan.approved:
+            return "The plan is already approved."
+        from ai_agent.plan_state import repository_mismatch
+
+        return repository_mismatch(pending_plan.repository_identity) or _not_here(
+            pending_plan
+        )
     if action == "confirm_work":
         if pending_plan and not pending_plan.approved and not pending:
             return "The plan is not approved yet."

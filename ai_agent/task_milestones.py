@@ -1,5 +1,6 @@
-"""Turn suggested same-repository milestones into an ordered task chain."""
+"""Turn repository-owned milestones into an ordered task chain."""
 
+import re
 from collections.abc import MutableMapping
 from copy import deepcopy
 
@@ -8,12 +9,52 @@ from ai_agent.plan_state import PlanDocument, PlanState
 from ai_agent.tasks import add_task, tasks_of
 
 
+def milestone_repositories(
+    document: PlanDocument, active: str, known: set[str]
+) -> list[str]:
+    """Resolve every owner before creating tasks; never infer from active UI alone."""
+    targets = {
+        row["name"]
+        for row in document.repository_accounting
+        if row["role"] in ("change", "verify")
+    }
+    targets.update(item["name"] for item in document.repositories)
+    result = []
+    for milestone in document.scope_assessment["milestones"]:
+        explicit = milestone.get("repository")
+        # Older plans expressed ownership in the milestone title.
+        prefixes = [
+            name
+            for name in known
+            if re.match(re.escape(name) + r"(?:\s|:|$)", milestone["title"])
+        ]
+        if explicit and prefixes and prefixes != [explicit]:
+            raise ValueError(
+                "Milestone repository conflicts with its title; revise the plan."
+            )
+        owner = explicit or (prefixes[0] if len(prefixes) == 1 else None)
+        if owner is None:
+            if targets - {active}:
+                raise ValueError(
+                    "Milestone repository is ambiguous; revise the plan to name "
+                    "a registered repository for every milestone."
+                )
+            owner = active
+        if owner not in known:
+            raise ValueError(
+                f"Not registered: {owner}. Revise the milestone repository."
+            )
+        result.append(owner)
+    return result
+
+
 def split_milestones(
     data: MutableMapping,
     plan: PlanState,
     document: PlanDocument,
     repo: str,
     identities: dict[str, dict] | None = None,
+    repositories: list[str] | None = None,
 ) -> list[dict]:
     """Replace the planned task while retaining its incoming and outgoing links."""
     source = next(
@@ -27,6 +68,7 @@ def split_milestones(
     milestones = document.scope_assessment["milestones"]
     created = []
     for index, milestone in enumerate(milestones, 1):
+        repo = repositories[index - 1] if repositories else repo
         task = add_task(
             data,
             milestone["title"],

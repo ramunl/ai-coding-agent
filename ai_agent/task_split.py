@@ -16,7 +16,7 @@ from collections.abc import Iterable, MutableMapping
 from ai_agent.config import CHAT_ID
 from ai_agent.plan_state import PlanDocument, PlanState, parse_plan_document
 from ai_agent.projects import active_project, list_projects
-from ai_agent.task_milestones import split_milestones
+from ai_agent.task_milestones import milestone_repositories, split_milestones
 from ai_agent.tasks import add_task, tasks_of
 
 TEXT_LIMIT = 4000
@@ -71,7 +71,31 @@ def split_plan(
     there (planned again in that repository), so a task made in the wrong
     project can be moved instead of revised.
     """
+    known = set(known)
     parts = document.repositories
+    source = next(
+        (
+            task
+            for task in tasks_of(data)
+            if task.get("plan_id") == plan.id and task.get("stage") == "planned"
+        ),
+        None,
+    )
+    if (
+        source is not None
+        and source.get("group")
+        and len(parts) == 1
+        and parts[0]["name"] != source["repo"]
+    ):
+        if parts[0]["name"] not in known:
+            raise SplitError("Not registered: " + parts[0]["name"])
+        from ai_agent.task_relocation import relocate_part
+
+        try:
+            relocate_part(data, source, plan, document, parts[0], identities)
+        except ValueError as error:
+            raise SplitError(str(error)) from error
+        return [source]
     if not parts or (len(parts) == 1 and parts[0]["name"] == active):
         scope = document.scope_assessment
         if (
@@ -83,7 +107,11 @@ def split_plan(
                 raise SplitError(
                     f"Not registered: {active}. Add the repository in Setup."
                 )
-            return split_milestones(data, plan, document, active, identities)
+            try:
+                owners = milestone_repositories(document, active, known)
+            except ValueError as error:
+                raise SplitError(str(error)) from error
+            return split_milestones(data, plan, document, active, identities, owners)
         raise SplitError("This plan needs only this repository; approve it instead.")
     unknown = [item["name"] for item in parts if item["name"] not in set(known)]
     if unknown:
@@ -91,14 +119,6 @@ def split_plan(
             f"Not registered: {', '.join(unknown)}. Add the repository in Setup, "
             "or revise the plan."
         )
-    source = next(
-        (
-            task
-            for task in tasks_of(data)
-            if task.get("plan_id") == plan.id and task.get("stage") == "planned"
-        ),
-        None,
-    )
     if source is not None and source.get("group"):
         raise SplitError(
             "This task is already a repository part. Revise its plan to change "
