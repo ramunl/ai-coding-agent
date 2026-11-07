@@ -1,6 +1,7 @@
 """Durable effect journal and write-once handoffs, independent of Telegram."""
 
 import json
+import time
 from contextvars import ContextVar
 from dataclasses import asdict, replace
 from threading import RLock
@@ -62,6 +63,7 @@ class Attempt:
             "schema_version": 1,
             "terminal": None,
             "attempt_id": uuid4().hex,
+            "started_at": time.time(),
         }
         self.name = f"lifecycle-{self.state['attempt_id']}.json"
         self.request = replace(self.request, attempt_id=self.state["attempt_id"])
@@ -93,7 +95,12 @@ class Attempt:
 
     def _checkpoint(self, stage: str, facts: dict, *, required: bool) -> None:
         key = digest([stage, facts])
-        event = {"stage": stage, "facts": facts, "provenance": "application"}
+        event = {
+            "stage": stage,
+            "facts": facts,
+            "provenance": "application",
+            "observed_at": time.time(),
+        }
         if self.state["terminal"]:
             raise ContextBlockedError("Terminal attempt is immutable")
         latest = self.state.setdefault("latest", {})
