@@ -31,9 +31,7 @@ class StateTests(TelegramTestCase):
         context = types.SimpleNamespace(user_data={})
         try:
             with patch.object(telegram_bot.time, "time", return_value=1300.0):
-                telegram_bot.set_active_execution(
-                    context, "feature/a", "Running Codex"
-                )
+                telegram_bot.set_active_execution(context, "feature/a", "Running Codex")
         finally:
             attempts.current_attempt.reset(token)
 

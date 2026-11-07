@@ -205,9 +205,7 @@ def clear_progress_state() -> None:
     _last_update.clear()
 
 
-async def notify_once(
-    ptb_app: Any, owner_id: int, *, now: float | None = None
-) -> int:
+async def notify_once(ptb_app: Any, owner_id: int, *, now: float | None = None) -> int:
     """Send one progress update when a run is active and its five-minute slot is due.
 
     Returns the number of messages sent (0 or 1). A missing active record means
