@@ -132,6 +132,7 @@ def _start_snapshot_publisher(app: Application) -> None:
     _start_inbox(app)
     _start_worker(app)
     _start_claude_probe()
+    _start_progress_notifier(app)
 
 
 _probe_task: asyncio.Task | None = None
@@ -165,6 +166,21 @@ def _start_worker(app: Application) -> None:
     _worker_task = asyncio.get_running_loop().create_task(worker_forever(app, CHAT_ID))
 
 
+_progress_task: asyncio.Task | None = None
+
+
+def _start_progress_notifier(app: Application) -> None:
+    """Send owner-only five-minute progress updates while a run is active."""
+    global _progress_task
+    if _progress_task is not None and not _progress_task.done():
+        return
+    from ai_agent.task_progress import progress_notifier_forever
+
+    _progress_task = asyncio.get_running_loop().create_task(
+        progress_notifier_forever(app, CHAT_ID)
+    )
+
+
 _inbox_task: asyncio.Task | None = None
 
 
@@ -181,15 +197,16 @@ def _start_inbox(app: Application) -> None:
 
 
 async def shutdown_hooks(app: Application) -> None:
-    """Stop publishing and the inbox on a clean shutdown."""
-    global _publisher_task, _inbox_task
-    for task in (_publisher_task, _inbox_task):
+    """Stop publishing, the inbox, and the progress notifier on a clean shutdown."""
+    global _publisher_task, _inbox_task, _progress_task
+    for task in (_publisher_task, _inbox_task, _progress_task):
         if task is not None:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
     _publisher_task = None
     _inbox_task = None
+    _progress_task = None
 
 
 async def _notify_restored_queue(app: Application) -> None:

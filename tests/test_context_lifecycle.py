@@ -12,6 +12,7 @@ import pytest
 from ai_agent import context_attempts as journal
 from ai_agent import context_lifecycle as lifecycle
 from ai_agent import context_recovery as recovery
+from ai_agent import task_progress
 from ai_agent.context_models import Decision, RecordReference, RepositoryContext
 from ai_agent.context_sources import ContextBlockedError
 from ai_agent.context_store import ContextPersistenceError, ContextStore
@@ -598,3 +599,83 @@ def test_receipt_and_journal_expose_packet_metrics_without_secrets(setup, monkey
     assert "journal-secret" not in json.dumps(attempt.state)
     projected = packet.metadata.to_dict()
     assert facts["packet_metadata"]["byte_size"] == projected["byte_size"]
+
+
+def test_journal_timestamps_are_recorded_and_backward_compatible(setup, monkeypatch):
+    spec, _ = setup
+    monkeypatch.setattr(journal.time, "time", lambda: 100.0)
+    attempt = journal.Attempt(spec, "feature/a", {})
+    attempt.save()
+    assert attempt.state["started_at"] == 100.0
+    monkeypatch.setattr(journal.time, "time", lambda: 150.0)
+    attempt.checkpoint("checkout", {"sha": "a" * 40})
+    event = next(iter(attempt.state["events"].values()))
+    assert event["observed_at"] == 150.0
+
+    view = task_progress.journal_progress(attempt.state, now=200.0)
+    assert view == {
+        "task_id": "task",
+        "attempt_id": attempt.state["attempt_id"],
+        "stage": "unknown",
+        "elapsed": 100,
+        "last_activity": 50,
+    }
+
+    # A legacy journal (events without observed_at) still projects conservatively.
+    legacy = {
+        "spec": {"task_id": "task"},
+        "attempt_id": "legacy",
+        "started_at": 100.0,
+        "events": {"k": {"stage": "ci", "facts": {}}},
+        "latest": {"ci": "k"},
+        "terminal": None,
+    }
+    assert task_progress.journal_progress(legacy, now=200.0)["last_activity"] is None
+
+
+def test_terminal_attempt_has_no_live_progress(setup):
+    spec, _ = setup
+    attempt = journal.Attempt(spec, "feature/a", {})
+    attempt.save()
+    attempt.checkpoint("ci", {"state": "passed", "sha": "a" * 40})
+    attempt.finish("succeeded")
+    assert task_progress.journal_progress(attempt.state) is None
+
+
+def test_stale_attempt_never_masks_a_new_attempt(setup):
+    spec, _ = setup
+    first = journal.Attempt(spec, "feature/a", {})
+    first.save()
+    first.finish("failed")
+
+    second = journal.Attempt(spec, "feature/b", {})
+    second.save()
+    second.checkpoint("checkout", {"sha": "b" * 40})
+
+    assert task_progress.journal_progress(first.state) is None
+    live = task_progress.journal_progress(second.state)
+    assert live is not None
+    assert live["attempt_id"] == second.state["attempt_id"]
+    assert live["attempt_id"] != first.state["attempt_id"]
+
+
+def test_progress_projection_is_bounded_and_secret_free(setup):
+    spec, _ = setup
+    attempt = journal.Attempt(spec, "feature/a", {})
+    attempt.save()
+    attempt.checkpoint(
+        "diff",
+        {
+            "files": ["/secret/path/file.py"],
+            "sha256": "x" * 64,
+            "note": "token=secret prompt",
+        },
+    )
+    view = task_progress.journal_progress(attempt.state)
+    serialized = json.dumps(view, sort_keys=True)
+    assert "secret" not in serialized
+    assert "/secret" not in serialized
+    assert set(view) == {"task_id", "attempt_id", "stage", "elapsed", "last_activity"}
+    assert all(
+        value is None or isinstance(value, (str, int)) for value in view.values()
+    )

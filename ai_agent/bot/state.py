@@ -41,6 +41,7 @@ from ai_agent.plan_state import (
 )
 from ai_agent.planner import normalize_planning_agent
 from ai_agent.provider_capabilities import resolved_model
+from ai_agent.task_progress import progress
 from ai_agent.tasks import remember_run
 from ai_agent.tasks import view as task_view
 from ai_agent.worker import view as worker_view
@@ -276,11 +277,34 @@ def set_active_execution(
     phase: str,
     status_text: str = "RUNNING",
 ) -> None:
-    """Record the branch, phase, and status of running work."""
-    _data(context)["active_execution"] = {
+    """Record the branch, phase, status, and progress clocks of running work.
+
+    The record is bound to the current attempt's task and attempt identities so
+    the progress projection can report them without re-reading the journal. It
+    stays transient: after a restart there is no active execution, so the
+    snapshot reports no live run instead of a stale heartbeat.
+    """
+    from ai_agent.context_attempts import current_attempt
+    from ai_agent.task_progress import stage_label
+
+    attempt = current_attempt.get()
+    data = _data(context)
+    previous = data.get("active_execution")
+    now = time.time()
+    started_at = attempt.state.get("started_at") if attempt is not None else None
+    if started_at is None and isinstance(previous, dict):
+        started_at = previous.get("started_at")
+    if started_at is None:
+        started_at = now
+    data["active_execution"] = {
         "branch": branch,
         "phase": phase,
         "status": status_text,
+        "stage": stage_label(phase),
+        "task_id": attempt.request.task_id if attempt is not None else None,
+        "attempt_id": attempt.state["attempt_id"] if attempt is not None else None,
+        "started_at": started_at,
+        "last_activity": now,
     }
 
 
@@ -384,6 +408,7 @@ def snapshot(context: Any) -> dict:
         "initiatives": initiative_statuses(data, now=now),
         "context_recovery_pending": bool(data.get("context_recovery_pending")),
         "running": dict(execution) if isinstance(execution, dict) else None,
+        "progress": progress(execution, now=now),
         "queue": [
             {
                 "id": task.get("id"),

@@ -59,6 +59,7 @@ from ai_agent.run_outcomes import (
     discard_empty_branch,
     record_outcome,
 )
+from ai_agent.task_progress import clear_progress_state
 from ai_agent.workflow import (
     ImplementationResult,
     create_pull_request,
@@ -261,6 +262,10 @@ async def run_queued_implementation(
             set_stage(owner_task, "stopped", "Stopped by owner; saved work preserved.")
         if stopped:
             context.user_data.pop("active_execution", None)
+        # The run is terminal on every path (success, failure, timeout or
+        # cancellation): forget its notifier slot so a stale attempt id cannot
+        # suppress the next run's first progress update.
+        clear_progress_state()
         if no_code and not refusal and restored:
             try:
                 await asyncio.to_thread(discard_empty_branch, branch_name)
@@ -431,6 +436,7 @@ async def fixpr(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             )
     finally:
         context.user_data.pop("active_execution", None)
+        clear_progress_state()
         await reset_to_base_branch(update)
 
 
