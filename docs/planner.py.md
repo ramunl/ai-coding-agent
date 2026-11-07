@@ -11,7 +11,8 @@ Uses Anthropic's Claude API to generate implementation plans for features and as
 `from ai_agent.planner import ...` keeps working. The helpers live in:
 
 - `planning_provider.py` — provider selection, Codex/Claude calls, schema paths
-- `repository_context.py` — repository sampling and bounded codebase search
+- `repository_context.py` — repository sampling, bounded codebase search, and the
+  bounded live-context builder for the tool-free API planner
 - `bugfix_questions.py` — triage parsing and clarification-question filtering
 
 Patch a name in the module where it is looked up (for example
@@ -38,14 +39,36 @@ Gathers a sample of source files from the active project's repository.
 
 **Purpose**: Provides Claude with project structure context, regardless of which registered project is active
 
+### `planner_context(query, repo_path, *, time_budget_s, char_budget) -> str`
+Builds bounded live repository context for the tool-free Anthropic API planner.
+
+**Process**:
+1. Rejects a missing, unreadable, relative or symlink-reaching repository root with
+   a clear `ContextBlockedError`
+2. Walks source files (reusing `_source_paths`) plus manifest/build/test files
+   (`package.json`, `pyproject.toml`, `Makefile`, READMEs, CI workflows, …),
+   skipping `EXCLUDED_DIR_NAMES`
+3. Reads each file through `repository_read`, which rejects path escapes, symlinks
+   and nonregular files, and redacts secret-bearing lines with `_redact_text`
+4. Emits one block per file under its relative path, truncating per-file chars and
+   marking truncation
+5. Bounds the whole block by file count, elapsed time and total chars, and labels
+   the output as untrusted repository data
+
+**Purpose**: the Claude API planner has no repository tools, so this block supplies
+bounded evidence in the prompt. CLI planners (Claude Code, Codex) already have
+read/search tools and never receive it.
+
 ### `plan_feature(feature_description: str) -> str`
 Generates a detailed implementation plan for a feature.
 
 **Process**:
 1. Gathers a repo file sample for context
-2. Enriches feature description with link contexts
-3. Sends to Claude with project context
-4. Returns detailed plan
+2. Appends the live repository context block when the planner is the Claude API
+   (`CLAUDE_PLANNER_VIA=api`); CLI planners keep the filename sample only
+3. Enriches feature description with link contexts
+4. Sends to Claude with project context
+5. Returns detailed plan
 
 **Claude Context**:
 - Role: Senior software engineer
@@ -132,6 +155,13 @@ else:
 - `ANTHROPIC_KEY`: Claude API key
 - `ANTHROPIC_MODEL`: Claude model version
 - `REPO_PATH`: Path to target repository
+- `CLAUDE_PLANNER_VIA`: `"api"` enables the tool-free API planner that receives the
+  live repository context block; `"code"` (default) uses Claude Code with tools
+- `PLANNER_CONTEXT_MAX_CHARS`: total char budget for the live context block
+- `PLANNER_CONTEXT_SCAN_SECONDS`: elapsed-time budget for collecting the block
+- `PLANNER_CONTEXT_ESCALATION`: `"codex"` escalates to the Codex CLI (which has
+  repository tools) when the repository has no usable evidence; the default `"off"`
+  raises the explicit context error instead
 
 ## Link Enrichment
 
