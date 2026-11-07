@@ -9,6 +9,12 @@ from ai_agent.bugfix_questions import (
     IMPLEMENTATION_QUESTION_PATTERNS,
     bugfix_questions,
 )
+from ai_agent.config import (
+    CLAUDE_PLANNER_VIA,
+    PLANNER_CONTEXT_ESCALATION,
+    PLANNER_CONTEXT_MAX_CHARS,
+    PLANNER_CONTEXT_SCAN_SECONDS,
+)
 from ai_agent.context_lifecycle import current_context
 from ai_agent.context_sources import ContextBlockedError, ContextRequest
 from ai_agent.ecosystem import ecosystem_block
@@ -28,6 +34,7 @@ from ai_agent.repository_context import (
     EXCLUDED_DIR_NAMES,
     SOURCE_EXTENSIONS,
     codebase_search_context,
+    planner_context,
     repo_file_sample,
 )
 from ai_agent.repository_scope import GUIDANCE as REPOSITORY_GUIDANCE
@@ -45,6 +52,7 @@ __all__ = [
     "codebase_search_context",
     "normalize_planning_agent",
     "plan_feature",
+    "planner_context",
     "planning_agent_label",
     "repo_file_sample",
     "revise_feature_plan",
@@ -63,6 +71,59 @@ def _validate_context(context: ContextRequest | None) -> None:
         repository.github_repository,
     ):
         raise ContextBlockedError("Select the context request's original repository")
+
+
+def _planner_uses_api(provider: str | None) -> bool:
+    """Whether the plan goes through the tool-free Anthropic API.
+
+    Claude Code and Codex run with repository tools and do not need a context
+    block baked into the prompt; only the API path lacks tools.
+    """
+    return (
+        CLAUDE_PLANNER_VIA == "api" and normalize_planning_agent(provider) == "claude"
+    )
+
+
+def _codex_available() -> bool:
+    """Whether the Codex CLI is authenticated to plan, without running inference."""
+    try:
+        import asyncio
+
+        from ai_agent.tool_auth_providers import check
+
+        return asyncio.run(check("codex")).status in (
+            "authenticated",
+            "configured_unverified",
+        )
+    except (OSError, ValueError, TimeoutError, RuntimeError):
+        return False
+
+
+def _live_context_block(
+    description: str, provider: str | None
+) -> tuple[str, str | None]:
+    """Return (context block, escalated provider) for the API planner.
+
+    The block is added only for the Claude API planner. When the repository has
+    no usable evidence, escalate to Codex if configured and authenticated;
+    otherwise surface the explicit context error.
+    """
+    if not _planner_uses_api(provider):
+        return "", None
+    try:
+        block = planner_context(
+            description,
+            active_project().repo_path,
+            time_budget_s=PLANNER_CONTEXT_SCAN_SECONDS,
+            char_budget=PLANNER_CONTEXT_MAX_CHARS,
+        )
+    except ContextBlockedError:
+        if PLANNER_CONTEXT_ESCALATION != "codex":
+            raise
+        if not _codex_available():
+            raise
+        return "", "codex"
+    return block, None
 
 
 def plan_feature(
@@ -84,6 +145,10 @@ def plan_feature(
         )
     file_sample = repo_file_sample()
     enriched_feature_description = enrich_feature_description(feature_description)
+    context_block, escalated_provider = _live_context_block(
+        feature_description, provider
+    )
+    selected = escalated_provider or provider
     rules_block = (
         (
             project_brief_block(Path(context.scope.repository.repo_path), strict=True)
@@ -101,6 +166,7 @@ You are a senior software engineer working on the {repository} repository.
 Project files sample:
 {file_sample}
 
+{context_block}
 {rules_block}
 Feature request: {enriched_feature_description}
 
@@ -133,7 +199,7 @@ under 200 characters.
                 """
     return planner_message(
         prompt,
-        provider,
+        selected,
         "feature_plan.json",
         4000,
         **({"context": context} if context is not None else {}),
@@ -162,6 +228,10 @@ def revise_feature_plan(
             provider,
         )
     enriched_feature_description = enrich_feature_description(feature_description)
+    context_block, escalated_provider = _live_context_block(
+        feature_description, provider
+    )
+    selected = escalated_provider or provider
     rules_block = (
         (
             project_brief_block(Path(context.scope.repository.repo_path), strict=True)
@@ -177,6 +247,7 @@ def revise_feature_plan(
 You are revising an implementation plan for the {repository} repository.
 
 {rules_block}
+{context_block}
 Original feature request:
 {enriched_feature_description}
 
@@ -217,7 +288,7 @@ under 200 characters.
                 """
     return planner_message(
         prompt,
-        provider,
+        selected,
         "feature_plan.json",
         4000,
         **({"context": context} if context is not None else {}),

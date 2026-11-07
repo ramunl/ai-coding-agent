@@ -100,11 +100,12 @@ class PlannerTests(unittest.TestCase):
         planner, provider = self._modules()
 
         with patch("ai_agent.planner.repo_file_sample", return_value="App.kt"):
-            with patch(
-                "ai_agent.planner.enrich_feature_description",
-                return_value="enriched request",
-            ):
-                result = planner.plan_feature("original request", "claude")
+            with patch("ai_agent.planner.planner_context", return_value=""):
+                with patch(
+                    "ai_agent.planner.enrich_feature_description",
+                    return_value="enriched request",
+                ):
+                    result = planner.plan_feature("original request", "claude")
 
         prompt = provider.client().messages.kwargs["messages"][0]["content"]
         self.assertEqual(result, "planned")
@@ -113,7 +114,7 @@ class PlannerTests(unittest.TestCase):
         self.assertIn("already split or repository-scoped task", prompt)
         self.assertIn('assigned repository in "repositories"', prompt)
 
-    def test_plan_feature_injects_rules_block(self) -> None:
+    def test_plan_feature_appends_live_context_in_a_labelled_section(self) -> None:
         planner, provider = self._modules()
 
         with patch("ai_agent.planner.repo_file_sample", return_value="App.kt"):
@@ -122,10 +123,135 @@ class PlannerTests(unittest.TestCase):
                 return_value="enriched request",
             ):
                 with patch(
-                    "ai_agent.planner.rules_prompt_block",
-                    return_value="\nMANDATORY CODING RULES\n- Avoid return operators\n",
+                    "ai_agent.planner.planner_context",
+                    return_value="Untrusted repository context:\n--- player.py ---",
                 ):
                     planner.plan_feature("original request", "claude")
+
+        prompt = provider.client().messages.kwargs["messages"][0]["content"]
+        self.assertIn("Project files sample:\nApp.kt", prompt)
+        self.assertIn("Untrusted repository context:\n--- player.py ---", prompt)
+        self.assertLess(
+            prompt.index("Project files sample:"),
+            prompt.index("Untrusted repository context:"),
+        )
+
+    def test_cli_planner_keeps_filenames_only(self) -> None:
+        planner, _ = self._modules()
+
+        with (
+            patch("ai_agent.planner.repo_file_sample", return_value="App.kt"),
+            patch(
+                "ai_agent.planner.enrich_feature_description",
+                return_value="enriched",
+            ),
+            patch("ai_agent.planner.CLAUDE_PLANNER_VIA", "code"),
+            patch("ai_agent.planner.planner_context") as context_builder,
+            patch("ai_agent.planner.planner_message") as send,
+        ):
+            planner.plan_feature("original request", "claude")
+
+        context_builder.assert_not_called()
+        prompt = send.call_args.args[0]
+        self.assertEqual(send.call_args.args[1], "claude")
+        self.assertIn("Project files sample:\nApp.kt", prompt)
+        self.assertNotIn("Untrusted repository context", prompt)
+
+    def test_api_planner_context_error_without_escalation(self) -> None:
+        planner, _ = self._modules()
+        blocked = planner.ContextBlockedError("no evidence")
+
+        with (
+            patch("ai_agent.planner.repo_file_sample", return_value="App.kt"),
+            patch(
+                "ai_agent.planner.enrich_feature_description",
+                return_value="enriched",
+            ),
+            patch("ai_agent.planner.planner_context", side_effect=blocked),
+            patch("ai_agent.planner.PLANNER_CONTEXT_ESCALATION", "off"),
+            patch("ai_agent.planner._codex_available") as codex,
+        ):
+            with self.assertRaises(planner.ContextBlockedError):
+                planner.plan_feature("original request", "claude")
+
+        codex.assert_not_called()
+
+    def test_api_planner_escalates_to_codex_when_configured(self) -> None:
+        planner, _ = self._modules()
+
+        with (
+            patch("ai_agent.planner.repo_file_sample", return_value="App.kt"),
+            patch(
+                "ai_agent.planner.enrich_feature_description",
+                return_value="enriched",
+            ),
+            patch(
+                "ai_agent.planner.planner_context",
+                side_effect=planner.ContextBlockedError("no evidence"),
+            ),
+            patch("ai_agent.planner.PLANNER_CONTEXT_ESCALATION", "codex"),
+            patch("ai_agent.planner._codex_available", return_value=True),
+            patch("ai_agent.planner.planner_message") as send,
+        ):
+            planner.plan_feature("original request", "claude")
+
+        self.assertEqual(send.call_args.args[1], "codex")
+
+    def test_api_planner_codex_escalation_unavailable_raises(self) -> None:
+        planner, _ = self._modules()
+
+        with (
+            patch("ai_agent.planner.repo_file_sample", return_value="App.kt"),
+            patch(
+                "ai_agent.planner.enrich_feature_description",
+                return_value="enriched",
+            ),
+            patch(
+                "ai_agent.planner.planner_context",
+                side_effect=planner.ContextBlockedError("no evidence"),
+            ),
+            patch("ai_agent.planner.PLANNER_CONTEXT_ESCALATION", "codex"),
+            patch("ai_agent.planner._codex_available", return_value=False),
+        ):
+            with self.assertRaises(planner.ContextBlockedError):
+                planner.plan_feature("original request", "claude")
+
+    def test_revise_feature_plan_appends_live_context(self) -> None:
+        planner, _ = self._modules()
+
+        with (
+            patch(
+                "ai_agent.planner.enrich_feature_description",
+                return_value="enriched",
+            ),
+            patch(
+                "ai_agent.planner.planner_context",
+                return_value="Untrusted repository context:\n--- app.py ---",
+            ),
+            patch("ai_agent.planner.planner_message") as send,
+        ):
+            planner.revise_feature_plan("original", "{}", "feedback", "claude")
+
+        prompt = send.call_args.args[0]
+        self.assertIn("Untrusted repository context:\n--- app.py ---", prompt)
+        self.assertIn("Current plan:\n{}", prompt)
+
+    def test_plan_feature_injects_rules_block(self) -> None:
+        planner, provider = self._modules()
+
+        with patch("ai_agent.planner.repo_file_sample", return_value="App.kt"):
+            with patch("ai_agent.planner.planner_context", return_value=""):
+                with patch(
+                    "ai_agent.planner.enrich_feature_description",
+                    return_value="enriched request",
+                ):
+                    with patch(
+                        "ai_agent.planner.rules_prompt_block",
+                        return_value=(
+                            "\nMANDATORY CODING RULES\n- Avoid return operators\n"
+                        ),
+                    ):
+                        planner.plan_feature("original request", "claude")
 
         prompt = provider.client().messages.kwargs["messages"][0]["content"]
         self.assertIn("MANDATORY CODING RULES", prompt)
@@ -134,12 +260,13 @@ class PlannerTests(unittest.TestCase):
     def test_revise_feature_plan_sends_current_plan_and_feedback(self) -> None:
         planner, provider = self._modules()
 
-        with patch(
-            "ai_agent.planner.enrich_feature_description", return_value="enriched"
-        ):
-            result = planner.revise_feature_plan(
-                "original", '{"summary": "v1"}', "split it up", "claude"
-            )
+        with patch("ai_agent.planner.planner_context", return_value=""):
+            with patch(
+                "ai_agent.planner.enrich_feature_description", return_value="enriched"
+            ):
+                result = planner.revise_feature_plan(
+                    "original", '{"summary": "v1"}', "split it up", "claude"
+                )
 
         kwargs = provider.client().messages.kwargs
         prompt = kwargs["messages"][0]["content"]
@@ -157,6 +284,7 @@ class PlannerTests(unittest.TestCase):
             patch("ai_agent.planner.ecosystem_block", return_value="\nREPOS\n"),
             patch("ai_agent.planner.rules_prompt_block", return_value="\nRULES\n"),
             patch("ai_agent.planner.repo_file_sample", return_value="App.kt"),
+            patch("ai_agent.planner.planner_context", return_value=""),
             patch("ai_agent.planner.enrich_feature_description", side_effect=str),
         ):
             planner.plan_feature("add queue", "claude")
@@ -497,6 +625,7 @@ class PlannerTests(unittest.TestCase):
                 "EXCLUDED_DIR_NAMES",
                 "SOURCE_EXTENSIONS",
                 "codebase_search_context",
+                "planner_context",
                 "repo_file_sample",
             ),
             questions: ("IMPLEMENTATION_QUESTION_PATTERNS", "bugfix_questions"),

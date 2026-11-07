@@ -40,6 +40,15 @@ CLAUDE_PLANNER_MODEL = os.environ.get("CLAUDE_PLANNER_MODEL", "").strip()
 # "subscription" (default): Claude Code runs on the claude.ai login, with the
 # API key kept out of its environment (claude_env). "api_key": it may use it.
 CLAUDE_CODE_AUTH = os.environ.get("CLAUDE_CODE_AUTH", "subscription").strip().lower()
+# Bounded live repository context for the tool-free API planner. When the
+# repository has no usable evidence, PLANNER_CONTEXT_ESCALATION="codex" routes
+# the plan to the Codex CLI (which has repository tools) instead of failing;
+# the default "off" surfaces the explicit context error.
+PLANNER_CONTEXT_MAX_CHARS = int(os.environ.get("PLANNER_CONTEXT_MAX_CHARS", "12000"))
+PLANNER_CONTEXT_SCAN_SECONDS = int(os.environ.get("PLANNER_CONTEXT_SCAN_SECONDS", "3"))
+PLANNER_CONTEXT_ESCALATION = (
+    os.environ.get("PLANNER_CONTEXT_ESCALATION", "off").strip().lower()
+)
 IMPLEMENTATION_AGENT = os.environ.get("IMPLEMENTATION_AGENT", "codex").strip().lower()
 CLAUDE_CODE_ARGS = tuple(
     shlex.split(os.environ.get("CLAUDE_CODE_ARGS", "--permission-mode acceptEdits"))
