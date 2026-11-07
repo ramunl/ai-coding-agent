@@ -79,13 +79,34 @@ def bind_dependencies(task: dict, data: dict) -> list[dict]:
 
 def fingerprint(task: dict, data: dict) -> str:
     """Pure identity/revision binding for display caches and async race detection."""
-    predecessors = [
-        {
-            key: t.get(key)
-            for key in ("id", "attempt", "stage", "context_handoff", "branch")
-        }
-        for t in data.get("tasks", [])
-    ]
+    # Consumer stage updates and unrelated tasks are not prerequisite changes.
+    # Keep the edges themselves below so additions/removals still invalidate.
+    legacy = task.get("dependency_ids", [])
+    ids = (
+        {value for value in legacy if isinstance(value, str)}
+        if isinstance(legacy, (list, tuple))
+        else set()
+    )
+    if isinstance(task.get("after"), str):
+        ids.add(task["after"])
+    edges = task.get("dependencies", [])
+    if isinstance(edges, list):
+        ids.update(
+            edge["task_id"]
+            for edge in edges
+            if isinstance(edge, dict) and isinstance(edge.get("task_id"), str)
+        )
+    predecessors = sorted(
+        [
+            {
+                key: t.get(key)
+                for key in ("id", "attempt", "stage", "context_handoff", "branch")
+            }
+            for t in data.get("tasks", [])
+            if t.get("id") in ids
+        ],
+        key=lambda item: item["id"],
+    )
     value = [
         {
             key: task.get(key)

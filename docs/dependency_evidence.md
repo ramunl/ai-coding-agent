@@ -70,3 +70,10 @@ history deepening or dependency override. The fetched branch must contain the
 verified merge commit; all dependency evidence is evaluated again after an
 update. Retries are bounded by the number of dependency edges. This applies to
 manual starts and worker admission, even when the worker is off for manual work.
+
+Dependency verification fingerprints the consumer's edge definitions and attempt
+binding plus only its referenced predecessor tasks. Consumer display-stage changes,
+unrelated task changes and task-list ordering do not invalidate the check.
+Predecessor removal, stage/branch/attempt/handoff changes, and edge revisions still
+invalidate in-flight verification. This does not bypass fresh PR, archive,
+checkout ancestry or evidence-age checks.
