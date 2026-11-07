@@ -84,12 +84,17 @@
             "additionalProperties": false,
             "required": [
               "title",
-              "acceptance"
+              "acceptance",
+              "repository"
             ],
             "properties": {
               "title": {
                 "type": "string",
                 "maxLength": 200
+              },
+              "repository": {
+                "type": "string",
+                "maxLength": 100
               },
               "acceptance": {
                 "type": "string",

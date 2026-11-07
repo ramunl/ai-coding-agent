@@ -28,3 +28,19 @@ broad ready fix, the warning appears before `/confirm`, and is published as
 `pending_scope_assessment` for the dashboard. This does not create or approve a
 feature plan. Narrow the fix with `/cancel`, then `/plan` for one milestone, or
 confirm the original fix. Bugfix commit and execution semantics remain intact.
+
+Milestones may specify a registered `repository` alongside `title` and
+`acceptance`. Repository ownership is resolved for the whole split before any
+task is created. Legacy titles beginning with a registered repository name are
+also supported. Cross-repository verification milestones must have explicit
+owners; ambiguous ownership is rejected instead of defaulting to the active UI
+project. Each child and its dependency edge capture the actual repository.
+
+An owner can move a wrongly assigned, unstarted split child to the plan's single
+registered repository using the existing Move action. The task ID, incoming
+links, outgoing links, group, todo and autopilot preference survive. Its old
+plan is discarded and it returns to To do for planning in the corrected
+repository. Execution history or a dependent that has already started blocks
+this correction. Merely switching the active project does not move a task or
+make an old approval valid. Approval refusals are returned as failed dashboard
+actions (and logged), rather than successful actions carrying a refusal message.

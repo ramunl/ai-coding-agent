@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import asdict
 
 from telegram import Update
@@ -55,6 +56,8 @@ from ai_agent.task_split import SplitError, split_pending
 from ai_agent.tasks import find_task
 from ai_agent.workflow import slugify_branch_name
 
+logger = logging.getLogger(__name__)
+
 
 async def plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Create a pending plan from the requested feature."""
@@ -97,6 +100,7 @@ async def discuss(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     refusal = repository_mismatch(plan_state.repository_identity)
     if refusal:
+        logger.warning("Plan action rejected for %s: %s", plan_state.id, refusal)
         await reply_chunks(update, refusal)
         return
 
@@ -185,6 +189,7 @@ async def approve(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         plan_state
     )
     if refusal:
+        logger.warning("Plan approval rejected for %s: %s", plan_state.id, refusal)
         await reply_chunks(update, refusal)
         return
 

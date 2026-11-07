@@ -7,12 +7,15 @@ from ai_agent.config import redact_sensitive
 SCOPE_GUIDANCE = """
 Assess implementation scope before approval, including work within ONE repository.
 Include scope_assessment: {"recommend_split": boolean, "reason": "specific reason",
-"milestones": [{"title": "bounded change", "acceptance": "independent test"}]}.
+"milestones": [{"title": "bounded change", "acceptance": "independent test",
+"repository": "registered repository name"}]}.
 Recommend splitting when there are several independently testable changes,
 substantial integration/migration work, or uncertain prerequisites. Supply 2-5
 ordered milestones with concrete acceptance checks; otherwise use false and [].
 Do not estimate hours or promise completion within any session. Already scoped
 milestones should not expand their parent initiative or repeat prerequisites.
+Each milestone must name its actual execution repository, including verification-only
+work. Do not assign all milestones to the active project for cross-repository checks.
 This is advice only: do not execute or create tasks automatically.
 """
 
@@ -37,7 +40,10 @@ def assess_scope(
             title = _text(item.get("title"), 200)
             acceptance = _text(item.get("acceptance"), 500)
             if title and acceptance:
-                milestones.append({"title": title, "acceptance": acceptance})
+                milestone = {"title": title, "acceptance": acceptance}
+                if item.get("repository"):
+                    milestone["repository"] = _text(item["repository"], 100)
+                milestones.append(milestone)
     if raw["recommend_split"]:
         return {
             "recommend_split": True,
