@@ -13,7 +13,9 @@ context or unclear), reason, evidence (a source reference for completed work),
 and checked_at (YYYY-MM-DD for completed work).
 List only implementation owners in repositories, in dependency order; multiple
 implementation owners require offering /split. Verification-only or context
-repositories do not need implementation tasks. Give concrete verification steps
+repositories do not need implementation tasks. A verification-only plan may list
+its execution repository in repositories, with role verify and no file changes.
+Give concrete verification steps
 for verify entries. Completed claims need a dated evidence reference; never invent
 checks or treat old evidence as fresh. Mark unresolved ownership unclear instead
 of silently dropping work. Already split tasks account only for their Assigned
@@ -100,7 +102,7 @@ def issues(feature: str, document: object, names: list[str] | None = None) -> li
         if (
             role not in {"verify", "completed", "context"}
             or not row["reason"]
-            or name in changes
+            or (name in changes and not (role == "verify" and not document.files))
         ):
             result.append(f"{name}: unresolved or conflicting repository scope.")
             continue

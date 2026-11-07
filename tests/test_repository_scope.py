@@ -212,3 +212,37 @@ def test_repository_name_before_sentence_punctuation_is_accounted(punctuation):
 
 def test_repository_name_does_not_match_dot_suffix():
     assert scope.review(plan(feature="Change ai-dashboard.extra only")) == []
+
+
+def test_verification_only_child_can_approve_its_execution_repository():
+    p = plan(
+        [
+            {
+                "name": "ai-pm-agent",
+                "role": "verify",
+                "reason": "Run existing offline checks",
+            }
+        ],
+        repositories=[
+            {"name": "ai-pm-agent", "changes": "Verification only: run existing checks"}
+        ],
+        steps=["Run pytest and Ruff in ai-pm-agent; record commit and results"],
+        feature="Assigned repository: ai-pm-agent. Verify baseline only.",
+    )
+    assert scope.review(p) == []
+    approve_plan(p)
+    assert p.approved
+
+    raw = json.loads(p.plan_text)
+    raw["files"] = ["ai_pm_agent/task_service.py"]
+    p.plan_text = json.dumps(raw)
+    assert any("conflicting" in problem for problem in scope.review(p))
+
+
+def test_verification_execution_target_still_requires_named_checks_and_reason():
+    p = plan(
+        [{"name": "ai-pm-agent", "role": "verify", "reason": "Run existing checks"}],
+        repositories=[{"name": "ai-pm-agent", "changes": "Verify"}],
+        feature="Assigned repository: ai-pm-agent. Verify baseline only.",
+    )
+    assert any("concrete verification step" in problem for problem in scope.review(p))
