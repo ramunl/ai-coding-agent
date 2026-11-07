@@ -241,9 +241,7 @@ def _evaluate(values: list[dict]) -> list[dict]:
     return facts
 
 
-def _dependency_observation(
-    task: dict, result: dict, checked_at: float
-) -> dict | None:
+def _dependency_observation(task: dict, result: dict, checked_at: float) -> dict | None:
     """Record a structured fact bound to this task's context identity.
 
     Free-text reasons and exceptions are never parsed into finer flags. A task

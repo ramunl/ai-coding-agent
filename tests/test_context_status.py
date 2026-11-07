@@ -172,7 +172,9 @@ def test_evidence_state_distinguishes_receipt_lifecycle():
     assert context_status((REF,), META, now=161).evidence_state == "stale"
     assert (
         context_status(
-            (REF,), PacketMetadata.from_dict({"schema_version": 1}), now=100,
+            (REF,),
+            PacketMetadata.from_dict({"schema_version": 1}),
+            now=100,
             planned=True,
         ).evidence_state
         == "metadata_unavailable"

@@ -59,7 +59,13 @@ def _identity(task: Mapping, source: Mapping) -> Mapping:
     return spec
 
 
-def _receipt_status(task: Mapping, source: Mapping, spec: Mapping, *, now: int) -> ContextStatus:
+def _receipt_status(
+    task: Mapping,
+    source: Mapping,
+    spec: Mapping,
+    *,
+    now: int,
+) -> ContextStatus:
     """Project one identity-bound receipt into the typed v1 status."""
     metadata = PacketMetadata.from_dict(source.get("packet_metadata"))
     packet = source.get("context_packet", source.get("packet"))
@@ -137,19 +143,17 @@ def _initiative_status(entries: list[dict], *, now: int) -> ContextStatus:
             (),
             _worst_evidence([status.evidence_state for status in statuses]),
         )
-    refs = tuple(
-        sorted({ref for status in statuses for ref in status.packet_refs})
-    )
+    refs = tuple(sorted({ref for status in statuses for ref in status.packet_refs}))
     metadata = PacketMetadata(
-        min(status.observed_at for status in statuses if status.observed_at is not None),
+        min(
+            status.observed_at for status in statuses if status.observed_at is not None
+        ),
         True,
         _sum_or_none([status.omission_count for status in statuses]),
         _sum_or_none([status.truncation_count for status in statuses]),
     )
     blockers = tuple(
-        sorted(
-            {code for status in statuses for code in status.dependency_blockers}
-        )
+        sorted({code for status in statuses for code in status.dependency_blockers})
     )
     return context_status(
         tuple(ref.to_dict() for ref in refs),
@@ -179,6 +183,9 @@ def initiative_statuses(data: Mapping, *, now: int) -> list[dict]:
             {"task": task, "source": source, "spec": spec}
         )
     return [
-        {"id": identity, "context_status": _initiative_status(entries, now=now).to_dict()}
+        {
+            "id": identity,
+            "context_status": _initiative_status(entries, now=now).to_dict(),
+        }
         for identity, entries in sorted(receipts.items())
     ]

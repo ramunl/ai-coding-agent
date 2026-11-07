@@ -212,7 +212,11 @@ class ContextStatus:
         """
         if not isinstance(value, dict):
             return cls("unknown", (), "unknown", None, None, None, ())
-        health = value.get("health") if value.get("health") in HEALTH_VALUES else "unknown"
+        health = (
+            value.get("health")
+            if value.get("health") in HEALTH_VALUES
+            else "unknown"
+        )
         freshness = (
             value.get("freshness")
             if value.get("freshness") in FRESHNESS_VALUES
