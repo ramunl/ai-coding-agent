@@ -160,6 +160,9 @@ def test_both_planners_request_accounting_and_cannot_approve_omissions(
     ]:
         monkeypatch.setattr(planner, name, lambda *a, **k: "")
     monkeypatch.setattr(planner, "enrich_feature_description", lambda text: text)
+    # This test is about repository accounting, not live context, so bypass the
+    # API planner's context block (which would need a real repo_path here).
+    monkeypatch.setattr(planner, "_live_context_block", lambda *a, **k: ("", None))
     prompts = []
     monkeypatch.setattr(
         planner,

@@ -100,9 +100,7 @@ class PlannerTests(unittest.TestCase):
         planner, provider = self._modules()
 
         with patch("ai_agent.planner.repo_file_sample", return_value="App.kt"):
-            with patch(
-                "ai_agent.planner.planner_context", return_value=""
-            ):
+            with patch("ai_agent.planner.planner_context", return_value=""):
                 with patch(
                     "ai_agent.planner.enrich_feature_description",
                     return_value="enriched request",

@@ -80,8 +80,7 @@ def _planner_uses_api(provider: str | None) -> bool:
     block baked into the prompt; only the API path lacks tools.
     """
     return (
-        CLAUDE_PLANNER_VIA == "api"
-        and normalize_planning_agent(provider) == "claude"
+        CLAUDE_PLANNER_VIA == "api" and normalize_planning_agent(provider) == "claude"
     )
 
 

@@ -45,9 +45,7 @@ CLAUDE_CODE_AUTH = os.environ.get("CLAUDE_CODE_AUTH", "subscription").strip().lo
 # the plan to the Codex CLI (which has repository tools) instead of failing;
 # the default "off" surfaces the explicit context error.
 PLANNER_CONTEXT_MAX_CHARS = int(os.environ.get("PLANNER_CONTEXT_MAX_CHARS", "12000"))
-PLANNER_CONTEXT_SCAN_SECONDS = int(
-    os.environ.get("PLANNER_CONTEXT_SCAN_SECONDS", "3")
-)
+PLANNER_CONTEXT_SCAN_SECONDS = int(os.environ.get("PLANNER_CONTEXT_SCAN_SECONDS", "3"))
 PLANNER_CONTEXT_ESCALATION = (
     os.environ.get("PLANNER_CONTEXT_ESCALATION", "off").strip().lower()
 )
