@@ -166,9 +166,7 @@ def test_dependency_mapping_ignores_exception_text_and_unverified_success():
 
 
 def test_evidence_state_distinguishes_receipt_lifecycle():
-    assert (
-        context_status((REF,), META, now=100).evidence_state == "verified_current"
-    )
+    assert context_status((REF,), META, now=100).evidence_state == "verified_current"
     assert context_status((REF,), META, now=161).evidence_state == "stale"
     assert (
         context_status(
