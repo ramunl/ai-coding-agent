@@ -360,6 +360,33 @@ class PlanStateTests(unittest.TestCase):
         self.assertEqual(len(outline["files"]), plan_state.OUTLINE_ITEMS)
         self.assertNotIn("secret prompt", json.dumps(outline))
 
+    def test_packet_receipt_sidecar_is_retained_and_revision_preserves_it(self) -> None:
+        receipt = {
+            "packet": {"packet_id": "packet", "sha256": "a" * 64},
+            "packet_metadata": {
+                "schema_version": 1,
+                "verified": True,
+                "observed_at": 100,
+            },
+        }
+        token = plan_state.packet_receipt.set(receipt)
+        try:
+            plan = new_plan_state("feature", "text")
+            self.assertEqual(plan.context_packet, receipt["packet"])
+            self.assertEqual(plan.packet_metadata, receipt["packet_metadata"])
+            revised = revise_plan_state(plan, "revision")
+            self.assertEqual(revised.context_packet, receipt["packet"])
+            self.assertEqual(revised.packet_metadata, receipt["packet_metadata"])
+        finally:
+            plan_state.packet_receipt.reset(token)
+
+        # Without a fresh receipt, a revision keeps the prior sidecar verbatim.
+        plan.packet_metadata["observed_at"] = 200
+        plan.context_packet["packet_id"] = "other"
+        revised = revise_plan_state(plan, "second revision")
+        self.assertEqual(revised.packet_metadata, plan.packet_metadata)
+        self.assertEqual(revised.context_packet, plan.context_packet)
+
     def test_old_plan_state_import_paths_resolve_to_moved_objects(self) -> None:
         for name in ("PlanDocument", "parse_plan_document"):
             with self.subTest(name=name):

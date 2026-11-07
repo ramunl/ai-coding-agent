@@ -181,6 +181,51 @@ class RestartTests(unittest.TestCase):
         self.assertEqual(restored["verbosity"], "normal")
 
 
+class ContextRetentionTests(unittest.TestCase):
+    def test_packet_metadata_flows_from_plan_to_run_without_binding(self) -> None:
+        packet = {"packet_id": "packet", "sha256": "a" * 64}
+        metadata = {
+            "schema_version": 1,
+            "verified": True,
+            "observed_at": 100,
+            "omission_count": 0,
+            "truncation_count": 0,
+        }
+        identity = {
+            "project_name": "A",
+            "repo_path": "/tmp/A",
+            "github_repository": "owner/A",
+        }
+        plan = _plan(
+            context_packet=packet,
+            packet_metadata=metadata,
+            repository_identity=identity,
+        )
+        data = {
+            "tasks": [
+                {
+                    "id": "t1",
+                    "stage": "planned",
+                    "repo": "A",
+                    "plan_id": plan.id,
+                    "branch": "feature/genre-filter",
+                }
+            ]
+        }
+        state.set_pending_from_plan(data, plan)
+        pending = data["pending_implementation"]
+        self.assertEqual(pending["context_packet"], packet)
+        self.assertEqual(pending["packet_metadata"], metadata)
+        data["tasks"][0]["branch"] = pending["branch_name"]
+        queued = state.enqueue_pending_implementation(data, pending)
+        self.assertEqual(queued["context_packet"], packet)
+        self.assertEqual(queued["packet_metadata"], metadata)
+        self.assertEqual(data["tasks"][0]["run"]["context_packet"], packet)
+        self.assertEqual(data["tasks"][0]["run"]["packet_metadata"], metadata)
+        # Retention is additive: the run binding digest never includes it.
+        self.assertEqual(queued["run_binding"], pending["run_binding"])
+
+
 class RobustnessTests(unittest.TestCase):
     def setUp(self) -> None:
         self.path = Path(tempfile.mkdtemp()) / "state.json"

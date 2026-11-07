@@ -27,6 +27,24 @@ BLOCKER_CODES = frozenset(
         "dependency_recovery_pending",
     }
 )
+EvidenceState = Literal[
+    "not_planned",
+    "metadata_unavailable",
+    "stale",
+    "verified_current",
+    "unknown",
+]
+EVIDENCE_STATES = frozenset(
+    {
+        "not_planned",
+        "metadata_unavailable",
+        "stale",
+        "verified_current",
+        "unknown",
+    }
+)
+HEALTH_VALUES = frozenset({"healthy", "degraded", "blocked", "unknown", "unavailable"})
+FRESHNESS_VALUES = frozenset({"fresh", "stale", "unknown"})
 
 
 def _integer(value: object, maximum: int) -> int | None:
@@ -159,19 +177,16 @@ class ContextStatus:
     omission_count: int | None
     truncation_count: int | None
     dependency_blockers: tuple[BlockerCode, ...]
+    evidence_state: EvidenceState = "unknown"
 
     def to_dict(self) -> dict:
         """Validate closed enums and explicitly project deterministic JSON fields."""
-        if self.health not in {
-            "healthy",
-            "degraded",
-            "blocked",
-            "unknown",
-            "unavailable",
-        }:
+        if self.health not in HEALTH_VALUES:
             raise ValueError("Invalid context health")
-        if self.freshness not in {"fresh", "stale", "unknown"}:
+        if self.freshness not in FRESHNESS_VALUES:
             raise ValueError("Invalid context freshness")
+        if self.evidence_state not in EVIDENCE_STATES:
+            raise ValueError("Invalid evidence state")
         codes = tuple(sorted(set(self.dependency_blockers)))
         if not set(codes) <= BLOCKER_CODES:
             raise ValueError("Invalid dependency blocker code")
@@ -185,7 +200,50 @@ class ContextStatus:
             "omission_count": bounded_count(self.omission_count),
             "truncation_count": bounded_count(self.truncation_count),
             "dependency_blockers": list(codes),
+            "evidence_state": self.evidence_state,
         }
+
+    @classmethod
+    def from_dict(cls, value: object) -> "ContextStatus":
+        """Restore a projected status; a missing additive field stays unknown.
+
+        Legacy records predate `evidence_state`, so an absent or invalid value
+        defaults to "unknown" without raising or migrating.
+        """
+        if not isinstance(value, dict):
+            return cls("unknown", (), "unknown", None, None, None, ())
+        health = value.get("health") if value.get("health") in HEALTH_VALUES else "unknown"
+        freshness = (
+            value.get("freshness")
+            if value.get("freshness") in FRESHNESS_VALUES
+            else "unknown"
+        )
+        evidence = value.get("evidence_state")
+        evidence_state = evidence if evidence in EVIDENCE_STATES else "unknown"
+        refs = []
+        for item in value.get("packet_refs") or []:
+            ref = safe_packet_ref(item)
+            if ref is not None:
+                refs.append(ref)
+        codes = tuple(
+            sorted(
+                {
+                    code
+                    for code in value.get("dependency_blockers") or []
+                    if code in BLOCKER_CODES
+                }
+            )
+        )
+        return cls(
+            health,
+            tuple(refs)[:MAX_PACKET_REFS],
+            freshness,
+            _integer(value.get("observed_at"), MAX_TIMESTAMP),
+            bounded_count(value.get("omission_count")),
+            bounded_count(value.get("truncation_count")),
+            codes,
+            evidence_state,
+        )
 
     def to_json(self) -> str:
         """Serialize canonical ASCII JSON without clocks or external reads."""
@@ -199,8 +257,15 @@ def context_status(
     now: int,
     access_failed: bool = False,
     blockers: tuple[BlockerCode, ...] = (),
+    planned: bool | None = None,
 ) -> ContextStatus:
-    """Derive display health conservatively from explicit observations only."""
+    """Derive display health conservatively from explicit observations only.
+
+    `planned` describes whether the subject carries a context identity at all:
+    True for a receipt, False for a subject known not to be planned yet, and
+    None for legacy/unknown records. It selects the additive `evidence_state`
+    and never changes health or freshness.
+    """
     metadata = PacketMetadata.from_dict((metadata or PacketMetadata()).to_dict())
     refs = tuple(sorted({r for v in packet_refs if (r := safe_packet_ref(v))}))
     state = freshness(metadata, now=now)
@@ -208,6 +273,16 @@ def context_status(
     codes = tuple(sorted(set(blockers)))
     if not set(codes) <= BLOCKER_CODES:
         raise ValueError("Invalid dependency blocker code")
+    if state == "fresh":
+        evidence_state = "verified_current"
+    elif state == "stale":
+        evidence_state = "stale"
+    elif planned is True:
+        evidence_state = "metadata_unavailable"
+    elif planned is False:
+        evidence_state = "not_planned"
+    else:
+        evidence_state = "unknown"
     if access_failed is True or "dependency_unavailable" in codes:
         health = "unavailable"
     elif set(codes) - {"dependency_unknown"}:
@@ -231,4 +306,5 @@ def context_status(
         metadata.observed_at,
         *counts,
         codes,
+        evidence_state,
     )

@@ -148,6 +148,8 @@ def set_pending_from_plan(
         ),
         "plan_id": plan_state.id,
         "context_spec": plan_state.context_spec,
+        "context_packet": plan_state.context_packet,
+        "packet_metadata": plan_state.packet_metadata,
         "approval_binding": plan_state.approval_binding,
         "change": plan_state.feature,
         "images": list(plan_state.images),
@@ -198,6 +200,8 @@ def enqueue_pending_implementation(
         )
     task = {
         "context_spec": pending.get("context_spec"),
+        "context_packet": pending.get("context_packet"),
+        "packet_metadata": pending.get("packet_metadata"),
         "dependency_task": pending.get("dependency_task"),
         "approval_binding": pending.get("approval_binding"),
         "run_binding": pending.get("run_binding"),

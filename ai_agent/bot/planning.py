@@ -25,6 +25,7 @@ from ai_agent.bugfix_scope import BugfixReview, parse_bugfix_review
 from ai_agent.context_lifecycle import (
     approve_plan,
     current_context,
+    packet_receipt,
     run_binding,
     spec_from_request,
 )
@@ -429,9 +430,12 @@ async def prepare_bugfix(
         bugfix_prompt = await asyncio.to_thread(build_bugfix_prompt, bug)
         branch_name = slugify_branch_name(branch_source, "bugfix")
 
+        receipt = packet_receipt.get() or {}
         context.user_data["pending_implementation"] = {
             "repository_identity": identity,
             "context_spec": spec_from_request(current_context.get()),
+            "context_packet": receipt.get("packet"),
+            "packet_metadata": receipt.get("packet_metadata"),
             "change": bug,
             "images": list(images or []),
             "codex_prompt": bugfix_prompt,

@@ -219,7 +219,7 @@ def test_context_snapshot_is_additive_and_excludes_private_receipt_data():
     assert row["note"] == "Existing note"
     assert row["title"] == "Existing title"
     assert row["context_status"]["health"] == "healthy"
-    assert content["initiatives"][0]["context_status"]["health"] == "unknown"
+    assert content["initiatives"][0]["context_status"]["health"] == "healthy"
     assert "PRIVATE" not in json.dumps(content)
     with patch.object(state.time, "time", return_value=161):
         later = build_content({"tasks": [task]}, PROJECT, VERSIONS)
