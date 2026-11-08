@@ -54,9 +54,9 @@ def test_count_bounds(value, expected):
 
 
 @pytest.mark.parametrize(
-    "now, health", [(99, "unknown"), (160, "healthy"), (161, "degraded")]
+    "now, health", [(99, "unknown"), (160, "healthy"), (161, "healthy")]
 )
-def test_health_uses_observation_time(now, health):
+def test_health_does_not_treat_capture_age_as_a_defect(now, health):
     assert task_context_status(receipt(), {}, now=now)["health"] == health
 
 

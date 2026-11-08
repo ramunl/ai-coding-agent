@@ -65,7 +65,7 @@ Health precedence, highest first:
 2. Verified dependency invalidation or pending recovery: blocked.
 3. Unknown freshness, missing counts/refs, invalid refs, or
    `dependency_unknown`: unknown.
-4. Stale evidence, positive omission/truncation counts, or excess refs: degraded.
+4. Positive omission/truncation counts or excess refs: degraded. Capture age alone does not degrade packet health.
 5. Otherwise: healthy.
 
 `evidence_state` is an additive field that reports what the projection can say
@@ -196,3 +196,13 @@ Tests cover the new projection and its snapshot placement with seeded private
 data. Existing task notes, dependency reasons and other legacy snapshot fields
 are preserved; broader snapshot sanitization and legacy fixture coverage remain
 separate milestones. Context evidence is never copied into those legacy fields.
+
+
+Capture age and packet health are separate. A valid captured packet with no
+omissions remains structurally healthy after 60 seconds, while `freshness` and
+`evidence_state` still become `stale` and `observed_at` remains unchanged. This
+is a display rule, not a claim that repository facts are still current. Actual
+changed/unavailable dependencies retain their blocking states. Missing or stale
+dependency observations remain unknown and require fresh verification before
+execution; no admission age limit, Git/PR check or approval binding is relaxed.
+Completed tasks show their historical capture instead of a time-driven failure.

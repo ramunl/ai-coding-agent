@@ -121,7 +121,7 @@ def test_health_precedence_through_build_content(monkeypatch):
     status = status_of(receipt(), monkeypatch=monkeypatch)
     assert status["health"] == "healthy"
     status = status_of(receipt(), now=161.0, monkeypatch=monkeypatch)
-    assert status["health"] == "degraded"
+    assert status["health"] == "healthy"
     blocked = dependency_receipt(fact="invalidated")
     assert status_of(blocked, monkeypatch=monkeypatch)["health"] == "blocked"
     status = status_of(receipt(verified=False), monkeypatch=monkeypatch)
@@ -160,7 +160,7 @@ def test_packet_ref_cap_and_duplicate_collapse():
     [
         (100, "fresh", "healthy"),
         (160, "fresh", "healthy"),
-        (161, "stale", "degraded"),
+        (161, "stale", "healthy"),
         (99, "unknown", "unknown"),
     ],
 )
