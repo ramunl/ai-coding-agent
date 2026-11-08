@@ -144,7 +144,5 @@ def test_opencode_stays_disabled_and_unsupported() -> None:
 
 
 def test_opencode_is_never_routed_or_available() -> None:
-    assert "opencode" not in {
-        p.name for p in provider_registry.enabled_providers()
-    }
+    assert "opencode" not in {p.name for p in provider_registry.enabled_providers()}
     assert availability("opencode") == DISABLED
