@@ -53,7 +53,7 @@ from ai_agent.git_recovery import (
 from ai_agent.github import PullRequest, ensure_github_configured, github_request
 from ai_agent.image_delivery import invoke
 from ai_agent.plan_state import Verbosity, render_completion, repository_mismatch
-from ai_agent.preflight import PreflightBlocked
+from ai_agent.preflight import PreflightBlockedError
 from ai_agent.projects import active_project
 from ai_agent.run_outcomes import (
     NoCodeOutcomeError,
@@ -78,7 +78,7 @@ from ai_agent.workflow import (
 logger = logging.getLogger(__name__)
 
 
-def _preflight_reply(blocked: PreflightBlocked) -> str:
+def _preflight_reply(blocked: PreflightBlockedError) -> str:
     """Route a preflight blocker to the Ops controls, with a retry note."""
     return (
         f"{blocked}\n\n"
@@ -205,7 +205,7 @@ async def run_queued_implementation(
     no_code = False
     stopped = False
     published = False
-    preflight_blocked: PreflightBlocked | None = None
+    preflight_blocked: PreflightBlockedError | None = None
     try:
         pull_request, commit_sha = await _publish_queued_implementation(
             update, context, task
@@ -251,7 +251,7 @@ async def run_queued_implementation(
             str(outcome) + "\n\nUse the Ops dashboard or Ops bot for server actions. "
             "After resolving the blocker, retry the task.",
         )
-    except PreflightBlocked as blocked:
+    except PreflightBlockedError as blocked:
         preflight_blocked = blocked
         if not published:
             record_outcome(context.user_data, branch_name, blocked)
@@ -457,7 +457,7 @@ async def fixpr(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 update,
                 f"PR #{pr_number} CI did not fail within the polling window.\n{pr_url}",
             )
-    except PreflightBlocked as blocked:
+    except PreflightBlockedError as blocked:
         if not blocked.reported:
             await reply_chunks(update, _preflight_reply(blocked))
     finally:
@@ -556,7 +556,7 @@ async def _repair_failed_ci(
                 request.branch_name,
                 request.implementation_agent,
             )
-        except PreflightBlocked as blocked:
+        except PreflightBlockedError as blocked:
             await reply_chunks(update, _preflight_reply(blocked))
             blocked.reported = True
             raise

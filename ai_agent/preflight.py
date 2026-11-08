@@ -3,7 +3,7 @@
 Before dispatching a paid implementation or CI-repair run, resolve the exact
 child environment that ``ai_agent.shell.run`` would use and verify the known
 prerequisites on that environment, without any paid inference. A missing
-prerequisite raises ``PreflightBlocked`` with a secret-free diagnostic naming
+prerequisite raises ``PreflightBlockedError`` with a secret-free diagnostic naming
 the Ops action the owner must complete first.
 """
 
@@ -65,7 +65,7 @@ class PreflightPolicy:
     path: str
 
 
-class PreflightBlocked(RuntimeError):
+class PreflightBlockedError(RuntimeError):
     """A known prerequisite is missing before a paid run; Ops must act first."""
 
     status = "ops_required"
@@ -229,7 +229,7 @@ _PROBES = {
 
 def _check_runner(policy: PreflightPolicy) -> None:
     if shutil.which(policy.runner, path=policy.path) is None:
-        raise PreflightBlocked(
+        raise PreflightBlockedError(
             action=f"Install the {policy.runner} CLI on the worker PATH",
             reason=f"{policy.runner} was not found on the child PATH",
         )
@@ -237,7 +237,7 @@ def _check_runner(policy: PreflightPolicy) -> None:
 
 def _check_model(policy: PreflightPolicy) -> None:
     if policy.model is not None and not _MODEL.fullmatch(policy.model):
-        raise PreflightBlocked(
+        raise PreflightBlockedError(
             action="Set a valid CODEX_MODEL",
             reason=f"invalid model identifier: {policy.model!r}",
         )
@@ -245,7 +245,7 @@ def _check_model(policy: PreflightPolicy) -> None:
 
 def _check_checkout(policy: PreflightPolicy) -> None:
     if not policy.cwd.is_dir():
-        raise PreflightBlocked(
+        raise PreflightBlockedError(
             action="Repair the checkout or sandbox",
             reason=f"the dispatch checkout does not exist: {policy.cwd}",
         )
@@ -257,20 +257,20 @@ def _check_provider(
 ) -> None:
     for args, action, reason in _PROBES.get(policy.agent, ()):
         if not probe(list(args), policy):
-            raise PreflightBlocked(action=action, reason=reason)
+            raise PreflightBlockedError(action=action, reason=reason)
 
 
 def _check_verification_tools(policy: PreflightPolicy) -> None:
     for binary in VERIFICATION_BINARIES:
         if shutil.which(binary, path=policy.path) is None:
             label = _VERIFICATION_TOOL_LABELS.get(binary, binary)
-            raise PreflightBlocked(
+            raise PreflightBlockedError(
                 action=f"Install {label} on the worker PATH",
                 reason=f"{binary} was not found on the child PATH",
             )
     baseline = policy.cwd / "scripts" / "baseline.sh"
     if not baseline.is_file():
-        raise PreflightBlocked(
+        raise PreflightBlockedError(
             action="Restore scripts/baseline.sh in the checkout",
             reason="scripts/baseline.sh is missing from the checkout",
         )
@@ -291,7 +291,7 @@ def preflight(
     _check_verification_tools(resolved)
     unapproved = unapproved_verification_commands(resolved.agent)
     if unapproved:
-        raise PreflightBlocked(
+        raise PreflightBlockedError(
             action=(
                 "Approve the documented verification commands in "
                 "CLAUDE_CODE_ALLOWED_TOOLS"

@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from ai_agent.preflight import (
-    PreflightBlocked,
+    PreflightBlockedError,
     allowed_bash_commands,
     effective_claude_allowed_tools,
     preflight,
@@ -70,7 +70,7 @@ def test_missing_runner_on_child_path_blocks(checkout):
     bin_dir = make_bin(checkout, "pytest", "ruff")
     policy = make_policy("codex", checkout, bin_dir)
 
-    with pytest.raises(PreflightBlocked) as caught:
+    with pytest.raises(PreflightBlockedError) as caught:
         preflight(policy=policy, probe=lambda args, _policy: True)
 
     message = str(caught.value)
@@ -82,7 +82,7 @@ def test_missing_ruff_blocks_preflight(checkout):
     bin_dir = make_bin(checkout, "codex", "pytest")
     policy = make_policy("codex", checkout, bin_dir)
 
-    with pytest.raises(PreflightBlocked) as caught:
+    with pytest.raises(PreflightBlockedError) as caught:
         preflight(policy=policy, probe=lambda args, _policy: True)
 
     message = str(caught.value)
@@ -97,7 +97,7 @@ def test_missing_codex_login_blocks(checkout):
     def probe(args, _policy):
         return tuple(args) != ("codex", "login", "status")
 
-    with pytest.raises(PreflightBlocked) as caught:
+    with pytest.raises(PreflightBlockedError) as caught:
         preflight(policy=policy, probe=probe)
 
     assert "codex login status" in str(caught.value)
@@ -110,7 +110,7 @@ def test_missing_claude_config_blocks(checkout):
     def probe(args, _policy):
         return tuple(args) != ("claude", "config", "stat")
 
-    with pytest.raises(PreflightBlocked) as caught:
+    with pytest.raises(PreflightBlockedError) as caught:
         preflight(policy=policy, probe=probe)
 
     assert "claude config stat" in str(caught.value)
@@ -153,7 +153,7 @@ def test_preflight_blocks_unapproved_verification_command(checkout, monkeypatch)
     )
     monkeypatch.setattr("ai_agent.preflight.CLAUDE_CODE_ARGS", ())
 
-    with pytest.raises(PreflightBlocked) as caught:
+    with pytest.raises(PreflightBlockedError) as caught:
         preflight(policy=policy, probe=lambda args, _policy: True)
 
     message = str(caught.value)
@@ -177,13 +177,11 @@ def test_run_probe_discards_secret_output(checkout, monkeypatch):
     policy = make_policy("codex", checkout, bin_dir)
 
     def fake_run(args, **kwargs):
-        return subprocess.CompletedProcess(
-            args, 1, stdout="secret-token\n", stderr=""
-        )
+        return subprocess.CompletedProcess(args, 1, stdout="secret-token\n", stderr="")
 
     monkeypatch.setattr(preflight_module.subprocess, "run", fake_run)
 
-    with pytest.raises(PreflightBlocked) as caught:
+    with pytest.raises(PreflightBlockedError) as caught:
         preflight(policy=policy)
 
     assert "secret-token" not in str(caught.value)
@@ -192,7 +190,7 @@ def test_run_probe_discards_secret_output(checkout, monkeypatch):
 def test_run_implementation_agent_preflights_before_paid_work():
     from ai_agent import workflow
 
-    blocked = PreflightBlocked(
+    blocked = PreflightBlockedError(
         action="Install Ruff on the worker PATH",
         reason="ruff was not found on the child PATH",
     )
@@ -200,7 +198,7 @@ def test_run_implementation_agent_preflights_before_paid_work():
         patch.object(workflow, "preflight", side_effect=blocked),
         patch.object(workflow, "run_with_images") as run_images,
     ):
-        with pytest.raises(PreflightBlocked):
+        with pytest.raises(PreflightBlockedError):
             workflow.run_implementation_agent("fix", "codex")
 
     run_images.assert_not_called()
@@ -239,7 +237,7 @@ class PreflightRepairTests(TelegramTestCase):
             message=types.SimpleNamespace(reply_text=AsyncMock()),
         )
         context = types.SimpleNamespace(user_data={})
-        blocked = PreflightBlocked(
+        blocked = PreflightBlockedError(
             action="Install Ruff on the worker PATH",
             reason="ruff was not found on the child PATH",
         )
@@ -272,7 +270,7 @@ class PreflightRepairTests(TelegramTestCase):
                 ),
                 patch.object(self.execution, "reply_chunks", AsyncMock()) as reply,
             ):
-                with self.assertRaises(PreflightBlocked):
+                with self.assertRaises(PreflightBlockedError):
                     await self.execution._repair_failed_ci(
                         update, context, request, ci_result
                     )
