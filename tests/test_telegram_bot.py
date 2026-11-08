@@ -134,7 +134,7 @@ class ApplicationTests(TelegramTestCase):
         rows = message.reply_text.await_args.kwargs["reply_markup"].inline_keyboard
         self.assertEqual(
             [b.callback_data for row in rows for b in row],
-            ["planner:codex", "planner:claude"],
+            ["planner:codex", "planner:claude", "planner:deepseek"],
         )
         self.assertEqual(context.args, ["stale"])
         query.data = "command:core update"
