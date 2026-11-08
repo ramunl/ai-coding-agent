@@ -37,8 +37,8 @@ logger = logging.getLogger(__name__)
 
 FORMAT = 1
 ROLES = ("planner", "implementer")
-RUNNERS = ("codex", "claude-api", "claude-code")
-PROVIDERS = ("codex", "claude", "claude-code")
+RUNNERS = ("codex", "claude-api", "claude-code", "deepseek-api")
+PROVIDERS = ("codex", "claude", "claude-code", "deepseek")
 MAX_MODEL_LENGTH = 200
 MAX_ID_LENGTH = 200
 MAX_OUTPUT_CHARS = 1_000_000

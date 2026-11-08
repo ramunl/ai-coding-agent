@@ -72,8 +72,8 @@ def test_missing_fields_stay_none_never_zero() -> None:
 def test_rejects_values_outside_the_vocabulary() -> None:
     for overrides in (
         {"role": "ops"},
-        {"runner": "deepseek"},
-        {"provider": "deepseek"},
+        {"runner": "gemini"},
+        {"provider": "gemini"},
         {"total_tokens": -1},
         {"cost": -0.01},
         {"duration_seconds": -1},

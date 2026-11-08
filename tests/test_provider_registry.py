@@ -12,7 +12,7 @@ def test_discovery_registers_known_providers() -> None:
 
 def test_enabled_providers_match_production_defaults() -> None:
     enabled = {provider.name for provider in provider_registry.enabled_providers()}
-    assert enabled == {"claude", "codex", "claude-code"}
+    assert enabled == {"claude", "codex", "claude-code", "deepseek"}
 
 
 def test_unknown_tool_is_unsupported() -> None:

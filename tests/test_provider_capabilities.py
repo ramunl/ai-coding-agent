@@ -87,7 +87,7 @@ class ModelIdTests(CapabilitiesTestCase):
 class RoleListTests(CapabilitiesTestCase):
     def test_enabled_role_lists_keep_legacy_order(self) -> None:
         self.assertEqual(
-            self.caps.enabled_tools_for_role("planner"), ["codex", "claude"]
+            self.caps.enabled_tools_for_role("planner"), ["codex", "claude", "deepseek"]
         )
         self.assertEqual(
             self.caps.enabled_tools_for_role("executor"), ["codex", "claude"]
@@ -96,7 +96,10 @@ class RoleListTests(CapabilitiesTestCase):
 
     def test_unknown_and_disabled_ids_are_refused(self) -> None:
         self.assertEqual(self.caps.require_enabled_tool("CLAUDE", "planner"), "claude")
-        for bad in ("gpt", "deepseek", "opencode", "claude-code"):
+        self.assertEqual(
+            self.caps.require_enabled_tool("DEEPSEEK", "planner"), "deepseek"
+        )
+        for bad in ("gpt", "opencode", "claude-code"):
             with self.assertRaises(ValueError):
                 self.caps.require_enabled_tool(bad, "planner")
 
@@ -123,11 +126,14 @@ class CapabilityBlockTests(CapabilitiesTestCase):
         self.assertEqual(claude_code["runner"], "claude")
         self.assertIn("executor", claude_code["roles"])
         deepseek = by_id["deepseek"]
-        self.assertEqual(deepseek["status"], "disabled")
-        self.assertEqual(deepseek["model"], "unsupported")
-        self.assertEqual(deepseek["adapter"], "unsupported")
-        self.assertEqual(deepseek["usage"], "unsupported")
-        self.assertEqual(deepseek["images"], "unsupported")
+        self.assertEqual(deepseek["status"], "enabled")
+        self.assertEqual(deepseek["roles"], ["planner"])
+        self.assertIsInstance(deepseek["model"], dict)
+        self.assertFalse(deepseek["model"]["manageable"])
+        self.assertIn("planner", deepseek["adapter"])
+        self.assertEqual(deepseek["usage"], "declared")
+        self.assertIs(deepseek["images"], False)
+        self.assertIs(deepseek["structured_output"], True)
 
     def test_blocks_are_json_serializable(self) -> None:
         json.dumps(self.caps.provider_blocks())
@@ -153,7 +159,7 @@ class SnapshotContractTests(CapabilitiesTestCase):
         view = importlib.import_module("ai_agent.bot.setup_view")
         part = view.state_part({"planning_agent": "claude"})
         self.assertEqual(part["planner"], "claude")
-        self.assertEqual(part["planner_options"], ["codex", "claude"])
+        self.assertEqual(part["planner_options"], ["codex", "claude", "deepseek"])
         self.assertEqual(part["implementer_options"], ["codex", "claude"])
         self.assertIn("planner_model", part)
         self.assertIn("implementer_model", part)
@@ -195,7 +201,7 @@ class ActionValidationTests(CapabilitiesTestCase):
 
     def test_set_planner_refuses_unknown_and_disabled(self) -> None:
         state = {}
-        for bad in ("gpt", "deepseek", "opencode"):
+        for bad in ("gpt", "opencode"):
             with self.assertRaises(self.actions.ActionError):
                 self.actions.set_planner(bad, state)
         self.assertEqual(state, {})

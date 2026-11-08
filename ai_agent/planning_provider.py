@@ -233,4 +233,8 @@ def planner_message(
         return _claude_planner_message(prompt, schema_name, max_tokens)
     if selected == "codex":
         return _codex_message(prompt, schema_name)
+    if selected == "deepseek":
+        from ai_agent.deepseek_planner import planner_message as deepseek_message
+
+        return deepseek_message(prompt, schema_name, max_tokens)
     return tool.planner(prompt, schema_name, max_tokens)

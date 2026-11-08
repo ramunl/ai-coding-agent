@@ -24,7 +24,9 @@ class ProvidersTests(TelegramTestCase):
         ) as choices:
             asyncio.run(telegram_bot.planner_cmd(update, context))
 
-        choices.assert_called_once_with("planner", ["codex", "claude"], active="codex")
+        choices.assert_called_once_with(
+            "planner", ["codex", "claude", "deepseek"], active="codex"
+        )
         self.assertIs(message.reply_text.await_args.kwargs["reply_markup"], keyboard)
 
     def test_agent_command_sets_implementation_agent(self) -> None:

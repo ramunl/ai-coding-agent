@@ -11,7 +11,7 @@ import signal
 from dataclasses import dataclass
 
 from ai_agent.claude_env import env_for
-from ai_agent.config import ANTHROPIC_KEY, CLAUDE_CODE_AUTH
+from ai_agent.config import ANTHROPIC_KEY, CLAUDE_CODE_AUTH, DEEPSEEK_API_KEY
 
 PROBE_TIMEOUT = 5.0
 OUTPUT_LIMIT = 16_384
@@ -98,6 +98,11 @@ async def check(tool: str) -> Reading:
         return Reading(
             "configured_unverified" if ANTHROPIC_KEY else "logged_out",
             "api_key" if ANTHROPIC_KEY else "none",
+        )
+    if tool == "deepseek":
+        return Reading(
+            "configured_unverified" if DEEPSEEK_API_KEY else "logged_out",
+            "api_key" if DEEPSEEK_API_KEY else "none",
         )
     if tool == "claude-code" and CLAUDE_CODE_AUTH == "api_key":
         # The runner is routed through a token/DeepSeek backend: the native

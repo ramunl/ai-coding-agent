@@ -40,6 +40,27 @@ CLAUDE_PLANNER_MODEL = os.environ.get("CLAUDE_PLANNER_MODEL", "").strip()
 # "subscription" (default): Claude Code runs on the claude.ai login, with the
 # API key kept out of its environment (claude_env). "api_key": it may use it.
 CLAUDE_CODE_AUTH = os.environ.get("CLAUDE_CODE_AUTH", "subscription").strip().lower()
+# Native DeepSeek API planner (OpenAI-compatible Chat Completions). The
+# autonomous worker gate (AUTONOMOUS_DEEPSEEK_ENABLED) stays false until the
+# owner switches it on; manual /plan deepseek is unaffected.
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
+DEEPSEEK_BASE_URL = os.environ.get(
+    "DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"
+).rstrip("/")
+# deepseek-v4-pro is the default; DEEPSEEK_FLASH_MODEL is the cheaper option.
+DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-pro").strip()
+DEEPSEEK_FLASH_MODEL = os.environ.get(
+    "DEEPSEEK_FLASH_MODEL", "deepseek-v4-flash"
+).strip()
+DEEPSEEK_TIMEOUT_SECONDS = int(os.environ.get("DEEPSEEK_TIMEOUT_SECONDS", "120"))
+DEEPSEEK_MAX_OUTPUT_TOKENS = int(os.environ.get("DEEPSEEK_MAX_OUTPUT_TOKENS", "8192"))
+DEEPSEEK_MAX_OUTPUT_CHARS = int(os.environ.get("DEEPSEEK_MAX_OUTPUT_CHARS", "20000"))
+if DEEPSEEK_TIMEOUT_SECONDS <= 0:
+    raise ValueError("DEEPSEEK_TIMEOUT_SECONDS must be positive")
+if DEEPSEEK_MAX_OUTPUT_TOKENS <= 0:
+    raise ValueError("DEEPSEEK_MAX_OUTPUT_TOKENS must be positive")
+if DEEPSEEK_MAX_OUTPUT_CHARS <= 0:
+    raise ValueError("DEEPSEEK_MAX_OUTPUT_CHARS must be positive")
 # Bounded live repository context for the tool-free API planner. When the
 # repository has no usable evidence, PLANNER_CONTEXT_ESCALATION="codex" routes
 # the plan to the Codex CLI (which has repository tools) instead of failing;
@@ -218,15 +239,19 @@ def validate_required_config() -> None:
         raise RuntimeError("IMPLEMENTATION_AGENT must be codex or claude")
     planning_agent = os.environ.get("PLANNING_AGENT", "codex").strip().lower()
     if planning_agent not in tools_for_role("planner"):
-        raise RuntimeError("PLANNING_AGENT must be codex or claude")
+        raise RuntimeError(
+            f"PLANNING_AGENT must be {' or '.join(tools_for_role('planner'))}"
+        )
     if planning_agent == "claude" and not os.environ.get("ANTHROPIC_API_KEY"):
         raise RuntimeError("ANTHROPIC_API_KEY is required when PLANNING_AGENT=claude")
+    if planning_agent == "deepseek" and not os.environ.get("DEEPSEEK_API_KEY"):
+        raise RuntimeError("DEEPSEEK_API_KEY is required when PLANNING_AGENT=deepseek")
 
 
 def redact_sensitive(text: str) -> str:
     """Replace configured secrets in text before displaying it."""
     redacted = text
-    for secret in (TELEGRAM_TOKEN, ANTHROPIC_KEY, GITHUB_TOKEN):
+    for secret in (TELEGRAM_TOKEN, ANTHROPIC_KEY, GITHUB_TOKEN, DEEPSEEK_API_KEY):
         if secret:
             redacted = redacted.replace(secret, "[redacted]")
     return redacted

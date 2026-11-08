@@ -25,7 +25,9 @@ class AvailabilityTests(unittest.TestCase):
     def test_unknown_and_disabled_providers_are_disabled(self) -> None:
         self.assertEqual(availability("gemini", now=NOW), DISABLED)
         self.assertEqual(availability("opencode", now=NOW), DISABLED)
-        self.assertEqual(availability("deepseek", now=NOW), DISABLED)
+
+    def test_enabled_deepseek_is_available_without_a_blocking_reading(self) -> None:
+        self.assertEqual(availability("deepseek", now=NOW), AVAILABLE)
 
     def test_logged_out_and_unavailable_auth_block_the_tool(self) -> None:
         for status in ("logged_out", "unavailable"):

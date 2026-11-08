@@ -53,6 +53,7 @@ LIMIT_KEYS = {
     "codex": "codex",
     "claude": "claude_code",
     "claude-code": "claude_code",
+    "deepseek": "deepseek",
 }
 
 # Auth statuses that mean the tool cannot run right now. configured_unverified

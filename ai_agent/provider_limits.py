@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Protocol
 
 from ai_agent.codex_limits import read_codex_limits
-from ai_agent.config import ANTHROPIC_KEY, CLAUDE_CODE_LIMITS_FILE
+from ai_agent.config import ANTHROPIC_KEY, CLAUDE_CODE_LIMITS_FILE, DEEPSEEK_API_KEY
 
 logger = logging.getLogger(__name__)
 REFRESH_SECONDS = 300
@@ -107,6 +107,22 @@ def _claude_code_reading() -> dict:
     return read_limits(CLAUDE_CODE_LIMITS_FILE)
 
 
+def _deepseek_reading() -> dict:
+    """Return the last recorded DeepSeek balance reading."""
+    return _LIMITS.get(
+        "deepseek",
+        {
+            "status": "not_configured" if not DEEPSEEK_API_KEY else "not_checked",
+            "message": (
+                "DeepSeek API key is not configured"
+                if not DEEPSEEK_API_KEY
+                else "No balance reading yet"
+            ),
+            "windows": [],
+        },
+    )
+
+
 def limits_snapshot() -> dict:
     """Return cached readings without exposing credentials or mutable state."""
     from ai_agent.ai_tools import limits_tools
@@ -188,8 +204,42 @@ async def refresh_codex_limits() -> None:
         }
 
 
+async def refresh_deepseek_limits() -> None:
+    """Update the cached DeepSeek balance reading through a non-inference GET."""
+    if not DEEPSEEK_API_KEY:
+        return
+    from ai_agent import deepseek_planner
+
+    try:
+        balance = await asyncio.to_thread(deepseek_planner.discover_balance)
+        available = bool(balance.get("is_available"))
+        _LIMITS["deepseek"] = {
+            "status": "ok" if available else "unavailable",
+            "spending_status": "unknown" if available else "insufficient",
+            "message": (
+                "Balance is available"
+                if available
+                else "DeepSeek balance is unavailable or empty"
+            ),
+            "currency": balance.get("currency"),
+            "total_balance": balance.get("total_balance"),
+            "granted_balance": balance.get("granted_balance"),
+            "topped_up_balance": balance.get("topped_up_balance"),
+            "checked_at": time.time(),
+        }
+    except Exception as error:
+        logger.warning("DeepSeek limit check failed (%s)", type(error).__name__)
+        previous = _LIMITS.get("deepseek", {})
+        _LIMITS["deepseek"] = {
+            **previous,
+            "status": "unavailable",
+            "message": "Could not refresh DeepSeek balance",
+        }
+
+
 async def poll_limits() -> None:
     """Refresh in the background so a slow provider never blocks the heartbeat."""
     while True:
         await refresh_codex_limits()
+        await refresh_deepseek_limits()
         await asyncio.sleep(REFRESH_SECONDS)
