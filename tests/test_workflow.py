@@ -27,6 +27,7 @@ class WorkflowTests(unittest.TestCase):
             "ai_agent.git_recovery.cleanup_recovery",
             "ai_agent.workflow.require_clean_checkout",
             "ai_agent.workflow.retain_branch",
+            "ai_agent.workflow.preflight",
             "ai_agent.isolation.sandbox_for",
             "ai_agent.isolation.apply_sandbox",
         ):
@@ -334,6 +335,11 @@ class WorkflowTests(unittest.TestCase):
 
 
 class ImplementerUsageTests(unittest.TestCase):
+    def setUp(self):
+        patcher = patch("ai_agent.workflow.preflight")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def _run(self, agent: str, output: str) -> list:
         from ai_agent import workflow
 

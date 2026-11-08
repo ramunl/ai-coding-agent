@@ -25,6 +25,7 @@ def test_worker_privilege_drop_requires_explicit_activation(monkeypatch, enabled
     monkeypatch.setattr(isolation, "current_sandbox", lambda: None)
     monkeypatch.setattr(workflow, "record_detail", lambda *a: None)
     monkeypatch.setattr(workflow, "record_usage", lambda *a: None)
+    monkeypatch.setattr(workflow, "preflight", lambda agent: None)
     with patch.object(
         workflow, "run_with_images", return_value=CommandResult([], 0, "ok")
     ) as run:

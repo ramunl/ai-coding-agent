@@ -77,12 +77,16 @@ CLAUDE_CODE_ARGS = tuple(
 # Shell commands Claude Code may run without asking. In `claude -p` nothing can
 # answer a permission prompt, so anything not listed here is refused: tests,
 # lint and read-only CI/PR lookups, never deploys, pushes or package installs.
+# The pytest/ruff/baseline entries are the documented verification commands;
+# keep them in sync with ai_agent.preflight.VERIFICATION_COMMANDS or a new
+# required command will false-block dispatch there.
 DEFAULT_CLAUDE_CODE_ALLOWED_TOOLS = (
     "Bash(pytest:*)",
     "Bash(python -m pytest:*)",
     "Bash(python3 -m pytest:*)",
     "Bash(ruff check:*)",
     "Bash(ruff format:*)",
+    "Bash(scripts/baseline.sh:*)",
     "Bash(npm test:*)",
     "Bash(node --test:*)",
     "Bash(git status:*)",

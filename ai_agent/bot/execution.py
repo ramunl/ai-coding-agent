@@ -53,6 +53,7 @@ from ai_agent.git_recovery import (
 from ai_agent.github import PullRequest, ensure_github_configured, github_request
 from ai_agent.image_delivery import invoke
 from ai_agent.plan_state import Verbosity, render_completion, repository_mismatch
+from ai_agent.preflight import PreflightBlocked
 from ai_agent.projects import active_project
 from ai_agent.run_outcomes import (
     NoCodeOutcomeError,
@@ -75,6 +76,15 @@ from ai_agent.workflow import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _preflight_reply(blocked: PreflightBlocked) -> str:
+    """Route a preflight blocker to the Ops controls, with a retry note."""
+    return (
+        f"{blocked}\n\n"
+        "Ops-routed blocker: complete the Ops action, then retry. "
+        "Use the Ops dashboard or Ops bot for server actions."
+    )
 
 
 async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -194,10 +204,13 @@ async def run_queued_implementation(
 
     no_code = False
     stopped = False
+    published = False
+    preflight_blocked: PreflightBlocked | None = None
     try:
         pull_request, commit_sha = await _publish_queued_implementation(
             update, context, task
         )
+        published = True
         await asyncio.to_thread(mark_published, pull_request.url)
         set_active_execution(context, branch_name, "Polling CI")
         ci_result = await _watch_ci(update, commit_sha)
@@ -238,6 +251,15 @@ async def run_queued_implementation(
             str(outcome) + "\n\nUse the Ops dashboard or Ops bot for server actions. "
             "After resolving the blocker, retry the task.",
         )
+    except PreflightBlocked as blocked:
+        preflight_blocked = blocked
+        if not published:
+            record_outcome(context.user_data, branch_name, blocked)
+            context.application.mark_data_for_update_persistence(
+                user_ids=[update.effective_user.id]
+            )
+        if not blocked.reported:
+            await reply_chunks(update, _preflight_reply(blocked))
     finally:
         if stopped:
             set_active_execution(
@@ -266,7 +288,8 @@ async def run_queued_implementation(
         # cancellation): forget its notifier slot so a stale attempt id cannot
         # suppress the next run's first progress update.
         clear_progress_state()
-        if no_code and not refusal and restored:
+        discard_empty = no_code or (preflight_blocked is not None and not published)
+        if discard_empty and not refusal and restored:
             try:
                 await asyncio.to_thread(discard_empty_branch, branch_name)
             except RuntimeError:
@@ -434,6 +457,9 @@ async def fixpr(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 update,
                 f"PR #{pr_number} CI did not fail within the polling window.\n{pr_url}",
             )
+    except PreflightBlocked as blocked:
+        if not blocked.reported:
+            await reply_chunks(update, _preflight_reply(blocked))
     finally:
         context.user_data.pop("active_execution", None)
         clear_progress_state()
@@ -523,12 +549,17 @@ async def _repair_failed_ci(
             build_failure_context, request.pull_request.number, ci_result
         )
         await report_missing(update, request.images or [])
-        result = await asyncio.to_thread(
-            request.run,
-            request.prompt(failure_context),
-            request.branch_name,
-            request.implementation_agent,
-        )
+        try:
+            result = await asyncio.to_thread(
+                request.run,
+                request.prompt(failure_context),
+                request.branch_name,
+                request.implementation_agent,
+            )
+        except PreflightBlocked as blocked:
+            await reply_chunks(update, _preflight_reply(blocked))
+            blocked.reported = True
+            raise
         await report_missing(update, request.images or [])
         set_active_execution(
             context, request.branch_name, f"Pushing {push_label} (attempt {attempt})"
