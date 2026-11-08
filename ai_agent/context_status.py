@@ -297,7 +297,9 @@ def context_status(
         or any(safe_packet_ref(value) is None for value in packet_refs)
     ):
         health = "unknown"
-    elif state == "stale" or any(counts) or len(refs) > MAX_PACKET_REFS:
+    # Age describes the observation, not a newly discovered packet defect.
+    # Admission still checks fresh dependency/PR/checkout evidence separately.
+    elif any(counts) or len(refs) > MAX_PACKET_REFS:
         health = "degraded"
     else:
         health = "healthy"

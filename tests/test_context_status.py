@@ -55,7 +55,7 @@ def test_freshness_requires_verified_nonfuture_evidence(now, verified, expected)
 
 def test_health_precedence():
     assert context_status((REF,), META, now=100).health == "healthy"
-    assert context_status((REF,), META, now=161).health == "degraded"
+    assert context_status((REF,), META, now=161).health == "healthy"
     assert (
         context_status((REF,), replace(META, omission_count=1), now=100).health
         == "degraded"
@@ -194,3 +194,20 @@ def test_evidence_state_round_trip_and_legacy_default():
     assert ContextStatus.from_dict(legacy).evidence_state == "unknown"
     for value in (None, {}, {"evidence_state": "future"}, {"evidence_state": 1}):
         assert ContextStatus.from_dict(value).evidence_state == "unknown"
+
+
+def test_old_capture_does_not_become_a_defect_or_fresh_evidence():
+    status = context_status((REF,), META, now=100 + 86400)
+    assert status.health == "healthy"
+    assert status.freshness == "stale"
+    assert status.evidence_state == "stale"
+    assert status.observed_at == META.observed_at
+    assert (
+        context_status((REF,), META, now=86500, blockers=("dependency_changed",)).health
+        == "blocked"
+    )
+    assert (
+        context_status((REF,), META, now=86500, blockers=("dependency_unknown",)).health
+        == "unknown"
+    )
+    assert freshness(META, now=86500) == "stale"
