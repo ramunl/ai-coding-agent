@@ -5,7 +5,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from ai_agent.claude_env import env_for
+from ai_agent.claude_env import env_for, provider_env
 from ai_agent.config import COMMAND_TIMEOUT_SECONDS
 from ai_agent.image_delivery import private_failure
 from ai_agent.projects import active_project
@@ -48,6 +48,7 @@ def run(
     input_text: str | None = None,
     private: bool = False,
     provider_run: bool = False,
+    isolated: bool = False,
 ) -> CommandResult:
     # Resolved per call, not at import: the active project can change at runtime.
     """Run a command with a timeout and raise on failure."""
@@ -61,24 +62,35 @@ def run(
     )
     try:
         runner = subprocess.run
-        if (provider_run or args[0] in ("codex", "claude")) and not interactive:
+        provider_command = provider_run or (
+            bool(args) and Path(args[0]).name in ("codex", "claude")
+        )
+        if provider_command and not interactive:
             from ai_agent.provider_process import grouped_run
 
             runner = grouped_run
-        result = runner(
-            args,
-            capture_output=not interactive,
-            **(
-                {"input": input_text}
-                if input_text is not None
-                else {"stdin": None if interactive else subprocess.DEVNULL}
-            ),
-            check=False,
-            cwd=working_directory,
-            env=env_for(args),
-            text=True,
-            timeout=timeout,
-        )
+        # Isolated implementer runs get the worker HOME and are launched as the
+        # worker user; every other provider run still gets its secrets stripped.
+        env = env_for(args)
+        if isolated:
+            env = provider_env(worker=True)
+        elif provider_run and env is None:
+            env = provider_env()
+        run_kwargs: dict[str, object] = {
+            "capture_output": not interactive,
+            "check": False,
+            "cwd": working_directory,
+            "env": env,
+            "text": True,
+            "timeout": timeout,
+        }
+        if input_text is not None:
+            run_kwargs["input"] = input_text
+        else:
+            run_kwargs["stdin"] = None if interactive else subprocess.DEVNULL
+        if isolated:
+            run_kwargs["isolated"] = True
+        result = runner(args, **run_kwargs)
     except subprocess.TimeoutExpired as exc:
         if private:
             raise RuntimeError("Image provider command timed out.") from None

@@ -17,18 +17,36 @@ def claude_env(monkeypatch):
     return importlib.import_module("ai_agent.claude_env")
 
 
-def test_claude_gets_no_api_key_and_other_tools_are_untouched(claude_env):
+def test_providers_get_no_api_key_and_other_tools_are_untouched(claude_env):
     env = claude_env.env_for(["/usr/local/bin/claude", "-p", "x"])
     assert "ANTHROPIC_API_KEY" not in env
     assert "ANTHROPIC_AUTH_TOKEN" not in env
     assert env["KEEP_ME"] == "1"
-    assert claude_env.env_for(["codex", "exec"]) is None
+    assert claude_env.env_for(["git", "status"]) is None
     assert claude_env.env_for([]) is None
 
 
-def test_api_key_mode_inherits_the_key(claude_env, monkeypatch):
+def test_codex_gets_secrets_stripped_too(claude_env, monkeypatch):
+    monkeypatch.setenv("GITHUB_TOKEN", "gh-secret")
+    env = claude_env.env_for(["codex", "exec"])
+    assert "GITHUB_TOKEN" not in env
+    assert "TELEGRAM_BOT_TOKEN" not in env
+    assert "ANTHROPIC_API_KEY" not in env
+    assert env["KEEP_ME"] == "1"
+    assert env["CLAUDE_CODE_AUTH"] == claude_env.CLAUDE_CODE_AUTH
+
+
+def test_worker_env_points_home_at_worker_cache(claude_env, monkeypatch, tmp_path):
+    monkeypatch.setattr(claude_env, "WORKER_HOME", tmp_path / "home")
+    env = claude_env.provider_env(worker=True)
+    assert env["HOME"] == str(tmp_path / "home")
+
+
+def test_api_key_mode_keeps_the_key(claude_env, monkeypatch):
     monkeypatch.setattr(claude_env, "CLAUDE_CODE_AUTH", "api_key")
-    assert claude_env.env_for(["claude", "-p"]) is None
+    env = claude_env.env_for(["claude", "-p"])
+    assert env["ANTHROPIC_API_KEY"] == "sk-ant-secret"
+    assert env["ANTHROPIC_AUTH_TOKEN"] == "token-secret"
 
 
 def test_shell_runs_claude_without_the_key(claude_env, monkeypatch, tmp_path):

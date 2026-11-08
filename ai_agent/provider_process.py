@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from ai_agent.config import WORKER_GROUP, WORKER_USER
 from ai_agent.projects import active_project
 
 
@@ -66,8 +67,15 @@ def require_no_writer(repo: Path | None = None) -> None:
     marker.unlink(missing_ok=True)
 
 
-def grouped_run(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess:
-    """A timeout kills the entire group before returning control to recovery."""
+def grouped_run(
+    args: list[str], *, isolated: bool = False, **kwargs: Any
+) -> subprocess.CompletedProcess:
+    """A timeout kills the entire group before returning control to recovery.
+
+    ``isolated`` is the implementer path: the child drops to the worker user
+    (a no-op when the service already runs as that user) and inherits only the
+    memfd image descriptors it actually references.
+    """
     repo = kwargs.get("cwd")
     marker = _marker(repo)
     require_no_writer(repo)
@@ -77,7 +85,11 @@ def grouped_run(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess:
     input_text = kwargs.pop("input", None)
     if input_text is not None:
         kwargs["stdin"] = subprocess.PIPE
+    if isolated:
+        kwargs["user"] = WORKER_USER
+        kwargs["group"] = WORKER_GROUP
     from ai_agent.git_recovery import _session
+    from ai_agent.image_delivery import open_fds
     from ai_agent.implementation_stop import (
         ImplementationStoppedError,
         register,
@@ -98,6 +110,7 @@ def grouped_run(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             start_new_session=True,
+            pass_fds=open_fds(),
             **kwargs,
         )
     except BaseException:
