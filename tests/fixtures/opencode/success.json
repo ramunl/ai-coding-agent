@@ -1,0 +1,34 @@
+{
+  "format_version": 1,
+  "scenario": "success",
+  "tool": "opencode",
+  "pinned_version": "",
+  "node_requirement": ">=22",
+  "model": "deepseek/deepseek-chat",
+  "exit_code": 0,
+  "sanitized": true,
+  "events": [
+    {
+      "type": "message",
+      "properties": {
+        "role": "assistant",
+        "text": "Analyzing the repository before making changes."
+      }
+    },
+    {
+      "type": "usage",
+      "properties": {
+        "input_tokens": 42,
+        "output_tokens": 18,
+        "total_tokens": 60,
+        "reasoning_tokens": 0
+      }
+    },
+    {
+      "type": "result",
+      "properties": {
+        "text": "Created feature branch and edited two files."
+      }
+    }
+  ]
+}
