@@ -272,9 +272,7 @@ class DiscoveryTests(unittest.TestCase):
         ).encode("utf-8")
         with (
             patch.object(dp, "DEEPSEEK_API_KEY", "sk-test"),
-            patch.object(
-                dp.urllib.request, "urlopen", return_value=FakeResponse(body)
-            ),
+            patch.object(dp.urllib.request, "urlopen", return_value=FakeResponse(body)),
         ):
             balance = dp.discover_balance()
 

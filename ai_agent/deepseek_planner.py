@@ -247,9 +247,7 @@ def _accounted_call(
     data = _chat_completion(messages, max_tokens, model)
     text, finish, usage = _extract_plan(data)
     fields = deepseek_usage_fields(usage)
-    record_usage(
-        UsageRecord("planner", "deepseek", deepseek_total_tokens(usage))
-    )
+    record_usage(UsageRecord("planner", "deepseek", deepseek_total_tokens(usage)))
     record_detail(
         UsageDetail(
             role="planner",
@@ -273,9 +271,7 @@ def _validate_plan_text(text: str) -> str:
     if not text:
         raise DeepSeekError("DeepSeek returned no text for the plan. Please retry.")
     if len(text) > DEEPSEEK_MAX_OUTPUT_CHARS:
-        raise DeepSeekTruncatedError(
-            "DeepSeek output exceeded the configured bound."
-        )
+        raise DeepSeekTruncatedError("DeepSeek output exceeded the configured bound.")
     try:
         parsed = json.loads(text)
     except ValueError as error:
@@ -287,9 +283,7 @@ def _validate_plan_text(text: str) -> str:
 
 def _repair(messages: list[dict]) -> str:
     """The single accounted repair after a truncated first reply."""
-    text, finish = _accounted_call(
-        messages, DEEPSEEK_MAX_OUTPUT_TOKENS, DEEPSEEK_MODEL
-    )
+    text, finish = _accounted_call(messages, DEEPSEEK_MAX_OUTPUT_TOKENS, DEEPSEEK_MODEL)
     if finish == "length":
         raise DeepSeekTruncatedError(
             "DeepSeek returned a truncated plan twice; raise the output bound "
@@ -372,9 +366,11 @@ def discover_balance() -> dict:
         raise classify_http_error(status, body.decode("utf-8", errors="replace"))
     data = _json_body(body)
     infos = data.get("balance_infos") or []
-    first = infos[0] if isinstance(infos, list) and infos and isinstance(
-        infos[0], dict
-    ) else {}
+    first = (
+        infos[0]
+        if isinstance(infos, list) and infos and isinstance(infos[0], dict)
+        else {}
+    )
     return {
         "is_available": data.get("is_available") is True,
         "currency": _short_text(first.get("currency", data.get("currency"))),
