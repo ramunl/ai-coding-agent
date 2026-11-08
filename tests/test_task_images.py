@@ -482,6 +482,8 @@ def test_memfd_attachment_is_readable_by_provider_child_process():
     import sys
 
     with image_delivery.codex_files([("image/png", b"1234")]) as flags:
+        # The provider child references the memfd through /proc/self/fd, so it
+        # must inherit the descriptor the same way grouped_run's pass_fds does.
         child = subprocess.run(
             [
                 sys.executable,
@@ -489,6 +491,7 @@ def test_memfd_attachment_is_readable_by_provider_child_process():
                 "import sys; print(len(open(sys.argv[1], 'rb').read()))",
                 flags[1],
             ],
+            pass_fds=image_delivery.open_fds(),
             capture_output=True,
             text=True,
             check=True,
