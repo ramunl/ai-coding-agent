@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ai_agent import codex_models, model_manager
-from ai_agent.providers import claude, claude_code, codex
+from ai_agent.providers import claude, claude_code, codex, deepseek
 from ai_agent.token_usage import codex_total_tokens
 
 
@@ -303,6 +303,46 @@ class ClaudeCodeTool(CliTool):
         return _claude_code_reading()
 
 
+class DeepSeekTool(AITool):
+    """The native DeepSeek API planner; read-only model from DEEPSEEK_MODEL."""
+
+    name = deepseek.name
+    label = "DeepSeek"
+    manageable = deepseek.model.manageable
+    roles = ("planner",)
+    images = False
+    order = 3
+    limits_key = "deepseek"
+    auth = functools.partial(_auth_probe, "deepseek")
+
+    def current_model(self) -> str:
+        """Return the configured DeepSeek planner model."""
+        return deepseek.model.current()
+
+    def verify(self, model: str) -> tuple[bool, str]:
+        """Verify a model against the provider catalog without inference."""
+        return deepseek.model.verify(model)
+
+    def list_models(self) -> tuple[bool, list[dict[str, str]] | str]:
+        """List DeepSeek models through the non-inference catalog endpoint."""
+        return deepseek.model.list_models()
+
+    def _note(self) -> str:
+        return deepseek.model.note
+
+    def planner(self, prompt: str, schema_name: str, max_tokens: int) -> str:
+        """Plan with DeepSeek through the native HTTPS Chat Completions API."""
+        from ai_agent.deepseek_planner import planner_message
+
+        return planner_message(prompt, schema_name, max_tokens)
+
+    def limits(self) -> dict:
+        """Return the last recorded DeepSeek balance reading."""
+        from ai_agent.provider_limits import _deepseek_reading
+
+        return _deepseek_reading()
+
+
 _TOOLS: dict[str, AITool] = {
     "claude": ClaudeApiTool(),
     "codex": CodexTool(),
@@ -312,6 +352,7 @@ _TOOLS: dict[str, AITool] = {
         default=claude_code.MODEL_DEFAULT,
         note=claude_code.model.note,
     ),
+    "deepseek": DeepSeekTool(),
 }
 
 

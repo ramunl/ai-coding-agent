@@ -33,7 +33,8 @@ class AIToolsTests(unittest.TestCase):
 
     def test_all_known_tools_present(self) -> None:
         self.assertEqual(
-            set(self.ai_tools.known_tools()), {"claude", "codex", "claude-code"}
+            set(self.ai_tools.known_tools()),
+            {"claude", "codex", "claude-code", "deepseek"},
         )
 
     def test_claude_is_manageable(self) -> None:
@@ -52,9 +53,9 @@ class AIToolsTests(unittest.TestCase):
 
     def test_all_info_covers_every_tool(self) -> None:
         infos = self.ai_tools.all_info()
-        self.assertEqual(len(infos), 3)
+        self.assertEqual(len(infos), 4)
         tools = {info.tool for info in infos}
-        self.assertEqual(tools, {"claude", "codex", "claude-code"})
+        self.assertEqual(tools, {"claude", "codex", "claude-code", "deepseek"})
 
     def test_claude_delegates_to_model_manager(self) -> None:
         claude = self.ai_tools.get_tool("claude")

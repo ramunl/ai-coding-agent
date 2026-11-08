@@ -435,7 +435,7 @@ class SetupViewTests(InboxTestCase):
     def test_state_part(self) -> None:
         part = self.view.state_part({"planning_agent": "claude", "task_queue": [{}]})
         self.assertEqual(part["planner"], "claude")
-        self.assertEqual(part["planner_options"], ["codex", "claude"])
+        self.assertEqual(part["planner_options"], ["codex", "claude", "deepseek"])
         self.assertEqual(part["busy"], "1 task(s) are queued")
 
     def test_files_part_lists_projects_models_and_results(self) -> None:

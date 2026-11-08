@@ -39,7 +39,7 @@ tools). `ErrorAdapter` bundles `classify()` and `message()`.
 | `ai_tools.CodexTool` + `codex_models` | `providers/codex.py` |
 | `ai_tools.CliTool("claude-code")` | `providers/claude_code.py` (CLI) |
 | — | `providers/opencode.py` (executor placeholder, disabled) |
-| — | `providers/deepseek.py` (model-provider placeholder, disabled) |
+| — | `providers/deepseek.py` (native API planner) |
 
 `model_manager.py` and `codex_models.py` remain as the tested implementation
 the provider modules wrap; `planning_provider.py`, `workflow.py`,
@@ -56,9 +56,12 @@ snapshot publisher keep their existing imports and dispatch unchanged.
   `claude-code` is the Claude Code CLI tool. The registry never merges them.
 - **`codex_prompt` is untouched.** It stays a persisted task/plan field
   (`tasks.py` `RUN_KEYS`) and the registry does not read or rename it.
-- **Disabled providers declare only `name` and `enabled=False`.** OpenCode and
-  DeepSeek capabilities are unverified; every other capability resolves to
-  `unsupported` until verified.
+- **Disabled providers declare only `name` and `enabled=False`.** OpenCode
+  capabilities are unverified and resolve to `unsupported`. DeepSeek is an
+  enabled `planner`-only provider: `images=False`, `structured_output=True`,
+  a read-only model dial and non-inference model/balance discovery. It is not
+  an executor and is gated off for the autonomous worker until the owner sets
+  `AUTONOMOUS_DEEPSEEK_ENABLED`.
 - The registry imports nothing from `anthropic`/`telegram` and reads `config`
   once at import like the rest of the agent; provider adapters import heavy
   dispatch modules lazily inside their functions to stay import-safe for tests.
