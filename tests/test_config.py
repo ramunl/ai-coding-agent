@@ -75,6 +75,33 @@ class ConfigTests(unittest.TestCase):
             ):
                 validate_required_config()
 
+    def test_validate_work_config_accepts_test_defaults(self) -> None:
+        from ai_agent import config
+
+        config.validate_work_config()
+
+    def test_validate_work_config_rejects_root_worker(self) -> None:
+        from ai_agent import config
+
+        with patch.object(config, "WORKER_USER", "root"):
+            with self.assertRaisesRegex(RuntimeError, "WORKER_USER"):
+                config.validate_work_config()
+
+    def test_validate_work_config_rejects_relative_work_root(self) -> None:
+        from ai_agent import config
+
+        with patch.object(config, "WORK_ROOT", config.Path("relative/work")):
+            with self.assertRaisesRegex(RuntimeError, "WORK_ROOT"):
+                config.validate_work_config()
+
+    def test_validate_work_config_rejects_work_root_inside_git(self) -> None:
+        from ai_agent import config
+
+        repo_root = config.Path(__file__).resolve().parents[1]
+        with patch.object(config, "WORK_ROOT", repo_root / "work"):
+            with self.assertRaisesRegex(RuntimeError, "WORK_ROOT"):
+                config.validate_work_config()
+
 
 if __name__ == "__main__":
     unittest.main()

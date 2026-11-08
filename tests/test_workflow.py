@@ -27,6 +27,8 @@ class WorkflowTests(unittest.TestCase):
             "ai_agent.git_recovery.cleanup_recovery",
             "ai_agent.workflow.require_clean_checkout",
             "ai_agent.workflow.retain_branch",
+            "ai_agent.isolation.sandbox_for",
+            "ai_agent.isolation.apply_sandbox",
         ):
             patcher = patch(target)
             patcher.start()

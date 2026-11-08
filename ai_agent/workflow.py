@@ -1,12 +1,14 @@
 """Implement changes and publish their branches and pull requests."""
 
 import hashlib
+import logging
 import os
 import re
 import time
 from dataclasses import asdict, dataclass, replace
+from pathlib import Path
 
-from ai_agent import codex_models
+from ai_agent import codex_models, isolation
 from ai_agent.ai_tools import get_tool, tools_for_role
 from ai_agent.config import (
     CLAUDE_CODE_ALLOWED_TOOLS,
@@ -38,6 +40,8 @@ from ai_agent.usage_details import (
     new_call_id,
     record_detail,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -165,13 +169,21 @@ def run_implementation_agent(
     tokens: int | None = None
     try:
         with codex_capacity_explained():
+            run_kwargs: dict[str, object] = {
+                "timeout": IMPLEMENTATION_TIMEOUT_SECONDS,
+                "provider_run": True,
+                "isolated": True,
+            }
+            sandbox = isolation.current_sandbox()
+            if sandbox is not None:
+                # The provider edits the disposable worktree, never repo_path.
+                run_kwargs["cwd"] = sandbox.path
             result = run_with_images(
                 implementation_command(
                     prompt + diagnostic_context() + OUTCOME_INSTRUCTIONS, agent
                 ),
                 run,
-                timeout=IMPLEMENTATION_TIMEOUT_SECONDS,
-                provider_run=True,
+                **run_kwargs,
             )
         tokens = _implementer_tokens(selected, result.output)
         record_usage(UsageRecord("implementer", selected, tokens))
@@ -361,10 +373,46 @@ def repair_pull_request_branch(
     return _run_and_capture_changes(prompt, agent, context)
 
 
+def _task_context() -> tuple[str, str]:
+    """The recovery-bound task/branch for a sandbox name; '' when unbound."""
+    state = _session.get()
+    if state and state.task_id and state.branch:
+        return state.task_id, state.branch
+    branch = ""
+    try:
+        branch = run(["git", "branch", "--show-current"]).output.strip()
+    except Exception:
+        pass
+    return "", branch or "work"
+
+
+def _isolation_repo() -> Path | None:
+    """The production checkout to sandbox, or None when there is no real one.
+
+    Tests stub ``active_project`` with objects that carry no ``repo_path`` and
+    fake projects whose checkout does not exist; both mean there is no real
+    checkout to isolate, so the legacy direct run is used. Production always
+    has a real checkout, so the disposable sandbox path is taken there.
+    """
+    repo = getattr(active_project(), "repo_path", None)
+    if not repo:
+        return None
+    repo = Path(repo)
+    return repo if repo.is_dir() else None
+
+
 def _run_and_capture_changes(
     prompt: str, agent: str | None, context: ContextRequest | None = None
 ) -> ImplementationResult:
     """Capture provider output and the resulting Git changes consistently."""
+    task_id, branch = _task_context()
+    repo = _isolation_repo()
+
+    def invoke() -> CommandResult:
+        if context is not None:
+            return run_implementation_agent(prompt, agent, context=context)
+        return run_implementation_agent(prompt, agent)
+
     try:
         if context is not None:
             head = run(["git", "rev-parse", "HEAD"]).output.strip()
@@ -379,9 +427,24 @@ def _run_and_capture_changes(
                 packet=asdict(packet.reference),
                 packet_metadata=packet.metadata.to_dict(),
             )
-            agent_result = run_implementation_agent(prompt, agent, context=context)
+        if repo is None:
+            agent_result = invoke()
         else:
-            agent_result = run_implementation_agent(prompt, agent)
+            with isolation.sandbox_for(repo, task_id, branch) as sandbox:
+                try:
+                    agent_result = invoke()
+                except BaseException:
+                    # Re-apply partial sandbox edits before recovery preserves
+                    # them.
+                    try:
+                        isolation.apply_sandbox(repo, sandbox)
+                    except Exception as apply_error:
+                        logger.warning(
+                            "Could not re-apply sandbox partial edits: %s",
+                            apply_error,
+                        )
+                    raise
+                isolation.apply_sandbox(repo, sandbox)
     except BaseException:
         # Observe partial edits before guarded_run preserves them and restores
         # base. Never treat an interrupted provider's prose as evidence.

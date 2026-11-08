@@ -16,7 +16,13 @@ from ai_agent.ai_tools import get_tool
 from ai_agent.task_images import resolve
 
 _references: ContextVar[list[dict]] = ContextVar("task_images", default=[])
+_open_fds: ContextVar[tuple[int, ...]] = ContextVar("task_image_fds", default=())
 WARNING = "Some task images were evicted or unavailable; continuing without them."
+
+
+def open_fds() -> tuple[int, ...]:
+    """Memfd descriptors currently exposed to a provider child via pass_fds."""
+    return _open_fds.get()
 
 
 def invoke(images: list[dict], work: Callable, *args: Any) -> Any:
@@ -82,18 +88,26 @@ def codex_files(images: list[tuple[str, bytes]]) -> Iterator[list[str]]:
     """Expose RAM-backed files to the CLI host, without sandbox permission changes.
 
     Codex loads initial --image attachments in its host process before tool
-    sandboxing. /proc/<bot-pid>/fd is stable even if its launcher closes FDs.
+    sandboxing. The descriptors are handed to the provider child with pass_fds
+    and referenced through /proc/self/fd, so they stay readable after the child
+    drops to the worker user (a different uid cannot read /proc/<bot-pid>/fd).
     No disk copy or open, unlinked storage file remains outside cap accounting.
     """
     with contextlib.ExitStack() as stack:
         paths = []
+        fds = []
         for _, data in images:
             fd = os.memfd_create("task-image", os.MFD_CLOEXEC)
             output = stack.enter_context(os.fdopen(fd, "w+b"))
             output.write(data)
             output.flush()
-            paths.extend(["--image", f"/proc/{os.getpid()}/fd/{fd}"])
-        yield paths
+            fds.append(fd)
+            paths.extend(["--image", f"/proc/self/fd/{fd}"])
+        token = _open_fds.set(tuple(fds))
+        try:
+            yield paths
+        finally:
+            _open_fds.reset(token)
 
 
 def _codex_image_run(

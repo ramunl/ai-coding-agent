@@ -150,6 +150,45 @@ IMAGE_DIR = Path(
 IMAGE_STORAGE_CAP_BYTES = parse_size(os.environ.get("IMAGE_STORAGE_CAP_BYTES", "5GB"))
 IMAGE_MAX_BYTES = parse_size(os.environ.get("IMAGE_MAX_BYTES", "10MB"))
 IMAGE_MAX_PER_TASK = int(os.environ.get("IMAGE_MAX_PER_TASK", "5"))
+# DS12: provider CLIs run as a dedicated non-root worker in disposable
+# worktrees under WORK_ROOT, never in the production checkout. The worker owns
+# the sandbox worktree and its HOME/cache; the service may run as this same
+# user (systemd User=) or drop to it per provider subprocess.
+WORKER_USER = os.environ.get("WORKER_USER", "ai-coding-runner").strip()
+WORKER_GROUP = os.environ.get("WORKER_GROUP", WORKER_USER).strip()
+WORK_ROOT = Path(
+    os.environ.get("WORK_ROOT", "/var/lib/ai-coding-agent/work")
+).expanduser()
+WORKER_HOME = Path(
+    os.environ.get("WORKER_HOME", "/var/lib/ai-coding-agent/home")
+).expanduser()
+
+_WORKER_NAME = re.compile(r"[a-z_][a-z0-9_-]*\$?")
+
+
+def _outside_git(path: Path) -> bool:
+    """Whether a path (and none of its parents) sits inside a repository."""
+    resolved = path.resolve()
+    return not any(
+        (parent / ".git").exists() for parent in (resolved, *resolved.parents)
+    )
+
+
+def validate_work_config() -> None:
+    """Reject unsafe worker identities and sandbox roots."""
+    invalid_user = (
+        not WORKER_USER
+        or WORKER_USER == "root"
+        or not _WORKER_NAME.fullmatch(WORKER_USER)
+    )
+    if invalid_user:
+        raise RuntimeError("WORKER_USER must be a non-root POSIX username")
+    if not WORKER_GROUP or not _WORKER_NAME.fullmatch(WORKER_GROUP):
+        raise RuntimeError("WORKER_GROUP must be a POSIX group name")
+    if not WORK_ROOT.is_absolute() or not _outside_git(WORK_ROOT):
+        raise RuntimeError("WORK_ROOT must be absolute and outside git")
+    if not WORKER_HOME.is_absolute() or not _outside_git(WORKER_HOME):
+        raise RuntimeError("WORKER_HOME must be absolute and outside git")
 
 
 def validate_image_config() -> None:
@@ -221,6 +260,7 @@ LINK_ALLOWED_DOMAINS = tuple(
 def validate_required_config() -> None:
     """Reject missing settings needed to start the bot."""
     validate_image_config()
+    validate_work_config()
     missing = [
         name
         for name in ("TELEGRAM_BOT_TOKEN", "YOUR_CHAT_ID")
