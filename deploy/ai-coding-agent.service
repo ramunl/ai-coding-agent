@@ -5,14 +5,11 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-# DS12: the whole bot runs as the dedicated non-root worker. The implementer
-# provider CLI also runs as this user (the subprocess user=/group= drop is a
-# no-op when the service is already the worker), inside a worker-owned sandbox.
-User=ai-coding-runner
-Group=ai-coding-runner
+# Keep the deployed controller identity stable during code upgrades. Provider
+# privilege separation is enabled separately after the Ops migration is verified.
 WorkingDirectory=/opt/ai-coding-agent
-StateDirectory=ai-coding-agent ai-coding-agent/work ai-coding-agent/home
-Environment=HOME=/var/lib/ai-coding-agent/home
+StateDirectory=ai-coding-agent
+Environment=HOME=/root
 EnvironmentFile=/etc/ai-coding-agent/ai-coding-agent.env
 ExecStartPre=/usr/bin/git -C /opt/ai-coding-agent submodule update --init --recursive
 ExecStart=/opt/ai_coding_venv/bin/python /opt/ai-coding-agent/agent.py
@@ -20,12 +17,6 @@ Restart=on-failure
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
-# DS12 hardening: the worker can never escalate, /etc and /usr are read-only,
-# real user homes are unavailable, and /tmp is private to the service.
-NoNewPrivileges=yes
-ProtectSystem=full
-ProtectHome=yes
-PrivateTmp=yes
 
 [Install]
 WantedBy=multi-user.target

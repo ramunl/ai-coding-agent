@@ -26,7 +26,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator
 
-from ai_agent.config import WORK_ROOT, WORKER_GROUP, WORKER_HOME, WORKER_USER
+from ai_agent.config import (
+    WORK_ROOT,
+    WORKER_GROUP,
+    WORKER_HOME,
+    WORKER_ISOLATION_ENABLED,
+    WORKER_USER,
+)
 from ai_agent.shell import run
 
 logger = logging.getLogger(__name__)
@@ -95,21 +101,18 @@ def _linked_gitdir(path: Path) -> Path:
 
 def _prepare_ownership(path: Path) -> None:
     """Give the worker its HOME and, when root, ownership of the sandbox."""
+    if not WORKER_ISOLATION_ENABLED:
+        return
     WORKER_HOME.mkdir(parents=True, exist_ok=True)
     if os.geteuid() != 0:
         return
     try:
         uid = _uid(WORKER_USER)
         gid = _gid(WORKER_GROUP)
-    except (KeyError, ImportError):
-        # The Ops user does not exist yet (or this is a dev machine); the
-        # sandbox stays root-owned and the provider drop will surface it.
-        logger.warning(
-            "Worker user %s:%s not found; sandbox stays root-owned.",
-            WORKER_USER,
-            WORKER_GROUP,
-        )
-        return
+    except (KeyError, ImportError) as error:
+        raise RuntimeError(
+            "Worker isolation requires a provisioned worker account/group"
+        ) from error
     _chown_tree(path, uid, gid)
     _chown_tree(_linked_gitdir(path), uid, gid)
     _chown_tree(WORKER_HOME, uid, gid)

@@ -15,6 +15,7 @@ from ai_agent.config import (
     CLAUDE_CODE_ARGS,
     IMPLEMENTATION_AGENT,
     IMPLEMENTATION_TIMEOUT_SECONDS,
+    WORKER_ISOLATION_ENABLED,
 )
 from ai_agent.context_attempts import checkpoint, current_attempt, intent
 from ai_agent.context_packets import build_packet, with_context
@@ -172,7 +173,7 @@ def run_implementation_agent(
             run_kwargs: dict[str, object] = {
                 "timeout": IMPLEMENTATION_TIMEOUT_SECONDS,
                 "provider_run": True,
-                "isolated": True,
+                "isolated": WORKER_ISOLATION_ENABLED,
             }
             sandbox = isolation.current_sandbox()
             if sandbox is not None:

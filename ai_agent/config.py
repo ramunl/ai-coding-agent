@@ -150,10 +150,14 @@ IMAGE_DIR = Path(
 IMAGE_STORAGE_CAP_BYTES = parse_size(os.environ.get("IMAGE_STORAGE_CAP_BYTES", "5GB"))
 IMAGE_MAX_BYTES = parse_size(os.environ.get("IMAGE_MAX_BYTES", "10MB"))
 IMAGE_MAX_PER_TASK = int(os.environ.get("IMAGE_MAX_PER_TASK", "5"))
-# DS12: provider CLIs run as a dedicated non-root worker in disposable
-# worktrees under WORK_ROOT, never in the production checkout. The worker owns
-# the sandbox worktree and its HOME/cache; the service may run as this same
-# user (systemd User=) or drop to it per provider subprocess.
+# DS12: disposable worktrees stay separate from the production checkout.
+# After explicit Ops activation, provider subprocesses drop to the dedicated
+# worker, which owns its sandbox and HOME/cache. The controller is not migrated.
+# Account, tool and credential migration is an explicit Ops rollout, not a
+# side effect of upgrading application code on an existing root service.
+WORKER_ISOLATION_ENABLED = os.environ.get(
+    "WORKER_ISOLATION_ENABLED", "false"
+).strip().lower() in {"true", "1", "yes"}
 WORKER_USER = os.environ.get("WORKER_USER", "ai-coding-runner").strip()
 WORKER_GROUP = os.environ.get("WORKER_GROUP", WORKER_USER).strip()
 WORK_ROOT = Path(
@@ -189,6 +193,20 @@ def validate_work_config() -> None:
         raise RuntimeError("WORK_ROOT must be absolute and outside git")
     if not WORKER_HOME.is_absolute() or not _outside_git(WORKER_HOME):
         raise RuntimeError("WORKER_HOME must be absolute and outside git")
+    if WORKER_ISOLATION_ENABLED:
+        import grp
+        import pwd
+
+        try:
+            worker = pwd.getpwnam(WORKER_USER)
+            group = grp.getgrnam(WORKER_GROUP)
+        except KeyError as error:
+            raise RuntimeError(
+                "Worker isolation enabled but worker account/group is missing; "
+                "complete the Ops migration before enabling it"
+            ) from error
+        if worker.pw_uid == 0 or group.gr_gid == 0:
+            raise RuntimeError("Worker isolation requires non-root user and group IDs")
 
 
 def validate_image_config() -> None:
