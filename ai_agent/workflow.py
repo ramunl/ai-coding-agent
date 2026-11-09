@@ -22,8 +22,11 @@ from ai_agent.config import (
     CLAUDE_CODE_ARGS,
     IMPLEMENTATION_AGENT,
     IMPLEMENTATION_TIMEOUT_SECONDS,
+    OPENCODE_MODEL,
     WORKER_ISOLATION_ENABLED,
 )
+from ai_agent.opencode_runner import OpenCodeRun, run_stream
+from ai_agent.provider_process import grouped_run
 from ai_agent.context_attempts import checkpoint, current_attempt, intent
 from ai_agent.context_packets import build_packet, with_context
 from ai_agent.context_sources import ContextRequest
@@ -194,6 +197,23 @@ def _claude_failure(detail: str) -> RuntimeError:
     return RuntimeError(detail)
 
 
+def _opencode_failure(run: OpenCodeRun) -> RuntimeError:
+    """A bounded, prose-only failure for an OpenCode outcome.
+
+    Cancelled, error and missing-result outcomes are runner failures, not owner
+    stops: an owner stop raises ``ImplementationStoppedError`` from ``grouped_run``
+    before ``run_stream`` returns, so partial edits are already preserved there.
+    """
+    if run.cancelled:
+        detail = "OpenCode run was cancelled before it reported a result."
+    elif run.error:
+        detail = run.error
+    else:
+        detail = "OpenCode exited without reporting a result."
+    detail = " ".join(detail.split())[:1000] or "OpenCode failed"
+    return RuntimeError(detail)
+
+
 def _record_implementer_detail(
     selected: str,
     attempt_id: str | None,
@@ -202,6 +222,7 @@ def _record_implementer_detail(
     result: CommandResult | None,
     tokens: int | None,
     usage: ClaudeCodeUsage | None,
+    opencode_run: OpenCodeRun | None = None,
 ) -> None:
     """Write the per-call detail record, surviving a cancelled/failed run."""
     if selected == "codex":
@@ -219,6 +240,34 @@ def _record_implementer_detail(
                 output_chars=bounded_output_chars(
                     result.output if result is not None else None
                 ),
+            )
+        )
+        return
+    if selected == "opencode":
+        fields = opencode_run.usage if opencode_run is not None else None
+        input_tokens = (fields or {}).get("input_tokens")
+        output_tokens = (fields or {}).get("output_tokens")
+        record_detail(
+            UsageDetail(
+                role="implementer",
+                runner="opencode",
+                provider="deepseek",
+                model=OPENCODE_MODEL,
+                attempt_id=attempt_id,
+                call_id=call_id,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                reasoning_tokens=(fields or {}).get("reasoning_tokens"),
+                total_tokens=(
+                    input_tokens + output_tokens
+                    if input_tokens is not None and output_tokens is not None
+                    else tokens
+                ),
+                duration_seconds=_elapsed_seconds(started),
+                output_chars=bounded_output_chars(
+                    result.output if result is not None else None
+                ),
+                **estimate_fields(OPENCODE_MODEL, input_tokens, output_tokens),
             )
         )
         return
@@ -279,24 +328,40 @@ def run_implementation_agent(
     result: CommandResult | None = None
     tokens: int | None = None
     usage = None  # ClaudeCodeUsage for the claude runner
+    opencode_run: OpenCodeRun | None = None
     try:
         with codex_capacity_explained():
             run_kwargs: dict[str, object] = {
                 "timeout": IMPLEMENTATION_TIMEOUT_SECONDS,
-                "provider_run": True,
                 "isolated": WORKER_ISOLATION_ENABLED,
             }
             sandbox = isolation.current_sandbox()
             if sandbox is not None:
                 # The provider edits the disposable worktree, never repo_path.
                 run_kwargs["cwd"] = sandbox.path
-            result = run_with_images(
-                implementation_command(
-                    prompt + diagnostic_context() + OUTCOME_INSTRUCTIONS, agent
-                ),
-                run,
-                **run_kwargs,
+            command = implementation_command(
+                prompt + diagnostic_context() + OUTCOME_INSTRUCTIONS, agent
             )
+            if selected == "opencode":
+                # OpenCode streams its own JSON events, so it runs through the
+                # grouped runner directly (never shell.run) and its outcome
+                # contract is enforced here, not by a zero exit alone.
+                opencode_run = run_stream(command, grouped_run, **run_kwargs)
+                result = CommandResult([], opencode_run.exit_code, opencode_run.output)
+                tokens = (
+                    opencode_run.usage["total_tokens"]
+                    if opencode_run.usage is not None
+                    else None
+                )
+                if (
+                    opencode_run.cancelled
+                    or opencode_run.error
+                    or not opencode_run.has_result
+                ):
+                    raise _opencode_failure(opencode_run)
+            else:
+                run_kwargs["provider_run"] = True
+                result = run_with_images(command, run, **run_kwargs)
         if selected == "claude":
             usage = parse_stream(result.output)
             prose = result_text(result.output)
@@ -304,7 +369,7 @@ def run_implementation_agent(
                 raise _claude_failure(prose)
             result = _with_output(result, prose)
             tokens = usage.tokens()
-        else:
+        elif selected != "opencode":
             tokens = _implementer_tokens(selected, result.output)
         record_usage(UsageRecord("implementer", selected, tokens))
         return result
@@ -320,7 +385,7 @@ def run_implementation_agent(
         raise
     finally:
         _record_implementer_detail(
-            selected, attempt_id, call_id, started, result, tokens, usage
+            selected, attempt_id, call_id, started, result, tokens, usage, opencode_run
         )
 
 

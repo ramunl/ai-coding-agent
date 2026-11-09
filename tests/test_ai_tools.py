@@ -34,7 +34,7 @@ class AIToolsTests(unittest.TestCase):
     def test_all_known_tools_present(self) -> None:
         self.assertEqual(
             set(self.ai_tools.known_tools()),
-            {"claude", "codex", "claude-code", "deepseek"},
+            {"claude", "codex", "claude-code", "deepseek", "opencode"},
         )
 
     def test_claude_is_manageable(self) -> None:
@@ -42,20 +42,29 @@ class AIToolsTests(unittest.TestCase):
         self.assertTrue(claude.manageable)
 
     def test_clis_are_read_only_and_explain_why(self) -> None:
-        for name in ("claude-code",):
+        for name in ("claude-code", "opencode"):
             tool = self.ai_tools.get_tool(name)
             self.assertFalse(tool.manageable)
             # A read-only tool must tell the user where its model really lives.
             self.assertTrue(tool.info().note)
+
+    def test_opencode_is_executor_only_when_enabled(self) -> None:
+        # Disabled by default: the tool is registered but serves no role, so
+        # the worker and role pickers never route through it.
+        tool = self.ai_tools.get_tool("opencode")
+        self.assertFalse(tool.supports_role("executor"))
+        self.assertNotIn("opencode", self.ai_tools.tools_for_role("executor"))
 
     def test_unknown_tool_returns_none(self) -> None:
         self.assertIsNone(self.ai_tools.get_tool("gemini"))
 
     def test_all_info_covers_every_tool(self) -> None:
         infos = self.ai_tools.all_info()
-        self.assertEqual(len(infos), 4)
+        self.assertEqual(len(infos), 5)
         tools = {info.tool for info in infos}
-        self.assertEqual(tools, {"claude", "codex", "claude-code", "deepseek"})
+        self.assertEqual(
+            tools, {"claude", "codex", "claude-code", "deepseek", "opencode"}
+        )
 
     def test_claude_delegates_to_model_manager(self) -> None:
         claude = self.ai_tools.get_tool("claude")

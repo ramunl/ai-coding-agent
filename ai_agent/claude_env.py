@@ -25,7 +25,7 @@ from pathlib import Path
 from ai_agent.config import CLAUDE_CODE_AUTH, WORKER_HOME
 
 API_VARIABLES = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
-PROVIDER_COMMANDS = ("codex", "claude")
+PROVIDER_COMMANDS = ("codex", "claude", "opencode")
 # Credentials a provider CLI must never see, whatever its role.
 PROVIDER_SECRETS = (
     "GITHUB_TOKEN",

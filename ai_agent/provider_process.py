@@ -119,26 +119,40 @@ def _collect_streaming(
     detector: Any,
     runner: str,
     attempt_id: str | None,
-) -> tuple[str, str]:
+    max_output_chars: int | None = None,
+) -> tuple[str, str, bool]:
     """Stream the child while honoring stop/timeout and the denial detector.
 
     stdout is read line by line so denial events are seen incrementally; stderr
     is drained on its own thread so a talkative child cannot deadlock. Raising
     here (stop, timeout or denial-loop blocker) hands control to the caller's
     kill-and-recover path.
+
+    When ``max_output_chars`` is set, each stream is bounded to that many
+    characters, keeping the tail so a trailing result event survives; the
+    returned ``truncated`` flag is True if either stream dropped output.
     """
     from ai_agent.implementation_stop import ImplementationStoppedError
 
     stderr_lines: list[str] = []
+    stderr_chars = 0
+    truncated = [False]  # mutated by both the stderr thread and the main loop
     line_queue: "queue.Queue[str | None]" = queue.Queue()
 
     def drain_stderr() -> None:
+        nonlocal stderr_chars
         try:
             while True:
                 line = process.stderr.readline()
                 if not line:
                     break
-                stderr_lines.append(_decode(line))
+                text = _decode(line)
+                stderr_lines.append(text)
+                stderr_chars += len(text)
+                if max_output_chars is not None and stderr_chars > max_output_chars:
+                    truncated[0] = True
+                    while stderr_lines and stderr_chars > max_output_chars:
+                        stderr_chars -= len(stderr_lines.pop(0))
         except (OSError, ValueError):
             pass
 
@@ -163,6 +177,7 @@ def _collect_streaming(
     threading.Thread(target=read_stdout, daemon=True).start()
 
     stdout_lines: list[str] = []
+    stdout_chars = 0
     deadline = None if timeout is None else time.monotonic() + timeout
     while True:
         if stop_run is not None and stop_run.stop.is_set():
@@ -178,6 +193,11 @@ def _collect_streaming(
         if line is None:
             break
         stdout_lines.append(line)
+        stdout_chars += len(line)
+        if max_output_chars is not None and stdout_chars > max_output_chars:
+            truncated[0] = True
+            while stdout_lines and stdout_chars > max_output_chars:
+                stdout_chars -= len(stdout_lines.pop(0))
         if detector is not None:
             blocker = detector.feed(line, runner=runner, attempt_id=attempt_id)
             if blocker is not None:
@@ -197,11 +217,15 @@ def _collect_streaming(
         time.sleep(0.02)
 
     process.wait()
-    return "".join(stdout_lines), "".join(stderr_lines)
+    return "".join(stdout_lines), "".join(stderr_lines), truncated[0]
 
 
 def grouped_run(
-    args: list[str], *, isolated: bool = False, **kwargs: Any
+    args: list[str],
+    *,
+    isolated: bool = False,
+    max_output_chars: int | None = None,
+    **kwargs: Any,
 ) -> subprocess.CompletedProcess:
     """A timeout kills the entire group before returning control to recovery.
 
@@ -210,6 +234,10 @@ def grouped_run(
     memfd image descriptors it actually references. Task-bound runs stream the
     child's stdout through the denial-loop detector so a repeated identical
     permission denial stops the paid run at the configured threshold.
+
+    ``max_output_chars`` bounds the captured stdout/stderr (tail kept) and sets
+    a ``truncated`` flag on the returned result, so a bounded runner can mark
+    dropped output explicitly instead of silently discarding it.
     """
     repo = kwargs.get("cwd")
     marker = _marker(repo)
@@ -256,7 +284,7 @@ def grouped_run(
         marker.write_text(json.dumps({"group": process.pid}))
         if streaming:
             detector = denial_loop.detector_for(runner, args)
-            stdout, stderr = _collect_streaming(
+            stdout, stderr, truncated = _collect_streaming(
                 process,
                 args,
                 timeout,
@@ -265,9 +293,11 @@ def grouped_run(
                 detector,
                 runner,
                 current_attempt_id(),
+                max_output_chars,
             )
         else:
             stdout, stderr = process.communicate(input=input_text, timeout=timeout)
+            truncated = False
 
     except BaseException:
         try:
@@ -292,7 +322,9 @@ def grouped_run(
             pass
     _wait_stopped(process.pid)
     require_no_writer(repo)
-    return subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
+    result = subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
+    result.truncated = truncated
+    return result
 
 
 def _wait_stopped(group: int) -> None:

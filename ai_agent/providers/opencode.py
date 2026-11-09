@@ -1,9 +1,12 @@
-"""OpenCode provider placeholder: characterized, never enabled.
+"""OpenCode provider: an optional DeepSeek *executor*, owner-gated.
 
-OpenCode (npm ``opencode-ai``) is an optional DeepSeek *executor* under an
-owner-gated trial. It is not enabled in production: ``enabled`` stays ``False``
-and the registry reports every capability as unsupported, so the worker can
-never route an implementation run through it.
+OpenCode (npm ``opencode-ai``) can implement changes through the DeepSeek API.
+It is **not** enabled in production: ``enabled`` stays ``False`` until the owner
+approves a reviewed pin, so the worker can never route an implementation run
+through it on its own. The module still declares the executor contract
+(roles/adapters/model/auth/limits/errors/usage) so that, once the owner flips
+``enabled``, the registry, dashboard snapshot and worker pick up the provider
+without a code change.
 
 ``scripts/opencode_characterize.sh`` verifies the release provenance and Node
 requirement, installs the reviewed pin in a disposable checkout, captures the
@@ -13,7 +16,8 @@ records; they stay empty/unverified until the owner's trial confirms a release.
 
 The event contract and the pure ``classify_*``/``parse_*``/``sanitize_*``
 helpers below are characterization artifacts replayed by
-``tests/test_opencode_contract.py``. They are plain module functions — **not**
+``tests/test_opencode_contract.py`` and consumed by
+``ai_agent.opencode_runner``. They are plain module functions — **not**
 registry capabilities — so ``provider_registry.capability()`` still answers
 "unsupported" for every one of them and the dashboard snapshot never publishes
 them.
@@ -25,14 +29,30 @@ import json
 import re
 from collections.abc import Mapping
 
+from ai_agent.config import OPENCODE_MODEL
+from ai_agent.provider_registry import ErrorAdapter, ModelControl
+from ai_agent.tool_auth_providers import Reading, check
+
 name = "opencode"
+# Owner-gated: flips to True only after scripts/opencode_characterize.sh has
+# verified a reviewed pin and the owner approves the trial. The worker never
+# routes through a disabled provider.
 enabled = False
+roles = ("executor",)
+images = False
+structured_output = False
 
 # Reviewed pin and Node requirement, recorded by scripts/opencode_characterize.sh
 # after verifying npm provenance and the VPS Node runtime. Empty PINNED_VERSION
 # means "not yet reviewed"; the script refuses to run without an exact version.
 PINNED_VERSION = ""
 NODE_REQUIREMENT = ">=22"
+
+# The read-only model dial: OpenCode runs the DeepSeek API model configured by
+# OPENCODE_MODEL, and this agent never switches it.
+MODEL_ENV_VAR = "OPENCODE_MODEL"
+MODEL_DEFAULT = "deepseek/deepseek-chat"
+NOTE = "Set by OPENCODE_MODEL; not switched by this agent."
 
 # OpenCode JSON-event types this repo's contract recognizes. Events are plain
 # objects with ``type`` plus a ``properties`` object; anything else is ignored.
@@ -187,8 +207,8 @@ def error_kind(code: object, message: object) -> str:
     """Classify an OpenCode error event into auth/funds/transient/execution.
 
     This is the fixture contract only. The worker's own failure vocabulary
-    lives in ``ai_agent.provider_availability`` and never reaches this module,
-    because OpenCode is disabled and never routed.
+    lives in ``ai_agent.provider_availability`` and classifies the run's
+    failure text separately.
     """
     text = " ".join(
         ["" if code is None else str(code), "" if message is None else str(message)]
@@ -247,3 +267,97 @@ def classify_run(events: object, exit_code: object) -> dict:
         "error_kind": kind,
         "usage": usage,
     }
+
+
+def result_text(events: object) -> str:
+    """The final result event's prose, or '' when the stream has none.
+
+    OpenCode reports its completion prose under ``properties.text`` (with
+    ``result``/``message`` accepted as fallbacks for contract drift); the last
+    result event wins.
+    """
+    text = ""
+    for event in events if isinstance(events, list) else []:
+        if not isinstance(event, dict) or event.get("type") != EVENT_RESULT:
+            continue
+        props = event.get("properties")
+        if not isinstance(props, dict):
+            continue
+        value = props.get("text") or props.get("result") or props.get("message")
+        if isinstance(value, str) and value.strip():
+            text = value.strip()
+    return text
+
+
+# ---------------------------------------------------------------- provider contract
+
+
+def _current_model() -> str:
+    """Return the configured DeepSeek model OpenCode runs."""
+    return OPENCODE_MODEL
+
+
+def _read_only_verify(model: str) -> tuple[bool, str]:
+    """Reject switching: OpenCode's model is owned by OPENCODE_MODEL."""
+    return False, NOTE
+
+
+def _read_only_list() -> tuple[bool, str]:
+    """Report that models are not listable from here."""
+    return False, NOTE
+
+
+model = ModelControl(
+    manageable=False,
+    note=NOTE,
+    current=_current_model,
+    args=lambda: [],
+    verify=_read_only_verify,
+    list_models=_read_only_list,
+    set=None,
+)
+
+
+async def auth() -> Reading:
+    """Observe the DeepSeek API-key presence without making a request."""
+    return await check("opencode")
+
+
+def limits() -> dict:
+    """Return the last recorded DeepSeek balance reading (OpenCode's backend)."""
+    from ai_agent.provider_limits import limits_snapshot
+
+    return limits_snapshot()["deepseek"]
+
+
+def usage(reported: object) -> int | None:
+    """Count the total tokens from a parsed OpenCode usage event, or None."""
+    if not isinstance(reported, dict):
+        return None
+    fields = usage_fields(reported)
+    return fields["total_tokens"] if fields is not None else None
+
+
+def _is_opencode_error(error: BaseException) -> bool:
+    """Whether an exception is a bounded OpenCode runner failure."""
+    return isinstance(error, RuntimeError) and not isinstance(
+        error, (KeyboardInterrupt, SystemExit)
+    )
+
+
+def _error_message(error: BaseException) -> str:
+    """A secret-free explanation for an OpenCode runner failure."""
+    return str(error) if str(error) else "OpenCode implementation failed."
+
+
+errors = ErrorAdapter(classify=_is_opencode_error, message=_error_message)
+
+
+def _executor(prompt: str) -> object:
+    """Implement with OpenCode through the shared executor dispatch."""
+    from ai_agent.workflow import run_implementation_agent
+
+    return run_implementation_agent(prompt, "opencode")
+
+
+adapters = {"executor": _executor}

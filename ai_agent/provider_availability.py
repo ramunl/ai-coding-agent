@@ -54,6 +54,8 @@ LIMIT_KEYS = {
     "claude": "claude_code",
     "claude-code": "claude_code",
     "deepseek": "deepseek",
+    # OpenCode runs the DeepSeek backend, so its balance reading is DeepSeek's.
+    "opencode": "deepseek",
 }
 
 # Auth statuses that mean the tool cannot run right now. configured_unverified

@@ -118,31 +118,44 @@ def test_unusable_usage_counts_are_none_not_invented() -> None:
     assert opencode.usage_fields({"input_tokens": "x", "output_tokens": 2}) is None
 
 
-# ------------------------------------------------------- disabled/unsupported gate
+# ------------------------------------------------- disabled/owner-gated contract
 
 
-def test_opencode_stays_disabled_and_unsupported() -> None:
+def test_opencode_stays_disabled_but_declares_the_executor_contract() -> None:
     provider = provider_registry.get_provider("opencode")
     assert provider is not None
     assert provider.enabled is False
-    for capability in (
-        "roles",
-        "adapters",
-        "model",
-        "auth",
-        "limits",
-        "errors",
-        "images",
-        "structured_output",
-        "usage",
-    ):
-        assert (
-            provider_registry.capability(provider, capability)
-            == provider_registry.UNSUPPORTED
-        ), capability
     assert provider_registry.capability(provider, "enabled") is False
+    assert provider_registry.roles_of(provider) == ("executor",)
+    assert provider_registry.capability(provider, "images") is False
+    assert provider_registry.capability(provider, "structured_output") is False
+    assert (
+        provider_registry.capability(provider, "usage")
+        is not provider_registry.UNSUPPORTED
+    )
+    model = provider_registry.capability(provider, "model")
+    assert model.manageable is False
+    assert (
+        provider_registry.capability(provider, "adapters")
+        is not provider_registry.UNSUPPORTED
+    )
 
 
-def test_opencode_is_never_routed_or_available() -> None:
+def test_opencode_is_never_routed_or_available_until_enabled() -> None:
     assert "opencode" not in {p.name for p in provider_registry.enabled_providers()}
     assert availability("opencode") == DISABLED
+    from ai_agent.provider_capabilities import enabled_tools_for_role
+
+    assert "opencode" not in enabled_tools_for_role("executor")
+
+
+def test_result_text_returns_the_last_result_prose() -> None:
+    events = [
+        {"type": "result", "properties": {"text": "first"}},
+        {"type": "result", "properties": {"text": "last"}},
+    ]
+    assert opencode.result_text(events) == "last"
+    assert opencode.result_text([]) == ""
+    assert (
+        opencode.result_text([{"type": "message", "properties": {"text": "no"}}]) == ""
+    )

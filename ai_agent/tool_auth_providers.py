@@ -104,6 +104,13 @@ async def check(tool: str) -> Reading:
             "configured_unverified" if DEEPSEEK_API_KEY else "logged_out",
             "api_key" if DEEPSEEK_API_KEY else "none",
         )
+    if tool == "opencode":
+        # OpenCode reads its DeepSeek backend from OPENCODE_API_KEY, which the
+        # runner populates from DEEPSEEK_API_KEY; the same credential gates it.
+        return Reading(
+            "configured_unverified" if DEEPSEEK_API_KEY else "logged_out",
+            "api_key" if DEEPSEEK_API_KEY else "none",
+        )
     if tool == "claude-code" and CLAUDE_CODE_AUTH == "api_key":
         # The runner is routed through a token/DeepSeek backend: the native
         # Anthropic login probe is meaningless and must never gate the runner.

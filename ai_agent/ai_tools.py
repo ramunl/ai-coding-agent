@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ai_agent import codex_models, model_manager
-from ai_agent.providers import claude, claude_code, codex, deepseek
+from ai_agent.providers import claude, claude_code, codex, deepseek, opencode
 from ai_agent.token_usage import codex_total_tokens
 
 
@@ -357,6 +357,50 @@ class DeepSeekTool(AITool):
         return _deepseek_reading()
 
 
+class OpenCodeTool(CliTool):
+    """The OpenCode CLI executor; read-only DeepSeek model, owner-gated.
+
+    ``roles`` is set per instance from the provider's ``enabled`` flag, so the
+    disabled provider stays out of ``tools_for_role("executor")`` and the worker
+    can never route through it until the owner flips the gate.
+    """
+
+    label = "OpenCode"
+    images = False
+    order = 4
+    limits_key = "deepseek"
+    auth = functools.partial(_auth_probe, "opencode")
+    tokens = staticmethod(opencode.usage)
+
+    def __init__(self) -> None:
+        """Configure the read-only dial and the owner-gated executor role."""
+        super().__init__(
+            opencode.name,
+            env_var=opencode.MODEL_ENV_VAR,
+            default=opencode.MODEL_DEFAULT,
+            note=opencode.model.note,
+        )
+        self.roles = ("executor",) if opencode.enabled else ()
+
+    def command(self, prompt: str) -> list[str]:
+        """Build the OpenCode implementation command with JSON event output."""
+        return [
+            "opencode",
+            "run",
+            "--format",
+            "json",
+            "--model",
+            opencode.model.current(),
+            prompt,
+        ]
+
+    def limits(self) -> dict:
+        """Return the last recorded DeepSeek balance reading (OpenCode's backend)."""
+        from ai_agent.provider_limits import _deepseek_reading
+
+        return _deepseek_reading()
+
+
 _TOOLS: dict[str, AITool] = {
     "claude": ClaudeApiTool(),
     "codex": CodexTool(),
@@ -367,6 +411,7 @@ _TOOLS: dict[str, AITool] = {
         note=claude_code.model.note,
     ),
     "deepseek": DeepSeekTool(),
+    "opencode": OpenCodeTool(),
 }
 
 
