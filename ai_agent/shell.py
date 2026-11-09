@@ -54,11 +54,9 @@ def run(
     """Run a command with a timeout and raise on failure."""
     working_directory = cwd if cwd is not None else active_project().repo_path
     logger.info(
-        "Running command: %s cwd=%s timeout=%s interactive=%s",
+        "Running command: %s cwd=%s",
         [args[0], "[private input]"] if private else args,
         working_directory,
-        timeout,
-        interactive,
     )
     try:
         runner = subprocess.run
