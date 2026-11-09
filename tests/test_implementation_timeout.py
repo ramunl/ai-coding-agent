@@ -41,6 +41,7 @@ def test_unlimited_timeout_reaches_provider_without_affecting_planning(agent):
             workflow, "run_with_images", return_value=CommandResult([], 0, "done")
         ) as run,
         patch.object(workflow, "record_usage"),
+        patch.object(workflow, "preflight"),
     ):
         workflow.run_implementation_agent("fix", agent)
     assert run.call_args.kwargs["timeout"] is None

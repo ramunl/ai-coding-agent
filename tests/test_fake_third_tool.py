@@ -72,6 +72,7 @@ class FakeThirdToolTests(unittest.TestCase):
         with (
             patch.object(workflow, "run_with_images", return_value=completed) as run,
             patch.object(workflow, "record_usage") as record,
+            patch.object(workflow, "preflight"),
         ):
             self.assertIs(workflow.run_implementation_agent("p", fake.NAME), completed)
         self.assertTrue(run.call_args.kwargs["provider_run"])

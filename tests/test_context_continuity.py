@@ -480,6 +480,7 @@ def test_provider_switch_receives_identical_b_packet(store, monkeypatch):
     monkeypatch.setattr(workflow, "OUTCOME_INSTRUCTIONS", "")
     runner = Mock(return_value=SimpleNamespace(output="ok"))
     monkeypatch.setattr(workflow, "run_with_images", runner)
+    monkeypatch.setattr(workflow, "preflight", lambda agent: None)
     prepared = context_prompt("TASK", request)
     for agent in ("codex", "claude"):
         workflow.run_implementation_agent("TASK", agent, context=request)

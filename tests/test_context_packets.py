@@ -307,6 +307,7 @@ def test_implementation_retries_receive_identical_packet(archive, monkeypatch):
     monkeypatch.setattr(workflow, "OUTCOME_INSTRUCTIONS", "")
     runner = Mock(return_value=SimpleNamespace(output="ok"))
     monkeypatch.setattr(workflow, "run_with_images", runner)
+    monkeypatch.setattr(workflow, "preflight", lambda agent: None)
     for provider in ("codex", "claude", "codex"):
         workflow.run_implementation_agent("TASK", provider, context=request)
         command = runner.call_args.args[0]

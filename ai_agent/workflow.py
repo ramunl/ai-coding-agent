@@ -30,6 +30,7 @@ from ai_agent.github import PullRequest, ensure_github_configured, github_reques
 from ai_agent.image_delivery import run_with_images
 from ai_agent.model_errors import codex_capacity_explained
 from ai_agent.ops_context import OUTCOME_INSTRUCTIONS, diagnostic_context
+from ai_agent.preflight import preflight
 from ai_agent.projects import active_project
 from ai_agent.run_outcomes import NoCodeOutcomeError
 from ai_agent.shell import CommandResult, run
@@ -160,8 +161,9 @@ def run_implementation_agent(
     through ``implementation_stop`` still leaves an unknown-token record behind
     while ``git_recovery`` preserves the partial edits as it already does.
     """
-    intent("implementation")
     selected = normalize_implementation_agent(agent)
+    preflight(selected)  # block before any paid work on a missing prerequisite
+    intent("implementation")
     facts = _implementer_facts(selected)
     attempt_id = current_attempt_id()
     call_id = new_call_id()
