@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import functools
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -401,6 +401,144 @@ class OpenCodeTool(CliTool):
         return _deepseek_reading()
 
 
+class ProviderTool(AITool):
+    """A generic tool adapted from one provider module's declared capabilities.
+
+    The built-in tools stay hand-written so their exact CLI arguments and order
+    never regress; a *new* provider module is instead adapted here from the
+    provider registry. Roles, model, auth, limits, errors, images and usage come
+    from the provider's declared capabilities, and the planner plus the generic
+    executor ``command``/``image_run`` sub-adapters come from its ``adapters``
+    mapping. A disabled provider keeps no roles, so it never routes.
+    """
+
+    def __init__(self, provider: Any) -> None:
+        """Adapt one provider module's declared capabilities to the tool surface."""
+        from ai_agent import provider_registry
+
+        self._provider = provider
+        self.name = str(getattr(provider, "name", "unknown"))
+        self.label = self.name.replace("-", " ").title()
+        self.order = 50
+
+        enabled = provider_registry.capability(provider, "enabled") is True
+        roles = provider_registry.roles_of(provider)
+        self.roles = roles if enabled else ()
+
+        images = provider_registry.capability(provider, "images")
+        self.images = images is True
+
+        model = provider_registry.capability(provider, "model")
+        self._model = model if model is not provider_registry.UNSUPPORTED else None
+        self.manageable = (
+            bool(getattr(self._model, "manageable", False))
+            if self._model is not None
+            else False
+        )
+
+        auth = provider_registry.capability(provider, "auth")
+        self.auth = auth if callable(auth) else None
+
+        limits = provider_registry.capability(provider, "limits")
+        self._limits = limits if callable(limits) else None
+        self.limits_key = self.name if self._limits is not None else None
+
+        usage = provider_registry.capability(provider, "usage")
+        self.tokens = usage if callable(usage) else None
+
+        errors = provider_registry.capability(provider, "errors")
+        self.errors = errors if errors is not provider_registry.UNSUPPORTED else None
+
+        adapters = provider_registry.capability(provider, "adapters")
+        self._adapters = adapters if isinstance(adapters, Mapping) else {}
+
+    def current_model(self) -> str:
+        """Return the provider's currently selected model, or '' when unknown."""
+        if self._model is None:
+            return ""
+        try:
+            return str(self._model.current())
+        except Exception:
+            return ""
+
+    def set_model(self, model: str) -> None:
+        """Persist a verified model selection through the provider's dial."""
+        if self._model is None or not self.manageable or self._model.set is None:
+            raise NotImplementedError(f"{self.name} has no model override")
+        self._model.set(model)
+
+    def verify(self, model: str) -> tuple[bool, str]:
+        """Check model availability through the provider's catalog."""
+        if self._model is None:
+            return False, f"{self.name} has no model catalog"
+        return self._model.verify(model)
+
+    def list_models(self) -> tuple[bool, list[dict[str, str]] | str]:
+        """List provider models through its catalog adapter."""
+        if self._model is None:
+            return False, f"{self.name} has no model catalog"
+        return self._model.list_models()
+
+    def _note(self) -> str:
+        return str(getattr(self._model, "note", "") or "") if self._model else ""
+
+    def planner(self, prompt: str, schema_name: str, max_tokens: int) -> str:
+        """Plan through the provider's declared planner adapter."""
+        adapter = self._adapters.get("planner")
+        if not callable(adapter):
+            raise NotImplementedError(f"{self.name} has no planner adapter")
+        return adapter(prompt, schema_name, max_tokens)
+
+    def command(self, prompt: str) -> list[str]:
+        """Build the implementation command through the provider's builder."""
+        adapter = self._adapters.get("command")
+        if not callable(adapter):
+            raise NotImplementedError(f"{self.name} has no command adapter")
+        return list(adapter(prompt))
+
+    def image_run(
+        self,
+        command: list[str],
+        run: Callable[..., Any],
+        *,
+        images: list[tuple[str, bytes]],
+        missing: int,
+        **kwargs: Any,
+    ) -> Any:
+        """Deliver images through the provider's image adapter."""
+        adapter = self._adapters.get("image_run")
+        if not callable(adapter):
+            raise NotImplementedError(f"{self.name} does not support image input")
+        return adapter(command, run, images=images, missing=missing, **kwargs)
+
+    def limits(self) -> dict:
+        """Return the provider's last recorded limits reading."""
+        if self._limits is None:
+            return {}
+        try:
+            value = self._limits()
+        except Exception:
+            return {}
+        return value if isinstance(value, dict) else {}
+
+    def explain_error(self, error: BaseException) -> str | None:
+        """The provider's own explanation for a recognized error, or None.
+
+        The new-provider error contract uses single-argument ``classify`` and
+        ``message`` adapters; a provider that declares a different signature is
+        surfaced as-is and never guessed at.
+        """
+        adapter = self.errors
+        if adapter is None:
+            return None
+        try:
+            if adapter.classify(error):
+                return str(adapter.message(error))
+        except Exception:
+            return None
+        return None
+
+
 _TOOLS: dict[str, AITool] = {
     "claude": ClaudeApiTool(),
     "codex": CodexTool(),
@@ -425,13 +563,51 @@ def unregister_tool(name: str) -> None:
     _TOOLS.pop(name.strip().lower(), None)
 
 
+def install_provider_tools() -> list[str]:
+    """Register a generic tool for every discovered provider, idempotently.
+
+    A provider already served by a hand-written tool is never replaced, so the
+    built-in CLI arguments and order stay intact. A provider served by an
+    earlier ``ProviderTool`` is rebuilt from its current declarations, so a
+    disabled provider loses its roles. Returns the installed tool names.
+    """
+    from ai_agent import provider_registry
+
+    installed: list[str] = []
+    for name, provider in provider_registry.discover().items():
+        existing = _TOOLS.get(name)
+        if existing is not None and not isinstance(existing, ProviderTool):
+            continue
+        register_tool(name, ProviderTool(provider))
+        installed.append(name)
+    return installed
+
+
+_provider_tools_installed = False
+
+
+def _ensure_provider_tools() -> None:
+    """Install provider tools once, lazily, without a module-level import cycle.
+
+    The provider registry is imported inside the function so ``ai_tools`` never
+    imports ``provider_capabilities`` (which imports this module) at import time.
+    """
+    global _provider_tools_installed
+    if _provider_tools_installed:
+        return
+    install_provider_tools()
+    _provider_tools_installed = True
+
+
 def all_tools() -> dict[str, AITool]:
     """Return a copy of the registered tools keyed by name."""
+    _ensure_provider_tools()
     return dict(_TOOLS)
 
 
 def tools_for_role(role: str) -> list[str]:
     """Return registered tool names that serve ``role``, in display order."""
+    _ensure_provider_tools()
     return [
         tool.name
         for tool in sorted(
@@ -443,11 +619,13 @@ def tools_for_role(role: str) -> list[str]:
 
 def manageable_tools() -> list[str]:
     """Return the names of tools whose model this agent can switch."""
+    _ensure_provider_tools()
     return [tool.name for tool in _TOOLS.values() if tool.manageable]
 
 
 def auth_tools() -> list[AITool]:
     """Return tools that declare an auth observation, in display order."""
+    _ensure_provider_tools()
     return sorted(
         (tool for tool in _TOOLS.values() if tool.auth is not None),
         key=lambda tool: (tool.order, tool.name),
@@ -456,6 +634,7 @@ def auth_tools() -> list[AITool]:
 
 def limits_tools() -> list[AITool]:
     """Return tools that declare a limits snapshot key, in display order."""
+    _ensure_provider_tools()
     return sorted(
         (tool for tool in _TOOLS.values() if tool.limits_key is not None),
         key=lambda tool: (tool.order, tool.name),
@@ -464,6 +643,7 @@ def limits_tools() -> list[AITool]:
 
 def token_tools() -> list[str]:
     """Return usage-capable tools, including those with unknown token counts."""
+    _ensure_provider_tools()
     return [
         tool.name
         for tool in sorted(
@@ -475,14 +655,17 @@ def token_tools() -> list[str]:
 
 def known_tools() -> list[str]:
     """Return the registered tool names in display order."""
+    _ensure_provider_tools()
     return list(_TOOLS)
 
 
 def get_tool(name: str) -> AITool | None:
     """Resolve a case-insensitive tool name, or return None if unknown."""
+    _ensure_provider_tools()
     return _TOOLS.get(name.strip().lower())
 
 
 def all_info() -> list[ModelInfo]:
     """Describe the current model for every registered tool."""
+    _ensure_provider_tools()
     return [tool.info() for tool in _TOOLS.values()]

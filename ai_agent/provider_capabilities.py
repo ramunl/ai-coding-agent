@@ -37,6 +37,11 @@ MODEL_PATTERN = re.compile(
 # serves a provider. ``claude`` runs the Claude Code CLI, not the Anthropic API.
 _PROVIDER_RUNNERS = {provider: tool for tool, provider in RUNNER_ALIASES.items()}
 
+# The role keys an adapter mapping may declare. New generic executor sub-adapters
+# ("command"/"image_run") live in the same mapping but are never roles, so the
+# snapshot's ``adapter`` field stays a role list.
+_ROLE_ADAPTERS = ("planner", "executor")
+
 _ROLE_LABELS = {"planner": "planning agent", "executor": "implementation agent"}
 
 # The user_data key holding an explicit per-role model override.
@@ -161,11 +166,15 @@ def model_semantics(provider: Any) -> Any:
 
 
 def adapter_roles(provider: Any) -> Any:
-    """Roles with a wired adapter, or UNSUPPORTED when adapters are undeclared."""
+    """Roles with a wired adapter, or UNSUPPORTED when adapters are undeclared.
+
+    Only role adapters (``planner``/``executor``) are published; generic
+    executor sub-adapters such as ``command``/``image_run`` are not roles.
+    """
     adapters = provider_registry.capability(provider, "adapters")
     if adapters is UNSUPPORTED:
         return UNSUPPORTED
-    return sorted(role for role in adapters if callable(adapters.get(role)))
+    return sorted(role for role in _ROLE_ADAPTERS if callable(adapters.get(role)))
 
 
 def runner_identity(name: str) -> str:
@@ -176,7 +185,7 @@ def runner_identity(name: str) -> str:
 def provider_block(provider: Any) -> dict:
     """One provider's declared capabilities, JSON-safe."""
     name = getattr(provider, "name", "unknown")
-    return {
+    block = {
         "id": name,
         "label": _label(name),
         "status": _status(provider_registry.capability(provider, "enabled")),
@@ -190,6 +199,12 @@ def provider_block(provider: Any) -> dict:
         "usage": _declared(provider_registry.capability(provider, "usage")),
         "runner": runner_identity(name),
     }
+    # Publish the owner-approved manifest's secret-free maintenance metadata
+    # only when it exists, so the snapshot stays backward compatible.
+    maintenance = provider_registry.maintenance(name)
+    if maintenance:
+        block["maintenance"] = maintenance
+    return block
 
 
 def provider_blocks() -> list[dict]:

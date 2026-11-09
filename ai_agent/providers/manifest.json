@@ -1,0 +1,34 @@
+{
+  "providers": [
+    {
+      "module": "ai_agent.providers.claude",
+      "package": "anthropic",
+      "pinned_version": "",
+      "gated": false
+    },
+    {
+      "module": "ai_agent.providers.codex",
+      "package": "@openai/codex",
+      "pinned_version": "",
+      "gated": false
+    },
+    {
+      "module": "ai_agent.providers.claude_code",
+      "package": "@anthropic-ai/claude-code",
+      "pinned_version": "",
+      "gated": false
+    },
+    {
+      "module": "ai_agent.providers.opencode",
+      "package": "opencode-ai",
+      "pinned_version": "",
+      "gated": true
+    },
+    {
+      "module": "ai_agent.providers.deepseek",
+      "package": "deepseek-api",
+      "pinned_version": "",
+      "gated": false
+    }
+  ]
+}
