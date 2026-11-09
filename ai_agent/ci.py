@@ -1,9 +1,11 @@
 """Summarize GitHub workflow results for implementation and repair runs."""
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from ai_agent.github import github_request
 from ai_agent.projects import active_project
+from ai_agent.verification_summary import summarize_verification
 
 
 @dataclass(frozen=True)
@@ -150,9 +152,18 @@ def evaluate_ci(head_sha: str, *, repository: str | None = None) -> CiResult:
 
 
 def build_failure_context(
-    pr_number: int, result: CiResult, max_chars: int = 3500
+    pr_number: int,
+    result: CiResult,
+    max_chars: int = 3500,
+    artifact_dir: Path | None = None,
 ) -> str:
-    """Combine CI results and recent build comments into bounded context."""
+    """Combine CI results and build comments into a bounded, redacted summary.
+
+    Raw job/comment logs never reach the model: the combined failure text is
+    passed through ``verification_summary`` so only redacted head/tail lines,
+    counts and an explicit truncation marker enter the repair prompt. Full
+    redacted diagnostics are retained in ``artifact_dir`` when provided.
+    """
     comments = github_request(
         "GET",
         f"/repos/{active_project().github_repository}/issues/{pr_number}/comments",
@@ -168,5 +179,12 @@ def build_failure_context(
         parts.append(result.url)
     if failure_comments:
         parts.extend(["Recent build failure comment:", failure_comments[-1]])
-    context = "\n\n".join(part for part in parts if part)
-    return context[:max_chars]
+    raw = "\n\n".join(part for part in parts if part)
+    summary = summarize_verification(
+        raw,
+        identity=f"ci-failure-pr-{pr_number}",
+        exit_code=1,
+        max_chars=max_chars,
+        artifact_dir=artifact_dir,
+    )
+    return summary.text()

@@ -170,6 +170,7 @@ class ClaudeApiTool(AITool):
         from ai_agent.claude_code_usage import claude_code_stream_args
         from ai_agent.workflow import (
             claude_allowed_tools_args,
+            claude_context_control_args,
             safe_claude_code_args,
         )
 
@@ -180,6 +181,7 @@ class ClaudeApiTool(AITool):
             *safe_claude_code_args(),
             *claude_allowed_tools_args(),
             *claude_code_stream_args(),
+            *claude_context_control_args(),
         ]
 
     def image_run(
@@ -244,12 +246,15 @@ class CodexTool(AITool):
 
     def command(self, prompt: str) -> list[str]:
         """Build the Codex implementation command with workspace-write sandbox."""
+        from ai_agent.workflow import codex_context_control_args
+
         return [
             "codex",
             "exec",
             *codex_models.model_args(),
             "-s",
             "workspace-write",
+            *codex_context_control_args(),
             prompt,
         ]
 
