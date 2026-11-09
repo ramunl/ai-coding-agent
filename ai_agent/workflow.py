@@ -25,8 +25,6 @@ from ai_agent.config import (
     OPENCODE_MODEL,
     WORKER_ISOLATION_ENABLED,
 )
-from ai_agent.opencode_runner import OpenCodeRun, run_stream
-from ai_agent.provider_process import grouped_run
 from ai_agent.context_attempts import checkpoint, current_attempt, intent
 from ai_agent.context_packets import build_packet, with_context
 from ai_agent.context_sources import ContextRequest
@@ -39,9 +37,11 @@ from ai_agent.git_recovery import (
 from ai_agent.github import PullRequest, ensure_github_configured, github_request
 from ai_agent.image_delivery import run_with_images
 from ai_agent.model_errors import codex_capacity_explained
+from ai_agent.opencode_runner import OpenCodeRun, run_stream
 from ai_agent.ops_context import OUTCOME_INSTRUCTIONS, diagnostic_context
 from ai_agent.preflight import preflight
 from ai_agent.projects import active_project
+from ai_agent.provider_process import grouped_run
 from ai_agent.run_outcomes import NoCodeOutcomeError
 from ai_agent.shell import CommandResult, run
 from ai_agent.token_usage import UsageRecord, record_usage
