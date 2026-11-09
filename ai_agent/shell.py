@@ -53,7 +53,7 @@ def run(
     # Resolved per call, not at import: the active project can change at runtime.
     """Run a command with a timeout and raise on failure."""
     working_directory = cwd if cwd is not None else active_project().repo_path
-    logger.info(
+    logger.debug(
         "Running command: %s cwd=%s timeout=%s interactive=%s",
         [args[0], "[private input]"] if private else args,
         working_directory,
