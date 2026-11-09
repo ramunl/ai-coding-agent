@@ -283,9 +283,18 @@ def _context_paths(repo_path: Path) -> Iterator[tuple[Path, bool]]:
 
 
 def _excerpt_block(
-    root: Path, relative: str, terms: set[str], is_manifest: bool
+    root: Path,
+    relative: str,
+    terms: set[str],
+    is_manifest: bool,
+    line_range: tuple[int, int] | None = None,
 ) -> str:
-    """Read and redact one bounded excerpt block for the planner prompt."""
+    """Read and redact one bounded excerpt block for the planner prompt.
+
+    ``line_range`` selects a 1-indexed inclusive range for targeted citations
+    (verification summaries and repair prompts); every returned line keeps its
+    real line number so the model can cite it without re-reading the file.
+    """
     try:
         text = repository_read(root, relative, PLANNER_CONTEXT_READ_BYTES)
     except (
@@ -297,7 +306,16 @@ def _excerpt_block(
     ) as error:
         logger.warning("Skipping unreadable repository file %s: %s", relative, error)
         return ""
-    if is_manifest or not terms:
+    if line_range is not None:
+        start, end = line_range
+        lines = []
+        for number, line in enumerate(text.splitlines(), start=1):
+            if not start <= number <= end:
+                continue
+            redacted = _redact_text(line.rstrip())
+            if redacted:
+                lines.append(f"{relative}:{number}: {redacted[:MATCH_LINE_LENGTH]}")
+    elif is_manifest or not terms:
         lines = []
         for line in text.splitlines():
             redacted = _redact_text(line).rstrip()
@@ -318,6 +336,41 @@ def _excerpt_block(
     if len(body) > PLANNER_CONTEXT_FILE_CHARS:
         body = body[:PLANNER_CONTEXT_FILE_CHARS].rstrip() + "\n… [truncated]"
     return f"--- {relative} ---\n{body}"
+
+
+def repository_excerpt(
+    relative: str,
+    *,
+    repo_path: Path | str | None = None,
+    line_start: int | None = None,
+    line_end: int | None = None,
+) -> str:
+    """Return a bounded, redacted excerpt of one file, optionally a line range.
+
+    Reuses :func:`_excerpt_block` so reads keep the pinned, symlink-safe
+    ``repository_read`` path and redaction matches planner context. Used by
+    verification summaries and repair prompts to cite targeted ranges without
+    dumping whole files into the model context. Oversize files are omitted
+    (fail-closed) exactly like planner context.
+    """
+    root = Path(repo_path) if repo_path is not None else active_project().repo_path
+    root = Path(root).expanduser()
+    relative_path = Path(relative)
+    if (
+        relative_path.is_absolute()
+        or ".." in relative_path.parts
+        or not relative_path.parts
+    ):
+        logger.warning("Skipping unsafe repository excerpt path: %s", relative)
+        return ""
+    line_range = None
+    if line_start is not None or line_end is not None:
+        start = int(line_start) if line_start is not None else 1
+        end = int(line_end) if line_end is not None else start
+        start = max(1, start)
+        end = max(start, end)
+        line_range = (start, end)
+    return _excerpt_block(root, str(relative), set(), True, line_range=line_range)
 
 
 def planner_context(

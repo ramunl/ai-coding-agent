@@ -118,6 +118,28 @@ def claude_allowed_tools_args() -> list[str]:
     return ["--allowedTools", ",".join(CLAUDE_CODE_ALLOWED_TOOLS)]
 
 
+def claude_context_control_args() -> list[str]:
+    """Version-gated context/output-control flags for the Claude implementer.
+
+    Logs and omits unsupported flags; never disturbs ``safe_claude_code_args``
+    or ``claude_allowed_tools_args``.
+    """
+    from ai_agent.runner_controls import context_control_args
+
+    return context_control_args("claude")
+
+
+def codex_context_control_args() -> list[str]:
+    """Version-gated context/output-control flags for the Codex implementer.
+
+    Logs and omits unsupported flags; never disturbs the workspace-write
+    sandbox or the model override.
+    """
+    from ai_agent.runner_controls import context_control_args
+
+    return context_control_args("codex")
+
+
 def implementation_command(prompt: str, agent: str | None = None) -> list[str]:
     """Build the selected provider command for an implementation prompt."""
     selected_agent = normalize_implementation_agent(agent)

@@ -49,4 +49,11 @@ Use ops_required for a diagnosed server/configuration action requiring the Ops
 controls or administrator. Never call this done, never fabricate a commit, and
 never weaken permissions. Do not execute server changes yourself. If code changes
 are appropriate, implement and test them normally instead of returning this JSON.
+
+Keep repository reads and verification output bounded: read whole files only
+when necessary, prefer targeted ranges, and never re-read the same large file
+repeatedly. When you run tests or lint, report a short redacted summary (what
+failed, the failing file and line, and the key message) instead of pasting full
+logs. Do not include raw logs, secrets, or full diffs in your response; keep
+full diagnostics out of the model context and off the branch.
 """
