@@ -60,6 +60,20 @@ def requested(feature: str, names: list[str] | None = None) -> list[str]:
     )
 
 
+def _names_repository(step: str, name: str, names: list[str]) -> bool:
+    """Accept separator aliases only when they identify one registered repository."""
+    boundary = r"[A-Za-z0-9_.-]"
+    end = r"(?![A-Za-z0-9_-]|\.[A-Za-z0-9_-])"
+    literal = rf"(?<!{boundary}){re.escape(name)}{end}"
+    if re.search(literal, step):
+        return True
+    normalized = name.replace("_", "-")
+    if sum(other.replace("_", "-") == normalized for other in names) != 1:
+        return False
+    alias = "".join("[-_]" if char in "-_" else re.escape(char) for char in name)
+    return re.search(rf"(?<!{boundary}){alias}{end}", step) is not None
+
+
 def issues(feature: str, document: object, names: list[str] | None = None) -> list[str]:
     """Missing or unresolved scope cannot be approved by either provider path."""
     if names is None:
@@ -106,7 +120,9 @@ def issues(feature: str, document: object, names: list[str] | None = None) -> li
         ):
             result.append(f"{name}: unresolved or conflicting repository scope.")
             continue
-        if role == "verify" and not any(name in step for step in document.steps):
+        if role == "verify" and not any(
+            _names_repository(step, name, names) for step in document.steps
+        ):
             result.append(
                 f"{name}: list a concrete verification step naming this repository."
             )
