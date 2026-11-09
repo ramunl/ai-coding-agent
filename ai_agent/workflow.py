@@ -5,7 +5,7 @@ import logging
 import os
 import re
 import time
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, is_dataclass, replace
 from pathlib import Path
 
 from ai_agent import codex_models, isolation
@@ -152,6 +152,20 @@ def _elapsed_seconds(started: float) -> int:
     return max(0, int(time.monotonic() - started))
 
 
+def _with_output(result: CommandResult, output: str) -> CommandResult:
+    """Return ``result`` with its output replaced.
+
+    ``CommandResult`` is a frozen dataclass, so production results are rebuilt
+    with :func:`dataclasses.replace`. Unit tests occasionally mock the runner
+    with a plain ``SimpleNamespace``, which is mutable and not a dataclass, so
+    its ``output`` is assigned in place instead.
+    """
+    if is_dataclass(result):
+        return replace(result, output=output)
+    result.output = output
+    return result
+
+
 def _claude_failure(detail: str) -> RuntimeError:
     """A bounded, prose-only failure so stream-json noise never reaches the UI."""
     detail = " ".join(detail.split())[:1000] or "Claude Code failed"
@@ -266,7 +280,7 @@ def run_implementation_agent(
             prose = result_text(result.output)
             if usage.is_error and prose:
                 raise _claude_failure(prose)
-            result = replace(result, output=prose)
+            result = _with_output(result, prose)
             tokens = usage.tokens()
         else:
             tokens = _implementer_tokens(selected, result.output)

@@ -397,6 +397,23 @@ class ImplementerUsageTests(unittest.TestCase):
         records = self._run("claude", "tokens used: 999")
         self.assertEqual(records, [("implementer", "claude", None)])
 
+    def test_claude_run_tolerates_a_plain_namespace_result(self):
+        from types import SimpleNamespace
+
+        from ai_agent import workflow
+
+        with (
+            patch.object(
+                workflow,
+                "run_with_images",
+                return_value=SimpleNamespace(output="ok"),
+            ),
+            patch.object(workflow, "record_usage"),
+            patch.object(workflow, "record_detail"),
+        ):
+            result = workflow.run_implementation_agent("fix", "claude")
+        self.assertEqual(result.output, "")
+
     def test_detail_attributes_the_actual_runner_and_provider(self):
         from ai_agent import workflow
 
