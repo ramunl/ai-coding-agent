@@ -1,0 +1,10 @@
+{
+  "providers": [
+    {
+      "module": "tests.fake_provider",
+      "package": "fake-package",
+      "pinned_version": "0.0.0-test",
+      "gated": false
+    }
+  ]
+}

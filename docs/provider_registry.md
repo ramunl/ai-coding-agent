@@ -68,7 +68,11 @@ snapshot publisher keep their existing imports and dispatch unchanged.
 
 ## Discovery
 
-`discover()` imports the modules named in `PROVIDER_MODULES` and registers each
-under its `name`. `get_provider` is case-insensitive and returns `None` for an
-unknown tool; `enabled_providers()` returns only providers with `enabled`
-truthy. `reset()` clears the registry (tests/reloads only).
+`discover()` imports only the modules listed in the owner-approved manifest
+(`ai_agent/providers/manifest.json`) and registers each under its `name`.
+Unlisted modules are never imported; a missing manifest falls back to the
+built-in `PROVIDER_MODULES` tuple, and a malformed manifest fails closed.
+`get_provider` is case-insensitive and returns `None` for an unknown tool;
+`enabled_providers()` returns only providers with `enabled` truthy. `reset()`
+clears the registry (tests/reloads only). See `docs/provider-extension.md` for
+the manifest schema and the one-module provider contract.
