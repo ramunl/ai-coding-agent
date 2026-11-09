@@ -100,3 +100,24 @@ def test_explicit_provider_uses_supervised_runner(monkeypatch, tmp_path):
     result = shell.run(["/custom/provider-cli", "run"], cwd=tmp_path, provider_run=True)
     assert result.output == "done"
     assert calls == [["/custom/provider-cli", "run"]]
+
+
+def test_routine_commands_are_debug_only_and_keep_diagnostic_options(
+    monkeypatch, tmp_path, caplog
+):
+    shell = importlib.import_module("ai_agent.shell")
+    monkeypatch.setattr(
+        shell.subprocess,
+        "run",
+        lambda args, **kwargs: subprocess.CompletedProcess(args, 0, "", ""),
+    )
+    with caplog.at_level("INFO", logger="ai_agent.shell"):
+        shell.run(["example", "status"], cwd=tmp_path, timeout=17)
+    assert "Running command" not in caplog.text
+    caplog.clear()
+    with caplog.at_level("DEBUG", logger="ai_agent.shell"):
+        shell.run(["example", "status"], cwd=tmp_path, timeout=17)
+        shell.run(["example", "private-value"], cwd=tmp_path, private=True)
+    assert "timeout=17 interactive=False" in caplog.text
+    assert "private-value" not in caplog.text
+    assert "[private input]" in caplog.text
