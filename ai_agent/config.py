@@ -61,6 +61,14 @@ if DEEPSEEK_MAX_OUTPUT_TOKENS <= 0:
     raise ValueError("DEEPSEEK_MAX_OUTPUT_TOKENS must be positive")
 if DEEPSEEK_MAX_OUTPUT_CHARS <= 0:
     raise ValueError("DEEPSEEK_MAX_OUTPUT_CHARS must be positive")
+# OpenCode CLI executor (owner-gated). The provider stays disabled in the
+# registry until the owner approves a pinned release (recorded by
+# scripts/opencode_characterize.sh); the DeepSeek model is read-only here and
+# the runner's captured JSON output is bounded by OPENCODE_MAX_OUTPUT_CHARS.
+OPENCODE_MODEL = os.environ.get("OPENCODE_MODEL", "deepseek/deepseek-chat").strip()
+OPENCODE_MAX_OUTPUT_CHARS = int(os.environ.get("OPENCODE_MAX_OUTPUT_CHARS", "200000"))
+if OPENCODE_MAX_OUTPUT_CHARS <= 0:
+    raise ValueError("OPENCODE_MAX_OUTPUT_CHARS must be positive")
 # Bounded live repository context for the tool-free API planner. When the
 # repository has no usable evidence, PLANNER_CONTEXT_ESCALATION="codex" routes
 # the plan to the Codex CLI (which has repository tools) instead of failing;
@@ -250,6 +258,12 @@ RULES_ENABLED = os.environ.get("RULES_ENABLED", "true").strip().lower() not in {
 AUTONOMOUS_DEEPSEEK_ENABLED = os.environ.get(
     "AUTONOMOUS_DEEPSEEK_ENABLED", "false"
 ).strip().lower() not in {"false", "0", "no"}
+# Off by default: the autonomous worker may pick the OpenCode executor only
+# after the owner approves a pinned release and enables the provider. Manual
+# runs are unaffected; this is consulted only in ai_agent.worker.
+AUTONOMOUS_OPENCODE_ENABLED = os.environ.get(
+    "AUTONOMOUS_OPENCODE_ENABLED", "false"
+).strip().lower() not in {"false", "0", "no"}
 RULES_REPO_PATH = Path(os.environ.get("RULES_REPO_PATH", "/opt/ai-rules")).expanduser()
 RULES_REPO_URL = os.environ.get("RULES_REPO_URL", "git@github.com:ramunl/ai-rules.git")
 RULES_PROJECT_NAME = os.environ.get("RULES_PROJECT_NAME", "channel-cast")
@@ -305,7 +319,9 @@ def validate_required_config() -> None:
         os.environ.get("IMPLEMENTATION_AGENT", "codex").strip().lower()
     )
     if implementation_agent not in tools_for_role("executor"):
-        raise RuntimeError("IMPLEMENTATION_AGENT must be codex or claude")
+        raise RuntimeError(
+            f"IMPLEMENTATION_AGENT must be {' or '.join(tools_for_role('executor'))}"
+        )
     planning_agent = os.environ.get("PLANNING_AGENT", "codex").strip().lower()
     if planning_agent not in tools_for_role("planner"):
         raise RuntimeError(

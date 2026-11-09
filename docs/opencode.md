@@ -1,12 +1,15 @@
 # OpenCode: pinned, characterized, and disabled
 
 OpenCode (npm `opencode-ai`) is characterized here as an **optional DeepSeek
-executor**. It is **disabled** in production: `ai_agent/providers/opencode.py`
-keeps `enabled=False` and declares no registry capabilities, so the worker can
-never route an implementation run through it and the dashboard snapshot reports
-every capability as `unsupported`. This document records the pinned build, the
-JSON-event contract, and the peak-RAM/attachment evidence produced by
-`scripts/opencode_characterize.sh`. Nothing here enables OpenCode.
+executor**. It stays **disabled** in production: `ai_agent/providers/opencode.py`
+keeps `enabled=False`, so the worker can never route an implementation run
+through it and the dashboard snapshot reports it as unavailable. The provider
+still *declares* the executor contract (roles, adapters, a read-only model dial,
+auth, limits, errors, usage) so that, once the owner flips `enabled`, the
+registry, worker, dashboard and usage accounting pick it up without a code
+change. This document records the pinned build, the JSON-event contract, and the
+peak-RAM/attachment evidence produced by `scripts/opencode_characterize.sh`.
+Nothing here enables OpenCode.
 
 Activation is gated on an owner trial decision. The trial's install route is
 ai-ops-agent's VPS maintenance and stays a **reversible, disposable** action in
@@ -62,9 +65,31 @@ categories:
 | cancel | any `cancelled` event; suppresses the synthetic exit error |
 
 `opencode.error_kind(code, message)` classifies an error event as `auth`,
-`funds`, `transient`, or `execution` for the fixture contract only. The worker's
-own failure vocabulary stays in `ai_agent/provider_availability.py` and never
-reaches this module, because OpenCode is never routed.
+`funds`, `transient`, or `execution`; `ai_agent/opencode_runner.py` consumes this
+classification to reduce a stream to a bounded outcome, and
+`ai_agent/workflow.py` enforces the result-event contract (a zero exit alone is
+a false success). The worker's own failure vocabulary stays in
+`ai_agent/provider_availability.py`.
+
+## Executor wiring
+
+The provider is owner-gated in two independent steps:
+
+- `ai_agent/providers/opencode.py` — `enabled=False` today. Flipping it to
+  `True` (after a reviewed pin) exposes the executor role, so
+  `tools_for_role("executor")` and the registry pick it up.
+- `ai_agent/config.py` — `AUTONOMOUS_OPENCODE_ENABLED` (default `false`) gates
+  the worker's *autonomous* use through `ai_agent/worker.py`, matching the
+  `AUTONOMOUS_DEEPSEEK_ENABLED` gate. Manual runs are unaffected.
+
+`ai_agent/opencode_runner.py` runs `opencode run --format json --model
+<OPENCODE_MODEL>` through the shared cancellation-aware `grouped_run`, bounds
+captured output to `OPENCODE_MAX_OUTPUT_CHARS` (tail kept, truncation marked),
+and reduces the stream to an `OpenCodeRun`. `workflow.run_implementation_agent`
+then records usage/cost and requires a `result` event plus repository changes: a
+zero exit without a `result` is rejected as a false success. Usage accounting
+adds the `opencode` runner key (provider `deepseek`); saved stores stay
+backward-compatible.
 
 ## Six scenarios captured
 

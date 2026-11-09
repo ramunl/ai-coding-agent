@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ai_agent.ai_tools import tools_for_role
-from ai_agent.config import AUTONOMOUS_DEEPSEEK_ENABLED
+from ai_agent.config import AUTONOMOUS_DEEPSEEK_ENABLED, AUTONOMOUS_OPENCODE_ENABLED
 from ai_agent.plan_state import parse_plan_document
 from ai_agent.planner import normalize_planning_agent
 from ai_agent.projects import active_project
@@ -143,11 +143,16 @@ def _tool_wait(
 def autonomous_tool_allowed(tool: str) -> bool:
     """Whether the worker may use tool on its own.
 
-    Only DeepSeek is gated: it stays off until AUTONOMOUS_DEEPSEEK_ENABLED is
-    set, pending the CTX07 continuity trial and the CTX08 backup/restore gate.
-    This is consulted only by pick_tool, so manual /plan is never affected.
+    DeepSeek and OpenCode are gated off until their owner-reviewed opt-in flags
+    are set (AUTONOMOUS_DEEPSEEK_ENABLED / AUTONOMOUS_OPENCODE_ENABLED), pending
+    the continuity/backup trials and the OpenCode pin review. This is consulted
+    only by pick_tool, so manual /plan and manual runs are never affected.
     """
-    return tool != "deepseek" or AUTONOMOUS_DEEPSEEK_ENABLED
+    if tool == "deepseek":
+        return AUTONOMOUS_DEEPSEEK_ENABLED
+    if tool == "opencode":
+        return AUTONOMOUS_OPENCODE_ENABLED
+    return True
 
 
 def _fallback_tools(role: str) -> list[str]:
