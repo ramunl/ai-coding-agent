@@ -261,6 +261,13 @@ _implementation_timeout = int(
 if _implementation_timeout < 0:
     raise ValueError("IMPLEMENTATION_TIMEOUT_SECONDS must be zero or positive")
 IMPLEMENTATION_TIMEOUT_SECONDS = _implementation_timeout or None
+# Identical structured permission denials tolerated inside one attempt before a
+# denial-loop blocker stops the paid run. 0 disables detection; a negative value
+# is a configuration error.
+_denial_loop_max = int(os.environ.get("DENIAL_LOOP_MAX_PER_ATTEMPT", "3"))
+if _denial_loop_max < 0:
+    raise ValueError("DENIAL_LOOP_MAX_PER_ATTEMPT must be zero or positive")
+DENIAL_LOOP_MAX_PER_ATTEMPT = _denial_loop_max
 CI_POLL_INTERVAL_SECONDS = int(os.environ.get("CI_POLL_INTERVAL_SECONDS", "30"))
 CI_TIMEOUT_SECONDS = int(os.environ.get("CI_TIMEOUT_SECONDS", "1800"))
 CI_FIX_ATTEMPTS = int(os.environ.get("CI_FIX_ATTEMPTS", "3"))
