@@ -239,3 +239,25 @@ def test_stop_action_requires_current_attempt_token(actions):
         assert task["stop_requested"] is True
     finally:
         unregister(run)
+
+
+def test_owner_completion_review_dispatch_preserves_action_errors(actions, monkeypatch):
+    from ai_agent import task_reconcile
+
+    task = {"id": "abcd1234", "stage": "todo"}
+    data = {"tasks": [task]}
+    app = SimpleNamespace(user_data={123: data})
+    review = AsyncMock(return_value="Confirmed merged")
+    monkeypatch.setattr(task_reconcile, "reconcile", review)
+    assert (
+        asyncio.run(
+            actions.run_task_action(app, 123, "reconcile_task", {"task": task["id"]})
+        )
+        == "Confirmed merged"
+    )
+    review.assert_awaited_once_with(task, data)
+    review.side_effect = ValueError("PR evidence unavailable")
+    with pytest.raises(actions.ActionError, match="PR evidence unavailable"):
+        asyncio.run(
+            actions.run_task_action(app, 123, "reconcile_task", {"task": task["id"]})
+        )

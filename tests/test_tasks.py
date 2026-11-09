@@ -66,6 +66,13 @@ class StageTests(unittest.TestCase):
         self.assertEqual(self.task["stage"], "ended")
         self.assertIsNone(self.task["pr_url"])
 
+    def test_execution_finishing_between_snapshots_is_not_a_cancelled_plan(self):
+        self.task.update(stage="planned", run={"id": 1})
+        self.data.pop("pending_plan", None)
+        self.tasks.sync(self.data)
+        self.assertEqual(self.task["stage"], "ended")
+        self.assertNotIn("cancelled", self.task["note"])
+
     def test_a_run_that_ends_unseen_is_not_called_pr_open(self) -> None:
         self.tasks.set_stage(self.task, "implementing")
         self.data["last_execution"] = SimpleNamespace(branch="other", pr_url="u")

@@ -474,3 +474,20 @@ Plans account for every explicitly named registered repository before approval.
 Implementation, verification, completed work and context are kept distinct;
 only implementation owners drive repository splitting. Missing or unresolved
 scope requires revision. See [repository scope review](docs/repository-scope.md).
+
+### Completion reconciliation
+
+Execution explicitly enters Implementing before awaiting work; a queued run or
+archived result whose plan disappeared is checked as an ended execution rather
+than a cancelled plan. The PR tracker also rechecks Stopped tasks that have an
+identity-bound handoff. An existing but unbound PR is unknown, never confirmed
+absent. Branch-only matches cannot authorize modern completion.
+
+The owner-only `reconcile_task` inbox action (task ID only) repairs an idle
+Stopped task or an untouched reopened task from its exact archived commit/PR.
+It requires fresh GitHub merge evidence and matching repository/task scope,
+rejects active/new work and races, retains history and records an owner review.
+Only unstarted, unapproved consumers still pinned to the recovered handoff have
+their reopen invalidation reviewed; fresh GitHub/checkout/dependency admission
+is still required. It neither starts implementation nor reapplies recovery refs.
+Deploy Coding first, then the companion dashboard **Check merged PR** control.

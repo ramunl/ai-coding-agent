@@ -43,6 +43,7 @@ TASK_ACTIONS = (
     "create_task",
     "start_task",
     "reopen_task",
+    "reconcile_task",
     "remove_task",
     "accept_task",
     "dismiss_task",
@@ -317,6 +318,13 @@ async def run_task_action(
                 f"{task['title'][:80]}” to a pull request; you review the PR."
             )
         return f"Autopilot off: “{task['title'][:80]}” waits for your approval."
+    if action == "reconcile_task":
+        from ai_agent.task_reconcile import reconcile
+
+        try:
+            return await reconcile(task, data)
+        except ValueError as error:
+            raise ActionError(str(error)) from error
     if action == "reopen_task":
         try:
             reopen_task(task, data)

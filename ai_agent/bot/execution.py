@@ -207,6 +207,10 @@ async def run_queued_implementation(
         ),
         None,
     )
+    if owner_task is not None:
+        from ai_agent.tasks import set_stage
+
+        set_stage(owner_task, "implementing")
     checkpoint_task = str(owner_task["id"]) if owner_task else ""
     bind_checkpoint(
         checkpoint_task, branch_name, task.get("execution_mode") == "resume"

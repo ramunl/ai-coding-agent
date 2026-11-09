@@ -159,7 +159,10 @@ def _advance(task: dict, data: MutableMapping, pending_id: Any, busy: set) -> No
         if task.get("branch") in busy:
             set_stage(task, "implementing")
         elif pending_id != task.get("plan_id"):
-            set_stage(task, "stopped", "the plan was cancelled or replaced")
+            if task.get("run") or task.get("context_handoff"):
+                set_stage(task, "ended", ENDED_NOTE)
+            else:
+                set_stage(task, "stopped", "the plan was cancelled or replaced")
     elif stage == "implementing" and task.get("branch") not in busy:
         # last_execution can belong to an earlier run on the same branch (and
         # survives restarts). Only GitHub can confirm this branch's outcome.
@@ -274,6 +277,10 @@ def view(task: dict, data: MutableMapping, *, now: int | None = None) -> dict:
         or (task.get("dependency_check") or {}).get("reason"),
         "can_retry": can_retry(task),
         "can_reopen": can_reopen(task, data),
+        "can_reconcile": bool(
+            task.get("context_handoff") or task.get("context_handoffs")
+        )
+        and task.get("stage") in {"todo", "stopped"},
         "attempt": task.get("attempt", 1),
         "attempt_history": attempt_history(task),
         "autopilot": bool(task.get("autopilot")),
