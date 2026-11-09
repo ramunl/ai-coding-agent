@@ -93,7 +93,7 @@ def apply_pull(task: dict, pull: dict | None) -> bool:
         set_stage(task, "done")
     elif pull["state"] == "closed":
         set_stage(task, "stopped", "the pull request was closed without merging")
-    elif pull["state"] == "open" and task.get("stage") == "ended":
+    elif pull["state"] == "open" and task.get("stage") in {"ended", "stopped"}:
         set_stage(task, "pr")
     return task != before
 
@@ -136,14 +136,21 @@ async def check_once(data: MutableMapping) -> bool:
     for task, identity in [
         (t, (t.get("attempt", 1), t["branch"], t["stage"]))
         for t in tasks_of(data)
-        if t.get("stage") in ("pr", "ended") and t.get("branch")
+        if (
+            t.get("stage") in ("pr", "ended")
+            or (t.get("stage") == "stopped" and t.get("context_handoff"))
+        )
+        and t.get("branch")
     ]:
         try:
             repository = (
                 await asyncio.to_thread(get_project, task["repo"])
             ).github_repository
             pull = await asyncio.to_thread(pull_state, repository, identity[1])
-            pull = await asyncio.to_thread(attempt_pull, task, repository, pull)
+            bound = await asyncio.to_thread(attempt_pull, task, repository, pull)
+            if pull is not None and bound is None:
+                raise ValueError("Existing PR does not match the archived attempt")
+            pull = bound
         except Exception as error:  # one repo failing must not stop the others
             logger.warning(
                 "Task %s: pull request check failed: %s", task.get("id"), error
@@ -221,6 +228,7 @@ def verified_pull(repository: str, url: str, head_sha: str | set[str]) -> dict:
         and not pull["merged"],
         "merged": merged,
         "merge_commit": pull.get("merge_commit_sha"),
+        "merged_at": merged_at,
         "head": pull["head"]["sha"],
         "url": url,
         "checked_at": time.time(),

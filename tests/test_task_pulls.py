@@ -101,6 +101,28 @@ class TaskPullTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(broken["stage"], "pr")
         self.assertEqual(todo["stage"], "todo")
 
+    async def test_stopped_identity_bound_attempt_is_rechecked_for_merged_pr(self):
+        self.task.update(stage="stopped", context_handoff={"record_id": "attempt"})
+        merged = {"url": "u", "state": "merged", "merged_at": 1.0, "merge_commit": "c"}
+        with (
+            patch.object(self.pulls, "pull_state", return_value=merged),
+            patch.object(self.pulls, "attempt_pull", return_value=merged),
+        ):
+            self.assertTrue(await self.pulls.check_once(self.data))
+        self.assertEqual(self.task["stage"], "done")
+
+    async def test_unbound_existing_pr_is_unknown_not_confirmed_absent(self):
+        self.task.update(stage="ended", run={"context_spec": {"task_id": "new"}})
+        before = dict(self.task)
+        with (
+            patch.object(
+                self.pulls, "pull_state", return_value={"url": "old", "state": "merged"}
+            ),
+            self.assertLogs("ai_agent.task_pulls", "WARNING"),
+        ):
+            self.assertFalse(await self.pulls.check_once(self.data))
+        self.assertEqual(self.task, before)
+
     async def test_loop_marks_changes_for_saving(self) -> None:
         app = SimpleNamespace(
             user_data={123: self.data}, mark_data_for_update_persistence=MagicMock()
