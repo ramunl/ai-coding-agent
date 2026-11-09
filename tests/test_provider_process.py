@@ -1,8 +1,10 @@
 """Provider descendants must stop before a checkpoint can touch the checkout."""
 
 import json
+import os
 import subprocess
 import sys
+import textwrap
 import time
 from types import SimpleNamespace
 
@@ -151,3 +153,115 @@ def test_stale_stop_capability_cannot_stop_next_attempt():
         assert not second.stop.is_set()
     finally:
         unregister(second)
+
+
+@pytest.fixture
+def claude_on_path(tmp_path, monkeypatch):
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}")
+    return bindir
+
+
+def _write_fake_claude(bindir, body):
+    script = bindir / "claude"
+    script.write_text(f"#!{sys.executable}\n{textwrap.dedent(body)}\n")
+    script.chmod(0o755)
+    return script
+
+
+def test_denial_loop_blocks_kills_group_and_preserves_edits(
+    repo, claude_on_path, monkeypatch
+):
+    from ai_agent import denial_loop
+    from ai_agent.denial_loop import DenialLoopBlockedError
+    from ai_agent.git_recovery import RecoverySession, _session
+
+    body = """
+        import json, subprocess, sys, time, pathlib
+        pathlib.Path('saved').write_text('keep')
+        line = json.dumps({"type": "tool_use_result", "tool_name": "Bash",
+            "denial": {"denied": True, "tool": "Bash", "operation": "git push",
+            "policy": "disallowed_tool"}})
+        for _ in range(3):
+            print(line, flush=True)
+        subprocess.Popen([sys.executable, '-c',
+            "import time,pathlib; time.sleep(1.2); pathlib.Path('late').write_text('bad')"])
+        time.sleep(30)
+    """
+    _write_fake_claude(claude_on_path, body)
+    monkeypatch.setattr(denial_loop, "probe_version", lambda runner: "2.1.318")
+
+    token = _session.set(RecoverySession(task_id="task1", branch="feature/test"))
+    try:
+        with pytest.raises(DenialLoopBlockedError):
+            provider_process.grouped_run(
+                ["claude", "-p", "--output-format", "stream-json", "--verbose"],
+                cwd=repo,
+                timeout=10,
+                text=True,
+            )
+        provider_process.require_no_writer(repo)
+        assert (repo / "saved").read_text() == "keep"
+        time.sleep(1.3)
+        assert not (repo / "late").exists()
+    finally:
+        _session.reset(token)
+
+
+def test_denial_loop_ignores_ordinary_tool_errors(repo, claude_on_path, monkeypatch):
+    from ai_agent import denial_loop
+    from ai_agent.git_recovery import RecoverySession, _session
+
+    body = """
+        import time
+        print('{"type": "result", "is_error": true, "result": "tests failed"}',
+            flush=True)
+        time.sleep(0.05)
+    """
+    _write_fake_claude(claude_on_path, body)
+    monkeypatch.setattr(denial_loop, "probe_version", lambda runner: "2.1.318")
+
+    token = _session.set(RecoverySession(task_id="task1", branch="feature/test"))
+    try:
+        result = provider_process.grouped_run(
+            ["claude", "-p", "--output-format", "stream-json", "--verbose"],
+            cwd=repo,
+            timeout=10,
+            text=True,
+        )
+        assert result.returncode == 0
+        provider_process.require_no_writer(repo)
+    finally:
+        _session.reset(token)
+
+
+def test_denial_loop_unique_denials_do_not_block(repo, claude_on_path, monkeypatch):
+    from ai_agent import denial_loop
+    from ai_agent.git_recovery import RecoverySession, _session
+
+    body = """
+        import time
+        print('{"type": "tool_use_result", "tool_name": "Bash", "denial": '
+              '{"denied": true, "tool": "Bash", "operation": "op-a", "policy": "denied"}}',
+              flush=True)
+        print('{"type": "tool_use_result", "tool_name": "Bash", "denial": '
+              '{"denied": true, "tool": "Bash", "operation": "op-b", "policy": "denied"}}',
+              flush=True)
+        time.sleep(0.05)
+    """
+    _write_fake_claude(claude_on_path, body)
+    monkeypatch.setattr(denial_loop, "probe_version", lambda runner: "2.1.318")
+
+    token = _session.set(RecoverySession(task_id="task1", branch="feature/test"))
+    try:
+        result = provider_process.grouped_run(
+            ["claude", "-p", "--output-format", "stream-json", "--verbose"],
+            cwd=repo,
+            timeout=10,
+            text=True,
+        )
+        assert result.returncode == 0
+        provider_process.require_no_writer(repo)
+    finally:
+        _session.reset(token)

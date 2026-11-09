@@ -41,6 +41,7 @@ from ai_agent.context_lifecycle import (
     require_plan_approval,
     require_run,
 )
+from ai_agent.denial_loop import DenialLoopBlockedError
 from ai_agent.git_recovery import (
     bind_checkpoint,
     cleanup_recovery,
@@ -84,6 +85,16 @@ def _preflight_reply(blocked: PreflightBlockedError) -> str:
         f"{blocked}\n\n"
         "Ops-routed blocker: complete the Ops action, then retry. "
         "Use the Ops dashboard or Ops bot for server actions."
+    )
+
+
+def _denial_loop_reply(denial: DenialLoopBlockedError) -> str:
+    """Surface a precise denial-loop blocker with a retry note, not an Ops route."""
+    return (
+        f"{denial}\n\n"
+        "No further paid runs will be made for this attempt. Approve the denied "
+        "tool/operation in the plan or allow-list, or change the command, then "
+        "retry the task to start a fresh attempt."
     )
 
 
@@ -239,6 +250,14 @@ async def run_queued_implementation(
     except ImplementationStoppedError:
         stopped = True
         raise
+    except DenialLoopBlockedError as denial:
+        no_code = True
+        checkpoint("no_code", outcome="blocked", model_report="unverified")
+        record_outcome(context.user_data, branch_name, denial)
+        context.application.mark_data_for_update_persistence(
+            user_ids=[update.effective_user.id]
+        )
+        await reply_chunks(update, _denial_loop_reply(denial))
     except NoCodeOutcomeError as outcome:
         no_code = True
         checkpoint("no_code", outcome=outcome.status, model_report="unverified")
@@ -457,6 +476,8 @@ async def fixpr(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 update,
                 f"PR #{pr_number} CI did not fail within the polling window.\n{pr_url}",
             )
+    except DenialLoopBlockedError as denial:
+        await reply_chunks(update, _denial_loop_reply(denial))
     except PreflightBlockedError as blocked:
         if not blocked.reported:
             await reply_chunks(update, _preflight_reply(blocked))

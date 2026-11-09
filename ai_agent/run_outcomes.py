@@ -9,6 +9,21 @@ from collections.abc import MutableMapping
 from ai_agent.config import redact_sensitive
 
 
+def blocked_report(summary: str, evidence: str = "", next_step: str = "") -> str:
+    """Encode a precise blocked outcome for ``NoCodeOutcomeError``.
+
+    The JSON shape is the one ``NoCodeOutcomeError`` already understands, so a
+    caller such as a denial-loop blocker surfaces as one actionable report
+    instead of prose.
+    """
+    payload: dict[str, str] = {"outcome": "blocked", "summary": summary}
+    if evidence:
+        payload["evidence"] = evidence
+    if next_step:
+        payload["next_step"] = next_step
+    return json.dumps(payload, separators=(",", ":"))
+
+
 class NoCodeOutcomeError(RuntimeError):
     """An implementation ended with a report rather than repository changes."""
 
