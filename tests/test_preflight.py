@@ -281,3 +281,32 @@ class PreflightRepairTests(TelegramTestCase):
         self.assertIn("Ops-routed blocker", texts)
         self.assertIn("Install Ruff", texts)
         request.run.assert_called_once()
+
+
+@pytest.mark.parametrize("tracked", [False, True])
+def test_baseline_is_required_only_when_repository_tracks_it(
+    checkout, monkeypatch, tracked
+):
+    import shutil
+
+    subprocess.run(["git", "init", str(checkout)], check=True, capture_output=True)
+    if tracked:
+        subprocess.run(
+            ["git", "-C", str(checkout), "add", "scripts/baseline.sh"],
+            check=True,
+            capture_output=True,
+        )
+    (checkout / "scripts/baseline.sh").unlink()
+    bin_dir = make_bin(checkout, "claude", "pytest", "ruff")
+    (bin_dir / "git").symlink_to(shutil.which("git"))
+    monkeypatch.setattr("ai_agent.preflight.CLAUDE_CODE_ARGS", ())
+    monkeypatch.setattr(
+        "ai_agent.preflight.CLAUDE_CODE_ALLOWED_TOOLS",
+        ("Bash(pytest:*)", "Bash(ruff check:*)", "Bash(ruff format:*)"),
+    )
+    policy = make_policy("claude", checkout, bin_dir)
+    if tracked:
+        with pytest.raises(PreflightBlockedError, match="Restore scripts/baseline.sh"):
+            preflight(policy=policy, probe=lambda *_: True)
+    else:
+        preflight(policy=policy, probe=lambda *_: True)

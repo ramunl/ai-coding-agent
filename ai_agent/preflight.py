@@ -186,7 +186,9 @@ def effective_claude_allowed_tools() -> tuple[str, ...]:
     return CLAUDE_CODE_ALLOWED_TOOLS
 
 
-def unapproved_verification_commands(agent: str) -> tuple[str, ...]:
+def unapproved_verification_commands(
+    agent: str, commands: tuple[str, ...] = VERIFICATION_COMMANDS
+) -> tuple[str, ...]:
     """Documented verification commands the approved policy does not cover."""
     if agent != "claude":
         # Codex runs under the workspace-write sandbox, which approves them.
@@ -194,7 +196,7 @@ def unapproved_verification_commands(agent: str) -> tuple[str, ...]:
     allowed = allowed_bash_commands(effective_claude_allowed_tools())
     return tuple(
         command
-        for command in VERIFICATION_COMMANDS
+        for command in commands
         if not verification_command_allowed(command, allowed)
     )
 
@@ -260,7 +262,37 @@ def _check_provider(
             raise PreflightBlockedError(action=action, reason=reason)
 
 
-def _check_verification_tools(policy: PreflightPolicy) -> None:
+def _baseline_required(policy: PreflightPolicy) -> bool:
+    """Require the baseline script only when this checkout actually provides it."""
+    if (policy.cwd / "scripts" / "baseline.sh").is_file():
+        return True
+    git = shutil.which("git", path=policy.path)
+    if git is None:
+        raise PreflightBlockedError(
+            action="Install Git on the worker PATH",
+            reason="cannot inspect the repository verification files without Git",
+        )
+    try:
+        result = subprocess.run(
+            [git, "ls-files", "--error-unmatch", "--", "scripts/baseline.sh"],
+            cwd=policy.cwd,
+            env=dict(policy.env),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=PROBE_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        result = None
+    if result is None or result.returncode not in (0, 1):
+        raise PreflightBlockedError(
+            action="Repair the checkout verification metadata",
+            reason="cannot inspect baseline-script tracking in this repository",
+        )
+    return result.returncode == 0
+
+
+def _check_verification_tools(policy: PreflightPolicy) -> tuple[str, ...]:
     for binary in VERIFICATION_BINARIES:
         if shutil.which(binary, path=policy.path) is None:
             label = _VERIFICATION_TOOL_LABELS.get(binary, binary)
@@ -269,11 +301,17 @@ def _check_verification_tools(policy: PreflightPolicy) -> None:
                 reason=f"{binary} was not found on the child PATH",
             )
     baseline = policy.cwd / "scripts" / "baseline.sh"
-    if not baseline.is_file():
+    required = _baseline_required(policy)
+    if required and not baseline.is_file():
         raise PreflightBlockedError(
             action="Restore scripts/baseline.sh in the checkout",
             reason="scripts/baseline.sh is missing from the checkout",
         )
+    return tuple(
+        command
+        for command in VERIFICATION_COMMANDS
+        if command != "scripts/baseline.sh" or required
+    )
 
 
 def preflight(
@@ -288,8 +326,8 @@ def preflight(
     _check_model(resolved)
     _check_checkout(resolved)
     _check_provider(resolved, probe)
-    _check_verification_tools(resolved)
-    unapproved = unapproved_verification_commands(resolved.agent)
+    commands = _check_verification_tools(resolved)
+    unapproved = unapproved_verification_commands(resolved.agent, commands)
     if unapproved:
         raise PreflightBlockedError(
             action=(

@@ -491,3 +491,8 @@ Only unstarted, unapproved consumers still pinned to the recovered handoff have
 their reopen invalidation reviewed; fresh GitHub/checkout/dependency admission
 is still required. It neither starts implementation nor reapplies recovery refs.
 Deploy Coding first, then the companion dashboard **Check merged PR** control.
+
+Preflight requires scripts/baseline.sh only when the execution checkout provides
+or tracks it. A tracked missing script still blocks; a repository that never
+tracked it uses the existing pytest/Ruff checks without a baseline-script
+permission requirement. Git metadata failures remain blockers.
