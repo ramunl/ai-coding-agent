@@ -153,17 +153,15 @@ def _claude_image_run(
         )
         + "\n"
     )
+    from ai_agent.claude_code_usage import claude_code_stream_args
+
+    base = [command[0], "-p", *command[3:]]
+    present = set(base)
+    stream_args = [flag for flag in claude_code_stream_args() if flag not in present]
+    if "--input-format" not in present:
+        stream_args.extend(["--input-format", "stream-json"])
     result = run(
-        [
-            *command[:2],
-            *command[3:],
-            "--input-format",
-            "stream-json",
-            "--output-format",
-            "stream-json",
-            "--verbose",
-            "--no-session-persistence",
-        ],
+        [*base, *stream_args],
         input_text=payload,
         private=True,
         **kwargs,

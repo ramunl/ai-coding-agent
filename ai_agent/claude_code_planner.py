@@ -22,6 +22,7 @@ from pathlib import Path
 
 from ai_agent.claude_code_limits import capture_limits
 from ai_agent.claude_code_probe import rate_limits
+from ai_agent.claude_code_usage import estimate_fields, parse_stream, provider_for_model
 from ai_agent.config import (
     CLAUDE_CODE_LIMITS_FILE,
     CLAUDE_PLANNER_MODEL,
@@ -133,21 +134,6 @@ def json_text(text: str) -> str:
     return text
 
 
-def _usage_tokens(event: dict) -> tuple[int | None, int | None, int | None]:
-    """Input, output and cache-safe total from a result event's usage block."""
-    usage = event.get("usage")
-    if not isinstance(usage, dict):
-        return None, None, None
-    input_tokens = usage.get("input_tokens")
-    output_tokens = usage.get("output_tokens")
-    if not all(
-        isinstance(n, int) and not isinstance(n, bool)
-        for n in (input_tokens, output_tokens)
-    ):
-        return None, None, None
-    return input_tokens, output_tokens, input_tokens + output_tokens
-
-
 def _save_limits(output: str, limits_file: Path) -> None:
     limits = rate_limits(output)
     if not limits:
@@ -197,20 +183,26 @@ def claude_code_message(
         raise _failure(_plain_lines(output) or "Claude Code returned no result")
     if event.get("is_error"):
         raise _failure(str(event.get("result") or event.get("subtype") or ""))
-    input_tokens, output_tokens, total = _usage_tokens(event)
-    record_usage(UsageRecord("planner", "claude", total))
+    usage = parse_stream(output)
+    provider = provider_for_model(usage.model) or "claude-code"
+    record_usage(UsageRecord("planner", "claude", usage.tokens()))
     record_detail(
         UsageDetail(
             role="planner",
             runner="claude-code",
-            provider="claude-code",
-            model=CLAUDE_PLANNER_MODEL or None,
+            provider=provider,
+            model=usage.model or (CLAUDE_PLANNER_MODEL or None),
             attempt_id=current_attempt_id(),
             call_id=call_id,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            total_tokens=total,
+            input_tokens=usage.input_tokens,
+            output_tokens=usage.output_tokens,
+            cache_read_tokens=usage.cache_read_tokens,
+            cache_creation_tokens=usage.cache_creation_tokens,
+            reasoning_tokens=usage.reasoning_tokens,
+            total_tokens=usage.tokens(),
+            cost=usage.cost_usd,
             output_chars=bounded_output_chars(str(event.get("result") or "")),
+            **estimate_fields(usage.model, usage.input_tokens, usage.output_tokens),
         )
     )
     structured = event.get("structured_output")

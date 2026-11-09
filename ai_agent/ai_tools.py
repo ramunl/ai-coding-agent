@@ -162,8 +162,16 @@ class ClaudeApiTool(AITool):
         return _claude_planner_message(prompt, schema_name, max_tokens)
 
     def command(self, prompt: str) -> list[str]:
-        """Build the Claude Code CLI implementation command."""
-        from ai_agent.workflow import claude_allowed_tools_args, safe_claude_code_args
+        """Build the Claude Code CLI implementation command.
+
+        The stream-json output format makes tokens/provider/model observable;
+        ``workflow`` parses the stream back into prose for the owner.
+        """
+        from ai_agent.claude_code_usage import claude_code_stream_args
+        from ai_agent.workflow import (
+            claude_allowed_tools_args,
+            safe_claude_code_args,
+        )
 
         return [
             "claude",
@@ -171,6 +179,7 @@ class ClaudeApiTool(AITool):
             prompt,
             *safe_claude_code_args(),
             *claude_allowed_tools_args(),
+            *claude_code_stream_args(),
         ]
 
     def image_run(

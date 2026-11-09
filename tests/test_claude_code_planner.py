@@ -90,6 +90,48 @@ def test_plans_read_only_on_stdin_and_returns_the_json(planner):
     assert (window["window_minutes"], window["remaining_percent"]) == (300, 75.0)
 
 
+def test_stream_usage_records_provider_model_cache_reasoning_and_cost(planner):
+    calls = []
+    output = stream(
+        {"type": "system", "subtype": "init", "model": "deepseek-v4-pro"},
+        {
+            "type": "result",
+            "subtype": "success",
+            "is_error": False,
+            "result": json.dumps(PLAN),
+            "total_cost_usd": 0.042,
+            "usage": {
+                "input_tokens": 1200,
+                "cache_read_input_tokens": 400,
+                "cache_creation_input_tokens": 50,
+                "output_tokens": 300,
+                "reasoning_tokens": 100,
+            },
+        },
+    )
+    text = planner.module.claude_code_message(
+        "Plan: add login", planner.schema, fake_runner(output, calls), planner.limits
+    )
+    assert json.loads(text) == PLAN
+    detail = planner.details[0]
+    assert (detail.runner, detail.provider, detail.model) == (
+        "claude-code",
+        "deepseek",
+        "deepseek-v4-pro",
+    )
+    assert detail.input_tokens == 1200
+    assert detail.output_tokens == 300
+    assert detail.cache_read_tokens == 400
+    assert detail.cache_creation_tokens == 50
+    assert detail.reasoning_tokens == 100
+    assert detail.total_tokens == 1500
+    assert detail.cost == 0.042
+    assert detail.estimate_usd == round((1200 * 0.28 + 300 * 0.84) / 1_000_000, 6)
+    assert detail.estimate_currency == "USD"
+    assert detail.estimate_rate == "peak"
+    assert detail.estimate_missing_rate is False
+
+
 def test_structured_output_is_the_plan(planner):
     output = stream(result("ignored prose", structured_output=PLAN))
     text = planner.module.claude_code_message(

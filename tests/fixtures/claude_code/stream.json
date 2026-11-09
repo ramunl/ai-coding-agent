@@ -1,0 +1,76 @@
+{
+  "format_version": 1,
+  "scenario": "stream",
+  "tool": "claude-code",
+  "pinned_version": "",
+  "exit_code": null,
+  "sanitized": true,
+  "model": "claude-sonnet-4-6",
+  "audit": {
+    "input_tokens": 1000,
+    "output_tokens": 250,
+    "cache_read_tokens": 300,
+    "cache_creation_tokens": 30,
+    "reasoning_tokens": null,
+    "total_tokens": 1250,
+    "cost_usd": null,
+    "model": "claude-sonnet-4-6",
+    "provider": "claude",
+    "complete": false,
+    "cancelled": false,
+    "is_error": false
+  },
+  "events": [
+    {
+      "type": "system",
+      "subtype": "init",
+      "session_id": "sess-2",
+      "model": "claude-sonnet-4-6"
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "id": "msg-1",
+        "role": "assistant",
+        "model": "claude-sonnet-4-6",
+        "usage": {
+          "input_tokens": 600,
+          "cache_read_input_tokens": 200,
+          "cache_creation_input_tokens": 20,
+          "output_tokens": 150
+        }
+      },
+      "session_id": "sess-2"
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "id": "msg-2",
+        "role": "assistant",
+        "model": "claude-sonnet-4-6",
+        "usage": {
+          "input_tokens": 400,
+          "cache_read_input_tokens": 100,
+          "cache_creation_input_tokens": 10,
+          "output_tokens": 100
+        }
+      },
+      "session_id": "sess-2"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "message_delta",
+        "message": {
+          "id": "msg-1",
+          "usage": {"input_tokens": 600, "output_tokens": 150}
+        }
+      }
+    },
+    {
+      "type": "reconnect",
+      "reason": "stream interrupted",
+      "session_id": "sess-2"
+    }
+  ]
+}

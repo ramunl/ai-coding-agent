@@ -31,10 +31,10 @@ an output or an identifier therefore cannot be stored by accident.
 
 | Role / tool          | Source                                                  | Status |
 |----------------------|---------------------------------------------------------|--------|
-| planner / claude     | Anthropic response `usage.input_tokens + usage.output_tokens` | Read from the SDK response shape; cache reads and writes are reported separately and excluded |
+| planner / claude     | Claude Code CLI stream-json `result.usage`, deduped across turns (or the API `usage` when `CLAUDE_PLANNER_VIA=api`) | Pinned by sanitized fixtures; cache and reasoning reported separately |
 | planner / codex      | `tokens used` line in `codex exec` output                | **Unverified** against the installed CLI (0.162.1); no fixture here |
 | implementer / codex  | same `tokens used` parse, from the implementation run   | **Unverified**, as above |
-| implementer / claude | none: `claude -p` prints text, which carries no count    | Always unknown |
+| implementer / claude | Claude Code CLI stream-json `result.usage`, deduped across turns | Pinned by sanitized fixtures |
 
 "Unverified" means the parser is written to the format Codex is believed to
 print, but no test or fixture pins that output. To check it on the server, run
@@ -42,9 +42,13 @@ a trivial `codex exec` and confirm the `tokens used` line and its number. If
 the line is absent or differs, every Codex call is counted as unknown; nothing
 is recorded as zero.
 
-Claude Code's implementer runs stay unknown because adding
-`--output-format json` would change how the bot reads the implementer's
-output. That is a separate change.
+Claude Code's planner and implementer runs ask for `--output-format
+stream-json`, so their token, cache, reasoning and cost facts come from the
+reported `result.usage`/`total_cost_usd`. The stream is reduced by
+`ai_agent/claude_code_usage.py`: the final `result` usage is authoritative
+when present, per-turn `assistant` blocks are summed only otherwise, and
+`stream_event`/`reconnect` re-emissions are deduplicated by message id so the
+wrapper total is never added to the per-request usage.
 
 ## Unknown is not zero
 
@@ -140,7 +144,7 @@ Each `UsageDetail` holds:
 |-----------------------|----------------------------------------------------------------------|
 | `role`                | `planner` or `implementer`                                           |
 | `runner`              | `codex`, `claude-api` or `claude-code`                               |
-| `provider`            | `codex`, `claude` or `claude-code` (the actual provider, not a guess)|
+| `provider`            | `codex`, `claude`, `claude-code` or `deepseek` (the actual provider, from the reported model id) |
 | `model`               | actual model id, or `None` when unknown/CLI-default                  |
 | `day`                 | UTC calendar day, `YYYY-MM-DD`                                       |
 | `input_tokens`        | input tokens, or `None`                                              |
@@ -150,6 +154,11 @@ Each `UsageDetail` holds:
 | `reasoning_tokens`    | reasoning tokens, or `None`                                          |
 | `total_tokens`        | tool-reported total; `input + output` only, never cache/reasoning    |
 | `cost`                | tool-reported cost only, never a dated estimate or subscription fee  |
+| `estimate_usd`        | dated list-price estimate, or `None` — always separate from `cost`   |
+| `estimate_currency`   | estimate currency (`USD`), or `None` when no rate                    |
+| `estimate_source`     | the dated price-list snapshot id, or `None`                          |
+| `estimate_rate`       | `peak` or `off_peak`, or `None` when no rate                         |
+| `estimate_missing_rate`| `true` when the model has no rate in the snapshot (never invented)   |
 | `duration_seconds`    | whole seconds of the call, or `None`                                 |
 | `output_chars`        | bounded output length, never the text                                |
 | `attempt_id`/`call_id`| dedupe identity, stored but never published                          |
@@ -166,10 +175,20 @@ Rules enforced by the dataclass:
   (`input_tokens`, `output_tokens`, `cache_read_input_tokens`,
   `cache_creation_input_tokens`); cache fields are kept separate so they are
   never silently double-counted.
-- The Claude Code text runner (`claude -p`) reports no tokens or cost, so its
-  implementer records stay unknown and are never attributed to the Anthropic
-  subscription.
-- DeepSeek is disabled and unsupported; no provider/model facts are invented.
+- The Claude Code planner and implementer parse `--output-format stream-json`
+  into a `ClaudeCodeUsage` (see `ai_agent/claude_code_usage.py`): the final
+  `result` usage wins when present, unique per-turn `assistant` blocks are
+  summed otherwise, and `stream_event`/`reconnect` re-emissions are
+  deduplicated by message id so totals are never double-counted. The wrapper
+  runner (`claude-code`) is recorded separately from the model-request
+  provider/model, which derive only from the reported model id — a `deepseek*`
+  id records `deepseek`, a `claude*` id records `claude`, and anything else
+  records the neutral `claude-code` wrapper provider.
+- The measured `cost` is only ever the tool-reported `costUSD`/`total_cost_usd`;
+  the `estimate_*` fields carry a dated list-price snapshot
+  (`PRICE_LIST_SOURCE` in `claude_code_usage.py`) computed from input plus
+  output tokens at the snapshot's peak rate. A model absent from the snapshot
+  records `estimate_missing_rate: true` and never invents a dollar figure.
 
 The store reuses `token_usage.locked`, the atomic writer and the 90-day UTC
 retention discipline, made configurable via `USAGE_DETAILS_RETENTION_DAYS`
@@ -181,21 +200,26 @@ implementer writes its detail in a `finally` block that reuses the existing
 
 ```json
 {
-  "format": 1,
+  "format": 2,
   "records": [
     {
       "role": "planner",
-      "runner": "claude-api",
-      "provider": "claude",
-      "model": "claude-sonnet-4-6",
+      "runner": "claude-code",
+      "provider": "deepseek",
+      "model": "deepseek-v4-pro",
       "day": "2026-10-21",
-      "input_tokens": 10,
-      "output_tokens": 5,
-      "cache_read_tokens": 99,
+      "input_tokens": 1200,
+      "output_tokens": 300,
+      "cache_read_tokens": 400,
       "cache_creation_tokens": 50,
-      "reasoning_tokens": null,
-      "total_tokens": 15,
-      "cost": null,
+      "reasoning_tokens": 100,
+      "total_tokens": 1500,
+      "cost": 0.042,
+      "estimate_usd": 0.000588,
+      "estimate_currency": "USD",
+      "estimate_source": "deepseek-list-price-2026-11-09",
+      "estimate_rate": "peak",
+      "estimate_missing_rate": false,
       "duration_seconds": 3,
       "output_chars": 12,
       "attempt_id": "abc",
@@ -204,6 +228,9 @@ implementer writes its detail in a `finally` block that reuses the existing
   ]
 }
 ```
+
+The store still reads format-1 records (written before the estimate extension)
+unchanged, upgrading them in place on the next write.
 
 ## Snapshot: usage_details section
 
@@ -218,17 +245,22 @@ prompt or output text is ever stored, so the snapshot stays secret-free.
   "records": [
     {
       "role": "planner",
-      "runner": "claude-api",
-      "provider": "claude",
-      "model": "claude-sonnet-4-6",
+      "runner": "claude-code",
+      "provider": "deepseek",
+      "model": "deepseek-v4-pro",
       "day": "2026-10-21",
-      "input_tokens": 10,
-      "output_tokens": 5,
-      "cache_read_tokens": 99,
+      "input_tokens": 1200,
+      "output_tokens": 300,
+      "cache_read_tokens": 400,
       "cache_creation_tokens": 50,
-      "reasoning_tokens": null,
-      "total_tokens": 15,
-      "cost": null,
+      "reasoning_tokens": 100,
+      "total_tokens": 1500,
+      "cost": 0.042,
+      "estimate_usd": 0.000588,
+      "estimate_currency": "USD",
+      "estimate_source": "deepseek-list-price-2026-11-09",
+      "estimate_rate": "peak",
+      "estimate_missing_rate": false,
       "duration_seconds": 3,
       "output_chars": 12
     }
@@ -248,3 +280,11 @@ Readers must treat `usage_details` as optional, exactly like `token_usage`.
 - `tests/test_snapshot_usage.py` covers format 2, the optional section, and a
   missing store still publishing. It imports the publisher, so it needs the
   full dependencies (`requirements-dev.txt`).
+- `tests/test_claude_code_usage.py` replays the sanitized stream fixtures under
+  `tests/fixtures/claude_code/` (success/cancel/fail/stream/plan) and asserts
+  the deduplicated totals match each fixture's independent audit block, that
+  provider/model derive only from the reported model id, that estimates come
+  only from the dated list price, and that no raw content or secret ever
+  reaches the parsed result.
+- `tests/test_usage_details.py` covers the estimate fields, the measured-charge
+  vs dated-estimate separation, and reading/upgrading a legacy format-1 store.
