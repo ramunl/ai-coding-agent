@@ -249,3 +249,51 @@ def test_verification_execution_target_still_requires_named_checks_and_reason():
         feature="Assigned repository: ai-pm-agent. Verify baseline only.",
     )
     assert any("concrete verification step" in problem for problem in scope.review(p))
+
+
+def test_verification_accepts_unambiguous_package_spelling_in_saved_plan():
+    p = plan(
+        [
+            {
+                "name": "ai-pm-agent",
+                "role": "verify",
+                "reason": "Run existing offline checks",
+            }
+        ],
+        repositories=[{"name": "ai-pm-agent", "changes": "Verification only"}],
+        steps=[
+            "Run npm test",
+            "Confirm git diff for ai_pm_agent is empty and report verification results",
+        ],
+        feature="Assigned repository: ai-pm-agent. Verify only.",
+    )
+    assert scope.review(p) == []
+    approve_plan(p)
+    assert p.approved
+
+
+def test_repository_spelling_does_not_accept_ambiguous_or_partial_matches():
+    assert scope._names_repository(
+        "Check ai_dashboard", "ai-dashboard", ["ai-dashboard"]
+    )
+    assert not scope._names_repository(
+        "Check ai_dashboard", "ai-dashboard", ["ai-dashboard", "ai_dashboard"]
+    )
+    assert not scope._names_repository(
+        "Check other-ai-dashboard", "ai-dashboard", ["ai-dashboard"]
+    )
+    assert not scope._names_repository(
+        "Check ai-dashboard-extra", "ai-dashboard", ["ai-dashboard"]
+    )
+    assert scope._names_repository(
+        "Check ai-dashboard", "ai-dashboard", ["ai-dashboard", "ai_dashboard"]
+    )
+
+
+def test_repository_spelling_allows_sentence_punctuation_but_not_dot_suffixes():
+    assert scope._names_repository(
+        "Run checks in ai_dashboard.", "ai-dashboard", ["ai-dashboard"]
+    )
+    assert not scope._names_repository(
+        "Check ai_dashboard.backup", "ai-dashboard", ["ai-dashboard"]
+    )
