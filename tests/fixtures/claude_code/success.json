@@ -1,0 +1,82 @@
+{
+  "format_version": 1,
+  "scenario": "success",
+  "tool": "claude-code",
+  "pinned_version": "",
+  "exit_code": 0,
+  "sanitized": true,
+  "model": "claude-sonnet-4-6",
+  "audit": {
+    "input_tokens": 1200,
+    "output_tokens": 300,
+    "cache_read_tokens": 400,
+    "cache_creation_tokens": 50,
+    "reasoning_tokens": 100,
+    "total_tokens": 1500,
+    "cost_usd": 0.042,
+    "model": "claude-sonnet-4-6",
+    "provider": "claude",
+    "complete": true,
+    "cancelled": false,
+    "is_error": false
+  },
+  "events": [
+    {
+      "type": "system",
+      "subtype": "init",
+      "cwd": "/work/repo",
+      "session_id": "sess-1",
+      "tools": ["Read", "Grep", "Glob"],
+      "model": "claude-sonnet-4-6",
+      "permissionMode": "default",
+      "apiKeySource": "none"
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "id": "msg-1",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-sonnet-4-6",
+        "content": [{"type": "text", "text": "edited"}],
+        "stop_reason": "end_turn",
+        "usage": {
+          "input_tokens": 1200,
+          "cache_creation_input_tokens": 50,
+          "cache_read_input_tokens": 400,
+          "output_tokens": 300,
+          "reasoning_tokens": 100
+        }
+      },
+      "parent_tool_use_id": null,
+      "session_id": "sess-1"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "message_delta",
+        "message": {
+          "id": "msg-1",
+          "usage": {"input_tokens": 1200, "output_tokens": 300}
+        }
+      }
+    },
+    {
+      "type": "result",
+      "subtype": "success",
+      "is_error": false,
+      "duration_ms": 1200,
+      "num_turns": 1,
+      "result": "Done",
+      "session_id": "sess-1",
+      "total_cost_usd": 0.042,
+      "usage": {
+        "input_tokens": 1200,
+        "cache_creation_input_tokens": 50,
+        "cache_read_input_tokens": 400,
+        "output_tokens": 300,
+        "reasoning_tokens": 100
+      }
+    }
+  ]
+}

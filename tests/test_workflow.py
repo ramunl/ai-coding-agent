@@ -195,13 +195,23 @@ class WorkflowTests(unittest.TestCase):
     def test_implementation_command_supports_claude(self) -> None:
         self.assertEqual(
             implementation_command("do work", "claude"),
-            ["claude", "-p", "do work", "--permission-mode", "acceptEdits"],
+            [
+                "claude",
+                "-p",
+                "do work",
+                "--permission-mode",
+                "acceptEdits",
+                "--output-format",
+                "stream-json",
+                "--verbose",
+                "--no-session-persistence",
+            ],
         )
 
     def test_claude_may_run_tests_lint_and_read_ci_without_asking(self) -> None:
         command = implementation_command("do work", "claude")
-        self.assertEqual(command[-2], "--allowedTools")
-        allowed = command[-1].split(",")
+        self.assertIn("--allowedTools", command)
+        allowed = command[command.index("--allowedTools") + 1].split(",")
         for tool in (
             "Bash(pytest:*)",
             "Bash(python3 -m pytest:*)",
@@ -218,7 +228,9 @@ class WorkflowTests(unittest.TestCase):
     def test_your_own_allowed_tools_in_claude_code_args_win(self) -> None:
         command = implementation_command("do work", "claude")
         self.assertEqual(command.count("--allowedTools"), 1)
-        self.assertEqual(command[-1], "Bash(make test:*)")
+        self.assertEqual(
+            command[command.index("--allowedTools") + 1], "Bash(make test:*)"
+        )
 
     @patch("ai_agent.workflow.CLAUDE_CODE_ALLOWED_TOOLS", ())
     @patch(
@@ -228,7 +240,17 @@ class WorkflowTests(unittest.TestCase):
     def test_root_replaces_claude_bypass_permissions(self, unused_geteuid) -> None:
         self.assertEqual(
             implementation_command("do work", "claude"),
-            ["claude", "-p", "do work", "--permission-mode", "acceptEdits"],
+            [
+                "claude",
+                "-p",
+                "do work",
+                "--permission-mode",
+                "acceptEdits",
+                "--output-format",
+                "stream-json",
+                "--verbose",
+                "--no-session-persistence",
+            ],
         )
 
     @patch("ai_agent.workflow.CLAUDE_CODE_ALLOWED_TOOLS", ())
@@ -236,7 +258,16 @@ class WorkflowTests(unittest.TestCase):
     @patch("ai_agent.workflow.os.geteuid", return_value=0)
     def test_root_removes_dangerous_claude_flag(self, unused_geteuid) -> None:
         self.assertEqual(
-            implementation_command("do work", "claude"), ["claude", "-p", "do work"]
+            implementation_command("do work", "claude"),
+            [
+                "claude",
+                "-p",
+                "do work",
+                "--output-format",
+                "stream-json",
+                "--verbose",
+                "--no-session-persistence",
+            ],
         )
 
     @patch("ai_agent.workflow.run")
@@ -366,6 +397,23 @@ class ImplementerUsageTests(unittest.TestCase):
         records = self._run("claude", "tokens used: 999")
         self.assertEqual(records, [("implementer", "claude", None)])
 
+    def test_claude_run_tolerates_a_plain_namespace_result(self):
+        from types import SimpleNamespace
+
+        from ai_agent import workflow
+
+        with (
+            patch.object(
+                workflow,
+                "run_with_images",
+                return_value=SimpleNamespace(output="ok"),
+            ),
+            patch.object(workflow, "record_usage"),
+            patch.object(workflow, "record_detail"),
+        ):
+            result = workflow.run_implementation_agent("fix", "claude")
+        self.assertEqual(result.output, "")
+
     def test_detail_attributes_the_actual_runner_and_provider(self):
         from ai_agent import workflow
 
@@ -386,6 +434,127 @@ class ImplementerUsageTests(unittest.TestCase):
         )
         self.assertIsNone(detail.model)
         self.assertIsNone(detail.total_tokens)
+
+    def test_claude_run_parses_stream_usage_and_returns_prose(self):
+        import json
+
+        from ai_agent import workflow
+
+        stream = "\n".join(
+            json.dumps(event)
+            for event in (
+                {"type": "system", "subtype": "init", "model": "deepseek-v4-pro"},
+                {
+                    "type": "result",
+                    "subtype": "success",
+                    "is_error": False,
+                    "result": "Done",
+                    "total_cost_usd": 0.042,
+                    "usage": {
+                        "input_tokens": 1200,
+                        "cache_read_input_tokens": 400,
+                        "cache_creation_input_tokens": 50,
+                        "output_tokens": 300,
+                        "reasoning_tokens": 100,
+                    },
+                },
+            )
+        )
+        with (
+            patch.object(
+                workflow,
+                "run_with_images",
+                return_value=CommandResult([], 0, stream),
+            ),
+            patch.object(workflow, "record_usage") as record,
+            patch.object(workflow, "record_detail") as detail,
+        ):
+            result = workflow.run_implementation_agent("fix", "claude")
+        self.assertEqual(result.output, "Done")
+        self.assertEqual(record.call_args.args[0].tokens, 1500)
+        detail = detail.call_args.args[0]
+        self.assertEqual(
+            (detail.runner, detail.provider, detail.model),
+            (
+                "claude-code",
+                "deepseek",
+                "deepseek-v4-pro",
+            ),
+        )
+        self.assertEqual(detail.cache_read_tokens, 400)
+        self.assertEqual(detail.cache_creation_tokens, 50)
+        self.assertEqual(detail.reasoning_tokens, 100)
+        self.assertEqual(detail.total_tokens, 1500)
+        self.assertEqual(detail.cost, 0.042)
+        self.assertEqual(detail.estimate_rate, "peak")
+        self.assertFalse(detail.estimate_missing_rate)
+
+    def test_claude_error_stream_raises_bounded_prose(self):
+        import json
+
+        from ai_agent import workflow
+
+        stream = "\n".join(
+            json.dumps(event)
+            for event in (
+                {"type": "system", "subtype": "init", "model": "claude-sonnet-4-6"},
+                {
+                    "type": "result",
+                    "subtype": "error_during_execution",
+                    "is_error": True,
+                    "result": "Not logged in",
+                },
+            )
+        )
+        with (
+            patch.object(
+                workflow,
+                "run_with_images",
+                return_value=CommandResult([], 0, stream),
+            ),
+            patch.object(workflow, "record_usage"),
+            patch.object(workflow, "record_detail") as record,
+        ):
+            with self.assertRaises(RuntimeError) as raised:
+                workflow.run_implementation_agent("fix", "claude")
+        self.assertEqual(str(raised.exception), "Not logged in")
+        self.assertIsNone(record.call_args.args[0].total_tokens)
+
+    def test_cancelled_claude_stream_records_partial_usage(self):
+        import json
+
+        from ai_agent import workflow
+
+        stream = "\n".join(
+            json.dumps(event)
+            for event in (
+                {"type": "system", "subtype": "init", "model": "claude-sonnet-4-6"},
+                {
+                    "type": "result",
+                    "subtype": "cancel",
+                    "is_error": True,
+                    "result": "Cancelled by user",
+                    "total_cost_usd": 0.0,
+                    "usage": {"input_tokens": 300, "output_tokens": 80},
+                },
+            )
+        )
+        with (
+            patch.object(
+                workflow,
+                "run_with_images",
+                return_value=CommandResult([], 0, stream),
+            ),
+            patch.object(workflow, "record_usage"),
+            patch.object(workflow, "record_detail") as record,
+        ):
+            with self.assertRaises(RuntimeError):
+                workflow.run_implementation_agent("fix", "claude")
+        detail = record.call_args.args[0]
+        self.assertEqual(detail.total_tokens, 380)
+        self.assertEqual(detail.input_tokens, 300)
+        self.assertEqual(detail.output_tokens, 80)
+        self.assertEqual(detail.cost, 0.0)
 
     def test_detail_survives_an_owner_stop(self):
         from ai_agent import workflow

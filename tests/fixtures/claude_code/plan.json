@@ -1,0 +1,62 @@
+{
+  "format_version": 1,
+  "scenario": "plan",
+  "tool": "claude-code",
+  "pinned_version": "",
+  "exit_code": 0,
+  "sanitized": true,
+  "model": "claude-sonnet-4-6",
+  "audit": {
+    "input_tokens": 800,
+    "output_tokens": 120,
+    "cache_read_tokens": 250,
+    "cache_creation_tokens": null,
+    "reasoning_tokens": 60,
+    "total_tokens": 920,
+    "cost_usd": 0.01,
+    "model": "claude-sonnet-4-6",
+    "provider": "claude",
+    "complete": true,
+    "cancelled": false,
+    "is_error": false
+  },
+  "events": [
+    {
+      "type": "system",
+      "subtype": "init",
+      "session_id": "sess-5",
+      "tools": ["Read", "Grep", "Glob"],
+      "model": "claude-sonnet-4-6"
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "id": "msg-1",
+        "role": "assistant",
+        "model": "claude-sonnet-4-6",
+        "usage": {
+          "input_tokens": 800,
+          "cache_read_input_tokens": 250,
+          "output_tokens": 120,
+          "reasoning_tokens": 60
+        }
+      },
+      "session_id": "sess-5"
+    },
+    {
+      "type": "result",
+      "subtype": "success",
+      "is_error": false,
+      "result": "{\"summary\": \"Add login\"}",
+      "structured_output": {"summary": "Add login"},
+      "session_id": "sess-5",
+      "total_cost_usd": 0.01,
+      "usage": {
+        "input_tokens": 800,
+        "cache_read_input_tokens": 250,
+        "output_tokens": 120,
+        "reasoning_tokens": 60
+      }
+    }
+  ]
+}

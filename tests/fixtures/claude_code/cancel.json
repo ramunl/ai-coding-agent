@@ -1,0 +1,51 @@
+{
+  "format_version": 1,
+  "scenario": "cancel",
+  "tool": "claude-code",
+  "pinned_version": "",
+  "exit_code": 130,
+  "sanitized": true,
+  "model": "claude-sonnet-4-6",
+  "audit": {
+    "input_tokens": 300,
+    "output_tokens": 80,
+    "cache_read_tokens": null,
+    "cache_creation_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": 380,
+    "cost_usd": 0.0,
+    "model": "claude-sonnet-4-6",
+    "provider": "claude",
+    "complete": false,
+    "cancelled": true,
+    "is_error": true
+  },
+  "events": [
+    {
+      "type": "system",
+      "subtype": "init",
+      "session_id": "sess-3",
+      "model": "claude-sonnet-4-6"
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "id": "msg-1",
+        "role": "assistant",
+        "model": "claude-sonnet-4-6",
+        "usage": {"input_tokens": 300, "output_tokens": 80}
+      },
+      "session_id": "sess-3"
+    },
+    {
+      "type": "result",
+      "subtype": "cancel",
+      "is_error": true,
+      "duration_ms": 500,
+      "result": "Cancelled by user",
+      "session_id": "sess-3",
+      "total_cost_usd": 0.0,
+      "usage": {"input_tokens": 300, "output_tokens": 80}
+    }
+  ]
+}

@@ -91,6 +91,28 @@ def test_cost_accepts_tool_reported_values_only() -> None:
     assert _detail(cost=1.25).cost == 1.25
 
 
+def test_estimate_fields_are_validated() -> None:
+    assert (
+        _detail(
+            estimate_usd=0.05,
+            estimate_currency="USD",
+            estimate_source="deepseek-list-price-2026-11-09",
+            estimate_rate="off_peak",
+            estimate_missing_rate=False,
+        ).estimate_usd
+        == 0.05
+    )
+    for overrides in (
+        {"estimate_usd": -0.01},
+        {"estimate_currency": "USD\n"},
+        {"estimate_source": "x" * 201},
+        {"estimate_rate": "weekend"},
+        {"estimate_missing_rate": "yes"},
+    ):
+        with pytest.raises(ValueError):
+            _detail(**overrides)
+
+
 def test_bounded_output_chars_never_returns_text() -> None:
     assert bounded_output_chars(None) is None
     assert bounded_output_chars("x" * 20) == 20
@@ -100,12 +122,61 @@ def test_bounded_output_chars_never_returns_text() -> None:
 
 
 class TestStore:
-    def test_records_are_written_under_format_one(self, tmp_path) -> None:
+    def test_records_are_written_under_current_format(self, tmp_path) -> None:
         path = tmp_path / "usage-details.json"
         assert record_detail(_detail(), path)
         value = json.loads(path.read_text())
         assert value["format"] == FORMAT
         assert len(value["records"]) == 1
+
+    def test_legacy_format_one_store_is_read_and_upgraded(self, tmp_path) -> None:
+        path = tmp_path / "usage-details.json"
+        legacy_record = {
+            "role": "planner",
+            "runner": "claude-api",
+            "provider": "claude",
+            "model": "claude-sonnet-4-6",
+            "day": TODAY,
+            "input_tokens": 10,
+            "output_tokens": 5,
+            "cache_read_tokens": None,
+            "cache_creation_tokens": None,
+            "reasoning_tokens": None,
+            "total_tokens": 15,
+            "cost": 0.01,
+            "duration_seconds": 3,
+            "output_chars": 20,
+            "attempt_id": "attempt-legacy",
+            "call_id": "call-legacy",
+        }
+        path.write_text(json.dumps({"format": 1, "records": [legacy_record]}))
+        assert record_detail(_detail(call_id="call-new"), path)
+        value = json.loads(path.read_text())
+        assert value["format"] == 2
+        assert len(value["records"]) == 2
+        upgraded = value["records"][0]
+        assert upgraded["estimate_usd"] is None
+        assert upgraded["estimate_currency"] is None
+        assert upgraded["estimate_source"] is None
+        assert upgraded["estimate_rate"] is None
+        assert upgraded["estimate_missing_rate"] is False
+
+    def test_measured_charge_and_dated_estimate_stay_separate(self, tmp_path) -> None:
+        path = tmp_path / "usage-details.json"
+        assert record_detail(
+            _detail(
+                cost=0.042,
+                estimate_usd=1.12,
+                estimate_currency="USD",
+                estimate_source="deepseek-list-price-2026-11-09",
+                estimate_rate="peak",
+                estimate_missing_rate=False,
+            ),
+            path,
+        )
+        record = json.loads(path.read_text())["records"][0]
+        assert record["cost"] == 0.042
+        assert record["estimate_usd"] == 1.12
 
     def test_duplicate_attempt_and_call_id_is_not_counted_twice(self, tmp_path) -> None:
         path = tmp_path / "usage-details.json"

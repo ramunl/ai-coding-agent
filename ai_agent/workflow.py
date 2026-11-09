@@ -5,11 +5,18 @@ import logging
 import os
 import re
 import time
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, is_dataclass, replace
 from pathlib import Path
 
 from ai_agent import codex_models, isolation
 from ai_agent.ai_tools import get_tool, tools_for_role
+from ai_agent.claude_code_usage import (
+    ClaudeCodeUsage,
+    estimate_fields,
+    parse_stream,
+    provider_for_model,
+    result_text,
+)
 from ai_agent.config import (
     CLAUDE_CODE_ALLOWED_TOOLS,
     CLAUDE_CODE_ARGS,
@@ -121,11 +128,7 @@ def implementation_command(prompt: str, agent: str | None = None) -> list[str]:
 
 
 def _implementer_facts(agent: str) -> tuple[str, str, str | None] | None:
-    """Runner/provider/model for a known implementer; None for unsupported.
-
-    The Claude implementer runs the Claude Code CLI on the subscription, so it
-    is attributed to the ``claude-code`` provider, never the Anthropic API.
-    """
+    """Runner/provider/model for a known implementer; None for unsupported."""
     if agent == "codex":
         model = codex_models.current_model()
         return (
@@ -133,8 +136,6 @@ def _implementer_facts(agent: str) -> tuple[str, str, str | None] | None:
             "codex",
             None if model == codex_models.DEFAULT_MODEL else model,
         )
-    if agent == "claude":
-        return "claude-code", "claude-code", None
     return None
 
 
@@ -151,25 +152,111 @@ def _elapsed_seconds(started: float) -> int:
     return max(0, int(time.monotonic() - started))
 
 
+def _with_output(result: CommandResult, output: str) -> CommandResult:
+    """Return ``result`` with its output replaced.
+
+    ``CommandResult`` is a frozen dataclass, so production results are rebuilt
+    with :func:`dataclasses.replace`. Unit tests occasionally mock the runner
+    with a plain ``SimpleNamespace``, which is mutable and not a dataclass, so
+    its ``output`` is assigned in place instead.
+    """
+    if is_dataclass(result):
+        return replace(result, output=output)
+    result.output = output
+    return result
+
+
+def _claude_failure(detail: str) -> RuntimeError:
+    """A bounded, prose-only failure so stream-json noise never reaches the UI."""
+    detail = " ".join(detail.split())[:1000] or "Claude Code failed"
+    return RuntimeError(detail)
+
+
+def _record_implementer_detail(
+    selected: str,
+    attempt_id: str | None,
+    call_id: str,
+    started: float,
+    result: CommandResult | None,
+    tokens: int | None,
+    usage: ClaudeCodeUsage | None,
+) -> None:
+    """Write the per-call detail record, surviving a cancelled/failed run."""
+    if selected == "codex":
+        facts = _implementer_facts(selected)
+        record_detail(
+            UsageDetail(
+                role="implementer",
+                runner=facts[0],
+                provider=facts[1],
+                model=facts[2],
+                attempt_id=attempt_id,
+                call_id=call_id,
+                total_tokens=tokens,
+                duration_seconds=_elapsed_seconds(started),
+                output_chars=bounded_output_chars(
+                    result.output if result is not None else None
+                ),
+            )
+        )
+        return
+    # The claude runner is the Claude Code CLI wrapper. Its model-request
+    # provider/model derive only from the reported model id, never from the
+    # tool label or CLAUDE_CODE_AUTH.
+    model = usage.model if usage is not None else None
+    provider = provider_for_model(model) or "claude-code"
+    record_detail(
+        UsageDetail(
+            role="implementer",
+            runner="claude-code",
+            provider=provider,
+            model=model,
+            attempt_id=attempt_id,
+            call_id=call_id,
+            input_tokens=usage.input_tokens if usage is not None else None,
+            output_tokens=usage.output_tokens if usage is not None else None,
+            cache_read_tokens=usage.cache_read_tokens if usage is not None else None,
+            cache_creation_tokens=(
+                usage.cache_creation_tokens if usage is not None else None
+            ),
+            reasoning_tokens=usage.reasoning_tokens if usage is not None else None,
+            total_tokens=usage.tokens() if usage is not None else tokens,
+            cost=usage.cost_usd if usage is not None else None,
+            duration_seconds=_elapsed_seconds(started),
+            output_chars=bounded_output_chars(
+                result.output if result is not None else None
+            ),
+            **estimate_fields(
+                model,
+                usage.input_tokens if usage is not None else None,
+                usage.output_tokens if usage is not None else None,
+            ),
+        )
+    )
+
+
 @with_context
 def run_implementation_agent(
     prompt: str, agent: str | None = None, *, context: ContextRequest | None = None
 ) -> CommandResult:
     """Run a provider command, count its usage, and explain capacity failures.
 
-    The detailed record is written in a ``finally`` block so a run cancelled
-    through ``implementation_stop`` still leaves an unknown-token record behind
-    while ``git_recovery`` preserves the partial edits as it already does.
+    The Claude runner now asks for ``--output-format stream-json``, so its
+    stdout is parsed back into prose and its tokens/provider/model are counted
+    from the stream. The detailed record is written in a ``finally`` block so a
+    run cancelled through ``implementation_stop`` still leaves an unknown-token
+    record behind while ``git_recovery`` preserves the partial edits as it
+    already does.
     """
     selected = normalize_implementation_agent(agent)
     preflight(selected)  # block before any paid work on a missing prerequisite
     intent("implementation")
-    facts = _implementer_facts(selected)
     attempt_id = current_attempt_id()
     call_id = new_call_id()
     started = time.monotonic()
     result: CommandResult | None = None
     tokens: int | None = None
+    usage = None  # ClaudeCodeUsage for the claude runner
     try:
         with codex_capacity_explained():
             run_kwargs: dict[str, object] = {
@@ -188,26 +275,31 @@ def run_implementation_agent(
                 run,
                 **run_kwargs,
             )
-        tokens = _implementer_tokens(selected, result.output)
+        if selected == "claude":
+            usage = parse_stream(result.output)
+            prose = result_text(result.output)
+            if usage.is_error and prose:
+                raise _claude_failure(prose)
+            result = _with_output(result, prose)
+            tokens = usage.tokens()
+        else:
+            tokens = _implementer_tokens(selected, result.output)
         record_usage(UsageRecord("implementer", selected, tokens))
         return result
+    except RuntimeError as error:
+        if selected == "claude":
+            # A failed/cancelled stream is embedded in the runner's error text;
+            # recover its partial usage and keep the owner-facing prose clean.
+            if usage is None:
+                usage = parse_stream(str(error))
+            prose = result_text(str(error))
+            if prose:
+                raise _claude_failure(prose) from None
+        raise
     finally:
-        if facts is not None:
-            record_detail(
-                UsageDetail(
-                    role="implementer",
-                    runner=facts[0],
-                    provider=facts[1],
-                    model=facts[2],
-                    attempt_id=attempt_id,
-                    call_id=call_id,
-                    total_tokens=tokens,
-                    duration_seconds=_elapsed_seconds(started),
-                    output_chars=bounded_output_chars(
-                        result.output if result is not None else None
-                    ),
-                )
-            )
+        _record_implementer_detail(
+            selected, attempt_id, call_id, started, result, tokens, usage
+        )
 
 
 def slugify_branch_name(

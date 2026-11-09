@@ -1,0 +1,48 @@
+{
+  "format_version": 1,
+  "scenario": "fail",
+  "tool": "claude-code",
+  "pinned_version": "",
+  "exit_code": 1,
+  "sanitized": true,
+  "model": "claude-sonnet-4-6",
+  "audit": {
+    "input_tokens": 120,
+    "output_tokens": 40,
+    "cache_read_tokens": null,
+    "cache_creation_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": 160,
+    "cost_usd": null,
+    "model": "claude-sonnet-4-6",
+    "provider": "claude",
+    "complete": false,
+    "cancelled": false,
+    "is_error": true
+  },
+  "events": [
+    {
+      "type": "system",
+      "subtype": "init",
+      "session_id": "sess-4",
+      "model": "claude-sonnet-4-6"
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "id": "msg-1",
+        "role": "assistant",
+        "model": "claude-sonnet-4-6",
+        "usage": {"input_tokens": 120, "output_tokens": 40}
+      },
+      "session_id": "sess-4"
+    },
+    {
+      "type": "result",
+      "subtype": "error_during_execution",
+      "is_error": true,
+      "result": "Not logged in",
+      "session_id": "sess-4"
+    }
+  ]
+}

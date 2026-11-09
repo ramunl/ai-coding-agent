@@ -3,9 +3,11 @@
 The legacy ``token_usage.py`` store still holds daily role/tool/call counts
 (format 1) and is not changed. This module adds a second, versioned store with
 one bounded record per provider call: runner and provider attribution, the
-model when known, and separate input/output/cache/reasoning token fields plus
-a cache-safe total. Missing fields stay unknown (None), never zero, and a
-total never double-counts cache or reasoning tokens.
+model when known, separate input/output/cache/reasoning token fields plus a
+cache-safe total, a measured tool-reported charge, and a dated list-price
+estimate kept strictly separate from that charge. Missing fields stay unknown
+(None), never zero, and a total never double-counts cache or reasoning tokens.
+The store writes format 2 and still reads format 1 records unchanged.
 
 The store reuses ``token_usage.locked``, the atomic JSON writer and the same
 90-day UTC retention discipline (configurable via
@@ -35,12 +37,14 @@ from ai_agent.token_usage import locked, utc_day
 
 logger = logging.getLogger(__name__)
 
-FORMAT = 1
+FORMAT = 2
+LEGACY_FORMAT = 1
 ROLES = ("planner", "implementer")
 RUNNERS = ("codex", "claude-api", "claude-code", "deepseek-api")
 PROVIDERS = ("codex", "claude", "claude-code", "deepseek")
 MAX_MODEL_LENGTH = 200
 MAX_ID_LENGTH = 200
+MAX_LABEL_LENGTH = 200
 MAX_OUTPUT_CHARS = 1_000_000
 
 TOKEN_FIELDS = (
@@ -51,7 +55,17 @@ TOKEN_FIELDS = (
     "reasoning_tokens",
     "total_tokens",
 )
-STORED_FIELDS = (
+# The dated list-price estimate fields, kept separate from the measured
+# tool-reported ``cost``. ``estimate_rate`` is the peak/off-peak tier used and
+# ``estimate_missing_rate`` records a rate gap so no estimate is invented.
+ESTIMATE_FIELDS = (
+    "estimate_usd",
+    "estimate_currency",
+    "estimate_source",
+    "estimate_rate",
+    "estimate_missing_rate",
+)
+LEGACY_STORED_FIELDS = (
     "role",
     "runner",
     "provider",
@@ -64,10 +78,18 @@ STORED_FIELDS = (
     "attempt_id",
     "call_id",
 )
+STORED_FIELDS = (*LEGACY_STORED_FIELDS, *ESTIMATE_FIELDS)
 # The snapshot omits attempt/call identifiers: it must stay secret-free.
 PUBLISHED_FIELDS = tuple(
     name for name in STORED_FIELDS if name not in {"attempt_id", "call_id"}
 )
+_LEGACY_DEFAULT = {
+    "estimate_usd": None,
+    "estimate_currency": None,
+    "estimate_source": None,
+    "estimate_rate": None,
+    "estimate_missing_rate": False,
+}
 
 _last_omission: str | None = None
 
@@ -126,8 +148,14 @@ class UsageDetail:
     cache_creation_tokens: int | None = None
     reasoning_tokens: int | None = None
     total_tokens: int | None = None
-    # Tool-reported cost only; never a dated price estimate or subscription fee.
+    # Measured tool-reported charge only; never a dated price estimate or
+    # subscription fee. The dated list-price estimate lives in estimate_*.
     cost: float | None = None
+    estimate_usd: float | None = None
+    estimate_currency: str | None = None
+    estimate_source: str | None = None
+    estimate_rate: str | None = None
+    estimate_missing_rate: bool = False
     duration_seconds: int | None = None
     output_chars: int | None = None
     attempt_id: str | None = None
@@ -153,6 +181,15 @@ class UsageDetail:
                 raise ValueError(f"Usage {name} must be a non-negative integer or None")
         if not _is_cost(self.cost):
             raise ValueError("Usage cost must be a non-negative number or None")
+        if not _is_cost(self.estimate_usd):
+            raise ValueError("Usage estimate must be a non-negative number or None")
+        for name in ("estimate_currency", "estimate_source"):
+            if not _is_optional_text(getattr(self, name), MAX_LABEL_LENGTH):
+                raise ValueError(f"Usage {name} must be a short string or None")
+        if self.estimate_rate not in (None, "peak", "off_peak"):
+            raise ValueError("Usage estimate rate must be peak, off_peak or None")
+        if not isinstance(self.estimate_missing_rate, bool):
+            raise ValueError("Usage estimate missing-rate flag must be a boolean")
         if self.duration_seconds is not None and not _is_count(self.duration_seconds):
             raise ValueError("Usage duration must be a non-negative integer or None")
         if self.output_chars is not None and not _is_count(self.output_chars):
@@ -180,26 +217,39 @@ def _to_dict(detail: UsageDetail) -> dict[str, Any]:
     return {name: getattr(detail, name) for name in STORED_FIELDS}
 
 
-def _valid_detail(record: object) -> UsageDetail:
-    """Validate one stored record; raise ValueError on any injected field."""
-    if not isinstance(record, dict) or set(record) != set(STORED_FIELDS):
+def _valid_detail(record: object, *, legacy: bool = False) -> dict:
+    """Validate one stored record and return it with every stored field.
+
+    Format-1 records lack the estimate fields and are upgraded in place, so a
+    store written before the estimate extension still parses. Raise ValueError
+    on any injected or missing field.
+    """
+    expected = LEGACY_STORED_FIELDS if legacy else STORED_FIELDS
+    if not isinstance(record, dict) or set(record) != set(expected):
         raise ValueError("usage detail has an unexpected shape")
-    return UsageDetail(**record)
+    normalized = dict(record)
+    if legacy:
+        for name, default in _LEGACY_DEFAULT.items():
+            normalized.setdefault(name, default)
+    UsageDetail(**normalized)  # validate every value
+    return normalized
 
 
 def _read_records(path: Path) -> list[dict]:
     """Return validated detail records; OSError if missing, ValueError if corrupt."""
     value = json.loads(Path(path).read_text(encoding="utf-8"))
-    if not isinstance(value, dict) or value.get("format") != FORMAT:
+    if not isinstance(value, dict):
+        raise ValueError("unrecognised usage details format")
+    if value.get("format") == FORMAT:
+        legacy = False
+    elif value.get("format") == LEGACY_FORMAT:
+        legacy = True
+    else:
         raise ValueError("unrecognised usage details format")
     records = value.get("records")
     if not isinstance(records, list):
         raise ValueError("usage details has no records")
-    validated = []
-    for record in records:
-        _valid_detail(record)
-        validated.append(record)
-    return validated
+    return [_valid_detail(record, legacy=legacy) for record in records]
 
 
 def _oldest_kept(today: str) -> date:
