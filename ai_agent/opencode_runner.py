@@ -84,6 +84,7 @@ def run_stream(
     if DEEPSEEK_API_KEY:
         env["OPENCODE_API_KEY"] = DEEPSEEK_API_KEY
     kwargs["env"] = env
+    kwargs.setdefault("text", True)
     try:
         result = run(list(command), max_output_chars=max_output_chars, **kwargs)
     except subprocess.TimeoutExpired as error:

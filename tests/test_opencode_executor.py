@@ -209,6 +209,33 @@ class OpenCodeWorkflowTests(unittest.TestCase):
         values.update(overrides)
         return OpenCodeRun(**values)
 
+    def test_execution_uses_selected_checkout_or_sandbox(self):
+        from ai_agent import workflow
+
+        project = Path("/selected/project")
+        sandbox = Path("/isolated/worktree")
+        for active_sandbox, expected in [
+            (None, project),
+            (SimpleNamespace(path=sandbox), sandbox),
+        ]:
+            with (
+                patch.object(
+                    workflow,
+                    "active_project",
+                    return_value=SimpleNamespace(repo_path=project),
+                ),
+                patch.object(
+                    workflow.isolation, "current_sandbox", return_value=active_sandbox
+                ),
+                patch.object(
+                    workflow, "run_stream", return_value=self._success_run()
+                ) as runner,
+                patch.object(workflow, "record_usage"),
+                patch.object(workflow, "record_detail"),
+            ):
+                workflow.run_implementation_agent("fix", "opencode")
+            self.assertEqual(runner.call_args.kwargs["cwd"], expected)
+
     def test_success_records_usage_and_detail(self):
         result, usage, detail = self._run(self._success_run())
 

@@ -334,6 +334,7 @@ def run_implementation_agent(
             run_kwargs: dict[str, object] = {
                 "timeout": IMPLEMENTATION_TIMEOUT_SECONDS,
                 "isolated": WORKER_ISOLATION_ENABLED,
+                "cwd": active_project().repo_path,
             }
             sandbox = isolation.current_sandbox()
             if sandbox is not None:
