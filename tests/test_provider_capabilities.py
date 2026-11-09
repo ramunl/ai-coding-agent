@@ -165,6 +165,26 @@ class SnapshotContractTests(CapabilitiesTestCase):
         self.assertIn("implementer_model", part)
         self.assertIn("busy", part)
 
+    def test_real_registry_setup_survives_disabled_opencode(self) -> None:
+        view = importlib.import_module("ai_agent.bot.setup_view")
+        from ai_agent.ai_tools import all_info
+        from ai_agent.providers import opencode
+        from ai_agent.tool_auth import ToolAuth
+
+        with (
+            patch.object(opencode, "enabled", False),
+            patch.object(view, "list_projects", return_value=[]),
+            patch.object(
+                view, "active_project", return_value=SimpleNamespace(name="a")
+            ),
+        ):
+            self.assertIn("opencode", [info.tool for info in all_info()])
+            auth = ToolAuth().snapshot()
+            self.assertNotIn("opencode", auth)
+            part = view.files_part(view.ModelChoices(), self.tmp / "missing", auth)
+        self.assertNotIn("opencode", [model["tool"] for model in part["models"]])
+        self.assertIn("codex", [model["tool"] for model in part["models"]])
+
     def test_files_part_publishes_capabilities(self) -> None:
         view = importlib.import_module("ai_agent.bot.setup_view")
         results = self.tmp / "results.json"

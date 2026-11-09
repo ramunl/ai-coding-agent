@@ -96,6 +96,8 @@ def files_part(
                 "choices_error": choices.errors.get(info.tool),
             }
             for info in all_info()
+            # Auth omits disabled providers; keep the model picker in sync.
+            if info.tool in auth
         ],
         "actions": results if isinstance(results, list) else [],
         "capabilities": provider_blocks(),

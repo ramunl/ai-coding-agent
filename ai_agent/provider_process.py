@@ -137,13 +137,26 @@ def _collect_streaming(
     stderr_lines: list[str] = []
     stderr_chars = 0
     truncated = [False]  # mutated by both the stderr thread and the main loop
-    line_queue: "queue.Queue[str | None]" = queue.Queue()
+    line_queue: "queue.Queue[str | None]" = queue.Queue(maxsize=8)
+    reader_cancelled = threading.Event()
+
+    def enqueue(line: str | None) -> None:
+        while not reader_cancelled.is_set():
+            try:
+                line_queue.put(line, timeout=0.1)
+                return
+            except queue.Full:
+                continue
 
     def drain_stderr() -> None:
         nonlocal stderr_chars
         try:
             while True:
-                line = process.stderr.readline()
+                line = (
+                    process.stderr.readline(8192)
+                    if max_output_chars is not None
+                    else process.stderr.readline()
+                )
                 if not line:
                     break
                 text = _decode(line)
@@ -152,21 +165,31 @@ def _collect_streaming(
                 if max_output_chars is not None and stderr_chars > max_output_chars:
                     truncated[0] = True
                     while stderr_lines and stderr_chars > max_output_chars:
-                        stderr_chars -= len(stderr_lines.pop(0))
+                        excess = stderr_chars - max_output_chars
+                        first = stderr_lines[0]
+                        if len(first) <= excess:
+                            stderr_chars -= len(stderr_lines.pop(0))
+                        else:
+                            stderr_lines[0] = first[excess:]
+                            stderr_chars -= excess
         except (OSError, ValueError):
             pass
 
     def read_stdout() -> None:
         try:
             while True:
-                line = process.stdout.readline()
+                line = (
+                    process.stdout.readline(8192)
+                    if max_output_chars is not None
+                    else process.stdout.readline()
+                )
                 if not line:
                     break
-                line_queue.put(_decode(line))
+                enqueue(_decode(line))
         except (OSError, ValueError):
             pass
         finally:
-            line_queue.put(None)
+            enqueue(None)
 
     if process.stdin is not None and not process.stdin.closed:
         threading.Thread(
@@ -176,48 +199,57 @@ def _collect_streaming(
     stderr_thread.start()
     threading.Thread(target=read_stdout, daemon=True).start()
 
-    stdout_lines: list[str] = []
-    stdout_chars = 0
-    deadline = None if timeout is None else time.monotonic() + timeout
-    while True:
-        if stop_run is not None and stop_run.stop.is_set():
-            raise ImplementationStoppedError(
-                "Implementation stopped by owner; saved work is preserved."
-            )
-        if deadline is not None and time.monotonic() >= deadline:
-            raise subprocess.TimeoutExpired(args, timeout)
-        try:
-            line = line_queue.get(timeout=0.25)
-        except queue.Empty:
-            continue
-        if line is None:
-            break
-        stdout_lines.append(line)
-        stdout_chars += len(line)
-        if max_output_chars is not None and stdout_chars > max_output_chars:
-            truncated[0] = True
-            while stdout_lines and stdout_chars > max_output_chars:
-                stdout_chars -= len(stdout_lines.pop(0))
-        if detector is not None:
-            blocker = detector.feed(line, runner=runner, attempt_id=attempt_id)
-            if blocker is not None:
-                if stop_run is not None:
-                    stop_run.stop.set()
-                raise blocker
+    try:
+        stdout_lines: list[str] = []
+        stdout_chars = 0
+        deadline = None if timeout is None else time.monotonic() + timeout
+        while True:
+            if stop_run is not None and stop_run.stop.is_set():
+                raise ImplementationStoppedError(
+                    "Implementation stopped by owner; saved work is preserved."
+                )
+            if deadline is not None and time.monotonic() >= deadline:
+                raise subprocess.TimeoutExpired(args, timeout)
+            try:
+                line = line_queue.get(timeout=0.25)
+            except queue.Empty:
+                continue
+            if line is None:
+                break
+            stdout_lines.append(line)
+            stdout_chars += len(line)
+            if max_output_chars is not None and stdout_chars > max_output_chars:
+                truncated[0] = True
+                while stdout_lines and stdout_chars > max_output_chars:
+                    excess = stdout_chars - max_output_chars
+                    first = stdout_lines[0]
+                    if len(first) <= excess:
+                        stdout_chars -= len(stdout_lines.pop(0))
+                    else:
+                        stdout_lines[0] = first[excess:]
+                        stdout_chars -= excess
+            if detector is not None:
+                blocker = detector.feed(line, runner=runner, attempt_id=attempt_id)
+                if blocker is not None:
+                    if stop_run is not None:
+                        stop_run.stop.set()
+                    raise blocker
 
-    while True:
-        if stop_run is not None and stop_run.stop.is_set():
-            raise ImplementationStoppedError(
-                "Implementation stopped by owner; saved work is preserved."
-            )
-        if deadline is not None and time.monotonic() >= deadline:
-            raise subprocess.TimeoutExpired(args, timeout)
-        if process.poll() is not None and not stderr_thread.is_alive():
-            break
-        time.sleep(0.02)
+        while True:
+            if stop_run is not None and stop_run.stop.is_set():
+                raise ImplementationStoppedError(
+                    "Implementation stopped by owner; saved work is preserved."
+                )
+            if deadline is not None and time.monotonic() >= deadline:
+                raise subprocess.TimeoutExpired(args, timeout)
+            if process.poll() is not None and not stderr_thread.is_alive():
+                break
+            time.sleep(0.02)
 
-    process.wait()
-    return "".join(stdout_lines), "".join(stderr_lines), truncated[0]
+        process.wait()
+        return "".join(stdout_lines), "".join(stderr_lines), truncated[0]
+    finally:
+        reader_cancelled.set()
 
 
 def grouped_run(
@@ -279,7 +311,7 @@ def grouped_run(
         unregister(stop_run)
         marker.unlink(missing_ok=True)
         raise
-    streaming = stop_run is not None
+    streaming = stop_run is not None or max_output_chars is not None
     try:
         marker.write_text(json.dumps({"group": process.pid}))
         if streaming:

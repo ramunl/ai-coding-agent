@@ -265,3 +265,27 @@ def test_denial_loop_unique_denials_do_not_block(repo, claude_on_path, monkeypat
         provider_process.require_no_writer(repo)
     finally:
         _session.reset(token)
+
+
+@pytest.mark.parametrize("text_mode", [True, False])
+def test_output_bound_without_task_session(repo, text_mode):
+    from ai_agent.git_recovery import _session
+
+    assert _session.get() is None
+    result = provider_process.grouped_run(
+        [
+            sys.executable,
+            "-c",
+            "import sys; print('x'*100000); print('tail'); sys.stderr.write('y'*100000)",
+        ],
+        cwd=repo,
+        timeout=5,
+        text=text_mode,
+        max_output_chars=1024,
+    )
+    assert result.returncode == 0
+    assert result.truncated
+    assert len(result.stdout) <= 1024
+    assert len(result.stderr) <= 1024
+    assert result.stdout.endswith("tail\n")
+    provider_process.require_no_writer()
