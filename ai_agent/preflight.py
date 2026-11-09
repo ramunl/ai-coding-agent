@@ -287,7 +287,7 @@ def _baseline_required(policy: PreflightPolicy) -> bool:
     if result is None or result.returncode not in (0, 1):
         raise PreflightBlockedError(
             action="Repair the checkout verification metadata",
-            reason="cannot determine whether this repository tracks scripts/baseline.sh",
+            reason="cannot inspect baseline-script tracking in this repository",
         )
     return result.returncode == 0
 
