@@ -157,7 +157,8 @@
         "ai-coding-agent:baseline-v1",
         "ai-pm-agent:baseline-v1",
         "ai-ops-agent:baseline-v1",
-        "ai-dashboard:baseline-v1"
+        "ai-dashboard:baseline-v1",
+        "ai-dashboard:page-tests-v1"
       ]
     }
   }

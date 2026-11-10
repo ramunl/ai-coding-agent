@@ -34,9 +34,11 @@ _PACKAGES = {
 
 def commands_for(profile: str) -> tuple[tuple[str, ...], ...]:
     """Versioned profiles contain argv only; plans cannot supply shell commands."""
+    if profile == "ai-dashboard:page-tests-v1":
+        return (("npm", "test"),)
     repository, separator, version = profile.partition(":")
     if separator != ":" or version != "baseline-v1" or repository not in _PACKAGES:
-        raise ValueError("Unsupported verification profile; revise the plan")
+        raise ValueError("Unsupported verification profile; revise before approval")
     package = _PACKAGES[repository]
     paths = (
         ("agent.py", package, "tests", "deploy/claude-code-statusline.py")
@@ -65,15 +67,40 @@ def profile_outline(profile: str) -> list[str]:
     ]
 
 
+def plan_profile_outline(document: PlanDocument, identity: dict | None) -> list[str]:
+    """Show both selected checks and a missing-profile blocker before approval."""
+    try:
+        return profile_outline(approved_profile(document, identity))
+    except ValueError as error:
+        return [str(error)]
+
+
 def approved_profile(document: PlanDocument, identity: dict | None) -> str:
     """Require explicit, repository-scoped verification in the approved plan."""
     profile = document.verification_profile
+    name = (identity or {}).get("project_name")
+    executions = {row["name"] for row in document.repositories}
+    verification_only = not document.files and any(
+        row["role"] == "verify" and row["name"] in executions | {name}
+        for row in document.repository_accounting
+    )
     if not profile:
+        if verification_only:
+            hint = (
+                "Use ai-dashboard:page-tests-v1 for npm test only, "
+                if name == "ai-dashboard"
+                else ""
+            )
+            raise ValueError(
+                "Verification-only plan has no execution profile. "
+                + hint
+                + "select a supported verification profile and revise before approval. "
+                "It cannot run as an implementation."
+            )
         return ""
     commands_for(profile)
-    name = (identity or {}).get("project_name")
     if (
-        profile != f"{name}:baseline-v1"
+        profile.partition(":")[0] != name
         or document.files
         or [row["name"] for row in document.repositories] != [name]
         or not any(
@@ -110,7 +137,7 @@ def run_verification(profile: str) -> None:
     attempt = current_attempt.get()
     project = active_project()
     commands = commands_for(profile)
-    if attempt is None or profile != f"{project.name}:baseline-v1":
+    if attempt is None or profile.partition(":")[0] != project.name:
         raise ContextBlockedError(
             "Verification requires the approved task's repository"
         )
@@ -222,7 +249,12 @@ def verify_receipt(record: AttemptSnapshot) -> str:
     if record.outcome != "succeeded" or len(evidence) != 1:
         raise ValueError("Successful application verification receipt unavailable")
     receipt = json.loads(evidence[0].summary)
-    profile = f"{record.scope.repository.project_name}:baseline-v1"
+    profile = receipt.get("profile")
+    if (
+        not isinstance(profile, str)
+        or profile.partition(":")[0] != record.scope.repository.project_name
+    ):
+        raise ValueError("Verification receipt profile repository mismatch")
     expected = [
         {"command": list(command), "exit_code": 0} for command in commands_for(profile)
     ]

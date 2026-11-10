@@ -26,12 +26,13 @@ def registry(monkeypatch):
     )
 
 
-def plan(rows=(), repositories=None, steps=(), feature=None):
+def plan(rows=(), repositories=None, steps=(), feature=None, profile=""):
     return new_plan_state(
         feature or "Repos: " + ", ".join(NAMES),
         json.dumps(
             {
                 "summary": "baseline checks",
+                "verification_profile": profile,
                 "branch": "feature/check",
                 "files": [],
                 "steps": list(steps),
@@ -41,6 +42,7 @@ def plan(rows=(), repositories=None, steps=(), feature=None):
                 "repository_accounting": list(rows),
             }
         ),
+        {"project_name": profile.partition(":")[0]} if profile else None,
     )
 
 
@@ -231,6 +233,7 @@ def test_verification_only_child_can_approve_its_execution_repository():
         ],
         steps=["Run pytest and Ruff in ai-pm-agent; record commit and results"],
         feature="Assigned repository: ai-pm-agent. Verify baseline only.",
+        profile="ai-pm-agent:baseline-v1",
     )
     assert scope.review(p) == []
     approve_plan(p)
@@ -262,10 +265,11 @@ def test_verification_accepts_unambiguous_package_spelling_in_saved_plan():
         ],
         repositories=[{"name": "ai-pm-agent", "changes": "Verification only"}],
         steps=[
-            "Run npm test",
+            "Run Python pytest and Ruff",
             "Confirm git diff for ai_pm_agent is empty and report verification results",
         ],
         feature="Assigned repository: ai-pm-agent. Verify only.",
+        profile="ai-pm-agent:baseline-v1",
     )
     assert scope.review(p) == []
     approve_plan(p)

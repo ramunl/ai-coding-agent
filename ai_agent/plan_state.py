@@ -180,10 +180,11 @@ def render_plan(plan: PlanState) -> str:
         "Summary:",
         document.summary,
     ]
-    if document.verification_profile:
-        from ai_agent.verification import profile_outline
+    from ai_agent.verification import plan_profile_outline
 
-        lines.extend(["", *profile_outline(document.verification_profile)])
+    verification_steps = plan_profile_outline(document, plan.repository_identity)
+    if verification_steps:
+        lines.extend(["", *verification_steps])
     if document.repositories:
         lines.extend(["", "Repositories, in order:"])
         lines.extend(
@@ -243,9 +244,9 @@ def plan_outline(plan: PlanState) -> dict:
     def items(values: list) -> list[str]:
         return [short(value) for value in values[:OUTLINE_ITEMS]]
 
-    from ai_agent.verification import profile_outline
+    from ai_agent.verification import plan_profile_outline
 
-    verification_steps = profile_outline(document.verification_profile)
+    verification_steps = plan_profile_outline(document, plan.repository_identity)
     return {
         "repository": short((plan.repository_identity or {}).get("project_name", "")),
         "can_split_milestones": bool(

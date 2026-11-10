@@ -11,12 +11,20 @@ baseline, approve a structured plan with:
 - One execution repository, matching the task and profile.
 - A matching `repository_accounting` entry with `role: verify`.
 
+For dashboard page tests only, select `ai-dashboard:page-tests-v1`. It runs
+`npm test` only, with the same disposable worktree, installed dependencies,
+receipt and cleanup requirements. It does not require Ruff or Python checks.
+
+Verification-only plans with an empty profile are rejected before approval and
+show an actionable blocker in the plan outline. They never silently dispatch to
+an editing model. This validation also applies to old pending approvals.
+
 Supported repositories are ai-coding-agent, ai-pm-agent, ai-ops-agent and
 ai-dashboard. The plan shows the exact fixed commands before approval.
 Profiles run Ruff check, Ruff format --check and the full Python pytest suite.
 The dashboard also runs npm test. Coding's Ruff paths include agent.py and its
-statusline script, matching its documented baseline. Arbitrary commands, manual
-acceptance criteria and feature edits require a normal implementation plan.
+statusline script, matching its documented baseline. Arbitrary/manual verification needs explicit execution support or a revised,
+reviewable set of automated checks. Feature edits use implementation plans.
 Changing an existing profile's commands requires a new profile version.
 
 The application obtains the repository execution lease, verifies the remote,
