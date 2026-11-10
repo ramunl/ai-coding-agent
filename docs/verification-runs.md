@@ -12,8 +12,8 @@ baseline, approve a structured plan with:
 - A matching `repository_accounting` entry with `role: verify`.
 
 For dashboard page tests only, select `ai-dashboard:page-tests-v1`. It runs
-`npm test` only, with the same disposable worktree, installed dependencies,
-receipt and cleanup requirements. It does not require Ruff or Python checks.
+`npm test` only, with the same disposable worktree, existing JavaScript
+dependencies, receipt and cleanup requirements. It does not require Ruff or Python checks.
 
 Verification-only plans with an empty profile are rejected before approval and
 show an actionable blocker in the plan outline. They never silently dispatch to
@@ -29,10 +29,23 @@ Changing an existing profile's commands requires a new profile version.
 
 The application obtains the repository execution lease, verifies the remote,
 updates the clean base with a fast-forward pull, and creates a disposable detached
-worktree with recursive submodules. Dependencies must already be installed;
-verification does not install packages. Dashboard checks use the existing
-node_modules directory. Commands use the configured worker identity when worker
-isolation is enabled, bounded output, supervised process groups and cancellation.
+worktree with recursive submodules. Python baseline checks prepare a separate
+temporary virtual environment from that checkout's requirements-dev.txt, including
+its referenced runtime requirements. Python, pytest and Ruff all run from this
+environment, rather than borrowing the Coding controller's packages. Dependency
+installation and consistency checks must succeed before test execution. Missing
+requirements, unavailable venv/pip, package access or dependency conflicts produce
+an explicit setup failure and never a successful verification receipt.
+
+The environment is outside the Git checkout and removed on success, failure or
+cancellation. It does not modify any production bot environment. Preparation uses
+the configured worker identity, supervised process groups, a bounded output tail
+and a 600-second timeout per setup command. The approval outline shows that test
+dependencies will be prepared; package downloads may require network access.
+
+JavaScript-only profiles skip Python setup entirely. Dashboard page tests continue
+to use the existing node_modules directory. Checks use the configured worker
+identity when isolation is enabled, bounded output and supervised cancellation.
 No model, commit, push or PR is required. The worktree is removed afterwards.
 
 Completion requires exit 0 from every command, unchanged HEAD and clean tracked
