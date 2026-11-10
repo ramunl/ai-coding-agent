@@ -233,7 +233,7 @@ async def run_queued_implementation(
             )
             try:
                 await asyncio.to_thread(run_verification, task["verification_profile"])
-            except ImplementationStoppedError:
+            except (ImplementationStoppedError, NoCodeOutcomeError):
                 raise
             except (OSError, RuntimeError, ValueError) as error:
                 from ai_agent.run_outcomes import blocked_report
@@ -290,11 +290,19 @@ async def run_queued_implementation(
         context.application.mark_data_for_update_persistence(
             user_ids=[update.effective_user.id]
         )
-        await reply_chunks(
-            update,
-            str(outcome) + "\n\nUse the Ops dashboard or Ops bot for server actions. "
-            "After resolving the blocker, retry the task.",
-        )
+        if task.get("verification_profile"):
+            message = (
+                "Verification blocked.\n"
+                + outcome.report
+                + "\n\nResolve the failed check, then retry verification."
+            )
+        else:
+            message = (
+                str(outcome)
+                + "\n\nUse the Ops dashboard or Ops bot for server actions. "
+                "After resolving the blocker, retry the task."
+            )
+        await reply_chunks(update, message)
     except PreflightBlockedError as blocked:
         preflight_blocked = blocked
         if not published:
