@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import re
 import subprocess
-import sys
 import time
 from dataclasses import asdict
 from pathlib import Path
@@ -15,7 +14,6 @@ if TYPE_CHECKING:
     from ai_agent.context_models import AttemptSnapshot
     from ai_agent.plan_document import PlanDocument
 
-from ai_agent.claude_env import provider_env
 from ai_agent.config import WORKER_ISOLATION_ENABLED
 from ai_agent.context_attempts import current_attempt
 from ai_agent.context_sources import ContextBlockedError
@@ -23,6 +21,11 @@ from ai_agent.git_recovery import guarded_run
 from ai_agent.projects import active_project
 from ai_agent.run_outcomes import NoCodeOutcomeError, blocked_report
 from ai_agent.shell import run
+from ai_agent.verification_environment import (
+    command_environment,
+    python_environment,
+    verification_argv,
+)
 
 _PACKAGES = {
     "ai-coding-agent": "ai_agent",
@@ -61,8 +64,14 @@ def profile_outline(profile: str) -> list[str]:
         commands = commands_for(profile)
     except ValueError:
         return ["Unsupported verification profile; revise before approval."]
+    setup = (
+        ["Prepare temporary test dependencies from requirements-dev.txt."]
+        if any(command[0] in {"python", "ruff"} for command in commands)
+        else []
+    )
     return [
         "Verification only: application runs existing checks; no model or PR.",
+        *setup,
         *[" ".join(command) for command in commands],
     ]
 
@@ -179,42 +188,43 @@ def run_verification(profile: str) -> None:
                 modules, target_is_directory=True
             )
         _prepare_ownership(sandbox.path)
-        for command in commands:
-            argv = [
-                sys.executable if value == "python" and index == 0 else value
-                for index, value in enumerate(command)
-            ]
-            try:
-                result = grouped_run(
-                    argv,
-                    cwd=sandbox.path,
-                    env=provider_env(worker=WORKER_ISOLATION_ENABLED),
-                    isolated=WORKER_ISOLATION_ENABLED,
-                    timeout=1800,
-                    stdin=subprocess.DEVNULL,
-                    text=True,
-                    max_output_chars=8192,
-                )
-            except (OSError, subprocess.TimeoutExpired) as error:
-                raise NoCodeOutcomeError(
-                    blocked_report(
-                        f"Could not run {' '.join(command)} ({type(error).__name__}).",
-                        next_step="Check the worker environment, then retry.",
+        with python_environment(sandbox.path, commands) as python:
+            for command in commands:
+                argv = verification_argv(command, python)
+                try:
+                    result = grouped_run(
+                        argv,
+                        cwd=sandbox.path,
+                        env=command_environment(python),
+                        isolated=WORKER_ISOLATION_ENABLED,
+                        timeout=1800,
+                        stdin=subprocess.DEVNULL,
+                        text=True,
+                        max_output_chars=8192,
                     )
-                ) from error
-            results.append({"command": list(command), "exit_code": result.returncode})
-            attempt.checkpoint(
-                "verification_check", {"head": head, **results[-1]}, required=True
-            )
-            if result.returncode != 0:
-                # Keep bounded diagnostics in the redacted report, not the receipt.
-                raise NoCodeOutcomeError(
-                    blocked_report(
-                        f"Failed: {' '.join(command)} (exit {result.returncode}).",
-                        evidence=result.stdout or result.stderr or "No output.",
-                        next_step="Fix the failing check before retrying verification.",
-                    )
+                except (OSError, subprocess.TimeoutExpired) as error:
+                    raise NoCodeOutcomeError(
+                        blocked_report(
+                            f"Could not run {' '.join(command)} "
+                            f"({type(error).__name__}).",
+                            next_step="Check the worker environment, then retry.",
+                        )
+                    ) from error
+                results.append(
+                    {"command": list(command), "exit_code": result.returncode}
                 )
+                attempt.checkpoint(
+                    "verification_check", {"head": head, **results[-1]}, required=True
+                )
+                if result.returncode != 0:
+                    # Keep bounded diagnostics in the redacted report, not the receipt.
+                    raise NoCodeOutcomeError(
+                        blocked_report(
+                            f"Failed: {' '.join(command)} (exit {result.returncode}).",
+                            evidence=result.stdout or result.stderr or "No output.",
+                            next_step="Fix the failing check, then retry verification.",
+                        )
+                    )
         if not _clean(sandbox.path, head, modules) or not _clean(
             project.repo_path, head
         ):

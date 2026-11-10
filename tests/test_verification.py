@@ -3,6 +3,7 @@
 import asyncio
 import json
 import subprocess
+from contextlib import contextmanager
 from dataclasses import asdict, replace
 from types import SimpleNamespace
 
@@ -58,6 +59,15 @@ def environment(tmp_path, monkeypatch):
     monkeypatch.setattr(isolation, "WORK_ROOT", tmp_path / "work")
     monkeypatch.setattr(isolation, "WORKER_ISOLATION_ENABLED", False)
     monkeypatch.setattr(verification, "WORKER_ISOLATION_ENABLED", False)
+    test_python = tmp_path / "test-environment" / "bin" / "python"
+
+    @contextmanager
+    def prepared_python(path, commands):
+        yield test_python if any(c[0] in {"python", "ruff"} for c in commands) else None
+
+    monkeypatch.setattr(
+        verification, "python_environment", prepared_python, raising=False
+    )
     command_run = verification.run
 
     def run(args, **kwargs):
@@ -106,6 +116,7 @@ def environment(tmp_path, monkeypatch):
         data=data,
         attempt=attempt,
         calls=calls,
+        test_python=test_python,
     )
     context_attempts.current_attempt.reset(token)
 
