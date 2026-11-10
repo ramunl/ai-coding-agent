@@ -84,9 +84,9 @@ class Dependency:
     task_id: str
     scope: Scope
     attempt: RecordReference | None = None
-    policy: Literal["reviewable_pr", "merged_in_checkout", "deployed"] = (
-        "merged_in_checkout"
-    )
+    policy: Literal[
+        "reviewable_pr", "merged_in_checkout", "deployed", "verified_in_checkout"
+    ] = "merged_in_checkout"
     revision: int = 1
     override: RecordReference | None = None
 

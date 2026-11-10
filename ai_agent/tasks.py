@@ -49,6 +49,7 @@ FINISHED = ("pr", "done", "stopped")
 # What a task keeps of its run, so a run that failed can be retried with the
 # same approved plan (and another tool) instead of planning it again.
 RUN_KEYS = (
+    "verification_profile",
     "context_spec",
     "context_packet",
     "packet_metadata",

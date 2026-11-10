@@ -24,6 +24,7 @@ ATTEMPT_FIELDS = (
     "archived_at",
 )
 CLEAR_FIELDS = (
+    "verification_completed",
     "context_handoff",
     "plan_id",
     "run",

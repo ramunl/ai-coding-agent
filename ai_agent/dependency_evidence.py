@@ -200,6 +200,13 @@ def evaluate_dependency(value: dict, *, store: ContextStore | None = None) -> di
         or record.attempt_id != ref.record_id
     ):
         raise ValueError("Predecessor identity mismatch")
+    if dependency.policy == "verified_in_checkout":
+        from ai_agent.verification import verify_receipt
+
+        return {
+            "dependency": asdict(dependency),
+            "checkout_head": verify_receipt(record),
+        }
     urls = {e.locator for e in record.evidence if e.source == "pull_request"}
     commits = {
         e.locator
@@ -349,7 +356,15 @@ async def review_replacements(task: dict, data: dict) -> str | None:
             (t for t in data.get("tasks", []) if t.get("id") == dependency.task_id), {}
         )
         ref = previous.get("context_handoff")
-        if ref == edge.get("attempt"):
+        verification = previous.get("stage") == "done" and previous.get(
+            "verification_completed"
+        )
+        policy = edge.get("policy", "merged_in_checkout")
+        if policy in {"merged_in_checkout", "verified_in_checkout"}:
+            policy = "verified_in_checkout" if verification else "merged_in_checkout"
+        if ref == edge.get("attempt") and policy == edge.get(
+            "policy", "merged_in_checkout"
+        ):
             continue
         if (
             not ref
@@ -363,9 +378,12 @@ async def review_replacements(task: dict, data: dict) -> str | None:
                 "task_id": dependency.task_id,
                 "before": edge.get("attempt"),
                 "after": deepcopy(ref),
+                "before_policy": edge.get("policy", "merged_in_checkout"),
+                "after_policy": policy,
             }
         )
         edge["attempt"] = deepcopy(ref)
+        edge["policy"] = policy
         edge["revision"] = edge.get("revision", 1) + 1
     if not changed:
         return

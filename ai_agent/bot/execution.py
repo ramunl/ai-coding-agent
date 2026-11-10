@@ -222,6 +222,27 @@ async def run_queued_implementation(
     published = False
     preflight_blocked: PreflightBlockedError | None = None
     try:
+        if task.get("verification_profile"):
+            from ai_agent.verification import run_verification
+
+            if owner_task is None:
+                raise RuntimeError("Verification requires a task-bound approved plan")
+            set_active_execution(context, branch_name, "Running verification checks")
+            await reply_chunks(
+                update, "Running approved verification checks; no model invocation."
+            )
+            try:
+                await asyncio.to_thread(run_verification, task["verification_profile"])
+            except (ImplementationStoppedError, NoCodeOutcomeError):
+                raise
+            except (OSError, RuntimeError, ValueError) as error:
+                from ai_agent.run_outcomes import blocked_report
+
+                raise NoCodeOutcomeError(blocked_report(str(error))) from error
+            await reply_chunks(
+                update, "Checks passed; recording the verification result."
+            )
+            return
         pull_request, commit_sha = await _publish_queued_implementation(
             update, context, task
         )
@@ -269,11 +290,19 @@ async def run_queued_implementation(
         context.application.mark_data_for_update_persistence(
             user_ids=[update.effective_user.id]
         )
-        await reply_chunks(
-            update,
-            str(outcome) + "\n\nUse the Ops dashboard or Ops bot for server actions. "
-            "After resolving the blocker, retry the task.",
-        )
+        if task.get("verification_profile"):
+            message = (
+                "Verification blocked.\n"
+                + outcome.report
+                + "\n\nResolve the failed check, then retry verification."
+            )
+        else:
+            message = (
+                str(outcome)
+                + "\n\nUse the Ops dashboard or Ops bot for server actions. "
+                "After resolving the blocker, retry the task."
+            )
+        await reply_chunks(update, message)
     except PreflightBlockedError as blocked:
         preflight_blocked = blocked
         if not published:
@@ -297,6 +326,10 @@ async def run_queued_implementation(
             await reply_chunks(update, refusal)
         else:
             restored = await reset_to_base_branch(update)
+        if task.get("verification_profile") and (refusal or not restored):
+            from ai_agent.context_sources import ContextBlockedError
+
+            raise ContextBlockedError("Verification cleanup failed; completion refused")
         if owner_task is not None:
             owner_task.pop("stop_requested", None)
         if stopped and owner_task is not None and not refusal and restored:

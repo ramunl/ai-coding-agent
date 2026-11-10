@@ -151,12 +151,20 @@ def split_plan(
                 "owner_id": str(CHAT_ID),
                 "repository": identities[repository["name"]],
             }
+        task["verification_only"] = any(
+            row["name"] == repository["name"] and row["role"] == "verify"
+            for row in document.repository_accounting
+        )
         if created and created[-1].get("dependency_scope"):
             task["dependencies"] = [
                 {
                     "task_id": created[-1]["id"],
                     "scope": created[-1]["dependency_scope"],
-                    "policy": "merged_in_checkout",
+                    "policy": (
+                        "verified_in_checkout"
+                        if created[-1].get("verification_only")
+                        else "merged_in_checkout"
+                    ),
                     "revision": 1,
                 }
             ]

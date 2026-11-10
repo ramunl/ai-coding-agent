@@ -103,17 +103,18 @@ def test_missing_codex_login_blocks(checkout):
     assert "codex login status" in str(caught.value)
 
 
-def test_missing_claude_config_blocks(checkout):
+def test_claude_preflight_never_uses_inference_as_a_probe(checkout):
     bin_dir = make_bin(checkout, "claude", "pytest", "ruff")
     policy = make_policy("claude", checkout, bin_dir)
 
+    calls = []
+
     def probe(args, _policy):
-        return tuple(args) != ("claude", "config", "stat")
+        calls.append(tuple(args))
+        return True
 
-    with pytest.raises(PreflightBlockedError) as caught:
-        preflight(policy=policy, probe=probe)
-
-    assert "claude config stat" in str(caught.value)
+    preflight(policy=policy, probe=probe)
+    assert calls == [("claude", "--version")]
 
 
 def test_default_policy_approves_documented_commands(monkeypatch):

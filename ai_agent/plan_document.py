@@ -24,6 +24,7 @@ class PlanDocument:
     repositories: list[dict[str, str]] = field(default_factory=list)
     scope_assessment: dict = field(default_factory=dict)
     repository_accounting: list[dict[str, str]] = field(default_factory=list)
+    verification_profile: str = ""
 
 
 def parse_plan_document(plan_text: str, feature: str = "") -> PlanDocument:
@@ -72,6 +73,7 @@ def parse_plan_document(plan_text: str, feature: str = "") -> PlanDocument:
         codex_prompt=codex_prompt,
         repositories=repositories,
         repository_accounting=accounting(data.get("repository_accounting")),
+        verification_profile=_string_value(data, "verification_profile"),
         scope_assessment=assess_scope(
             data.get("scope_assessment"), files, steps, risks
         ),
