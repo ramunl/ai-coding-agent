@@ -232,7 +232,10 @@ def test_profile_is_sealed_without_changing_legacy_bindings():
     )
 
 
-def test_lifecycle_completes_only_after_durable_receipt(environment, monkeypatch):
+@pytest.mark.parametrize("profile", [PROFILE, "ai-dashboard:page-tests-v1"])
+def test_lifecycle_completes_only_after_durable_receipt(
+    environment, monkeypatch, profile
+):
     from ai_agent.bot import context_execution
 
     env = environment
@@ -241,13 +244,13 @@ def test_lifecycle_completes_only_after_durable_receipt(environment, monkeypatch
     item = {
         "context_spec": env.spec,
         "branch_name": env.task["branch"],
-        "verification_profile": PROFILE,
+        "verification_profile": profile,
     }
     item["run_binding"] = context_lifecycle.run_binding(item)
 
     @context_execution.lifecycle_execution
     async def verify(update, context, item):
-        verification.run_verification.__wrapped__(PROFILE)
+        verification.run_verification.__wrapped__(profile)
 
     # The wrapper owns its own fresh journal; settle the fixture journal first.
     env.attempt.finish("blocked")
@@ -351,7 +354,15 @@ def test_provider_schema_and_dashboard_outline_expose_explicit_checks():
     assert "verification_profile" in schema["required"]
     assert PROFILE in schema["properties"]["verification_profile"]["enum"]
     plan = new_plan_state(
-        "Verify existing checks", json.dumps({"verification_profile": PROFILE})
+        "Verify existing checks",
+        json.dumps(
+            {
+                "verification_profile": PROFILE,
+                "repositories": [{"name": "ai-dashboard", "changes": "verify"}],
+                "repository_accounting": [{"name": "ai-dashboard", "role": "verify"}],
+            }
+        ),
+        {"project_name": "ai-dashboard"},
     )
     steps = plan_outline(plan)["steps"]
     assert "no model or PR" in steps[0]

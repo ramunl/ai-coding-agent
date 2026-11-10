@@ -134,6 +134,14 @@ def approve_plan(plan: object) -> None:
             + " ".join(problems)
             + " Revise the plan before approval."
         )
+    _check_verification_profile(plan)
+    plan.approval_binding = plan_binding(plan)
+    plan.approved = True
+    plan.review_required = False
+
+
+def _check_verification_profile(plan: object) -> None:
+    """Keep verification out of the paid path, including old boolean approvals."""
     from ai_agent.plan_document import parse_plan_document
     from ai_agent.verification import approved_profile
 
@@ -143,9 +151,6 @@ def approve_plan(plan: object) -> None:
         )
     except ValueError as error:
         raise ContextBlockedError(str(error)) from error
-    plan.approval_binding = plan_binding(plan)
-    plan.approved = True
-    plan.review_required = False
 
 
 def require_plan_approval(plan: object) -> None:
@@ -158,6 +163,7 @@ def require_plan_approval(plan: object) -> None:
             raise ContextBlockedError("Plan changed; review and approve it again")
         if plan.context_spec and plan.approval_binding is None:
             raise ContextBlockedError("Context plan needs approval")
+        _check_verification_profile(plan)
     except Exception:
         plan.approved = False
         plan.review_required = True

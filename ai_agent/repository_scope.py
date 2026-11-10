@@ -22,9 +22,15 @@ are running the existing standard checks, set verification_profile to
 "ai-ops-agent:baseline-v1", or "ai-dashboard:baseline-v1" for that repository;
 use role verify, files [], and list the checks explicitly. These profiles run
 Ruff check, Ruff format --check and the full Python pytest suite; the dashboard
-profile also runs npm test. They run directly without a model, commit or PR.
-For custom/manual verification or any edits, leave verification_profile empty;
-never claim standard checks prove acceptance criteria they do not cover.
+profile also runs npm test. For a dashboard task asking ONLY for the existing
+page tests (including confirming fixtures asserted by those tests), select
+"ai-dashboard:page-tests-v1": this runs npm test only, without Ruff or Python.
+These profiles run directly without a model, commit or PR. A verification-only
+plan with an empty profile is rejected before approval; it never falls back to
+an editing model. For unsupported manual verification, explain the missing
+execution support and revise/narrow the task to supported automated checks.
+For implementation with file edits, leave verification_profile empty.
+Never claim automated checks prove acceptance criteria they do not cover.
 Completed claims need a dated evidence reference; never invent
 checks or treat old evidence as fresh. Mark unresolved ownership unclear instead
 of silently dropping work. Already split tasks account only for their Assigned
