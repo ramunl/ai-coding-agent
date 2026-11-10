@@ -140,6 +140,18 @@ class Attempt:
             for entry in facts
             if entry["stage"] in {"pr", "commit", "push", "ci"}
         )
+        evidence += tuple(
+            EvidenceReference(
+                evidence_id=digest(entry),
+                source="test",
+                locator="verification:v1",
+                summary=json.dumps(
+                    entry["facts"], sort_keys=True, separators=(",", ":")
+                ),
+            )
+            for entry in facts
+            if entry["stage"] == "verification"
+        )
         latest = self.state.get("latest", {})
         observed = {
             stage: self.state["events"][key]["facts"]
@@ -163,6 +175,8 @@ class Attempt:
                 "Remaining work: inspect saved changes and original requirements; "
                 "completion and local build results are unknown."
                 if outcome != "succeeded"
+                else "Verification checks observed by application; no PR required."
+                if "verification" in observed
                 else "CI observed by application; local build claims unverified."
             )
         )

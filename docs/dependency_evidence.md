@@ -77,3 +77,15 @@ unrelated task changes and task-list ordering do not invalidate the check.
 Predecessor removal, stage/branch/attempt/handoff changes, and edge revisions still
 invalidate in-flight verification. This does not bypass fresh PR, archive,
 checkout ancestry or evidence-age checks.
+
+## Verification-only predecessors
+
+`verified_in_checkout` accepts only a successful, immutable application receipt
+from a versioned verification profile. All fixed commands must have exit 0; the
+repository identity, exact tested HEAD and clean checkout are checked again at
+admission. It makes no PR or deployment claim. See [verification-runs.md](verification-runs.md).
+
+New split verification parts use this policy. An explicit owner start may review
+a legacy merged-PR edge for an unstarted consumer after the predecessor completes
+verification. Both the reference and policy changes are audited. Existing
+deployment/reviewable-PR policies and approved consumers are not downgraded.

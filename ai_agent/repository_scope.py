@@ -16,7 +16,16 @@ implementation owners require offering /split. Verification-only or context
 repositories do not need implementation tasks. A verification-only plan may list
 its execution repository in repositories, with role verify and no file changes.
 Give concrete verification steps
-for verify entries. Completed claims need a dated evidence reference; never invent
+for verify entries. For a SINGLE repository task whose entire acceptance criteria
+are running the existing standard checks, set verification_profile to
+"ai-coding-agent:baseline-v1", "ai-pm-agent:baseline-v1",
+"ai-ops-agent:baseline-v1", or "ai-dashboard:baseline-v1" for that repository;
+use role verify, files [], and list the checks explicitly. These profiles run
+Ruff check, Ruff format --check and the full Python pytest suite; the dashboard
+profile also runs npm test. They run directly without a model, commit or PR.
+For custom/manual verification or any edits, leave verification_profile empty;
+never claim standard checks prove acceptance criteria they do not cover.
+Completed claims need a dated evidence reference; never invent
 checks or treat old evidence as fresh. Mark unresolved ownership unclear instead
 of silently dropping work. Already split tasks account only for their Assigned
 repository; parent requests and prerequisites are context, not new work.

@@ -141,6 +141,9 @@ def set_pending_from_plan(
     """Convert an approved plan into pending implementation data."""
     require_plan_approval(plan_state)
     document = parse_plan_document(plan_state.plan_text, plan_state.feature)
+    from ai_agent.verification import approved_profile
+
+    profile = approved_profile(document, plan_state.repository_identity)
     _data(context)["pending_implementation"] = {
         "repository_identity": (
             dict(plan_state.repository_identity)
@@ -162,6 +165,8 @@ def set_pending_from_plan(
     }
 
     pending = _data(context)["pending_implementation"]
+    if profile:
+        pending["verification_profile"] = profile
     pending["run_binding"] = run_binding(pending)
 
 
@@ -225,6 +230,8 @@ def enqueue_pending_implementation(
         "implementation_agent": agent,
         "implementation_model": model,
     }
+    if pending.get("verification_profile"):
+        task["verification_profile"] = pending["verification_profile"]
     task_queue(context).append(task)
     remember_run(data, task)
     return task

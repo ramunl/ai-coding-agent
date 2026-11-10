@@ -177,6 +177,7 @@ Return only valid JSON with this shape:
 {{
   "branch": "feature/short-safe-branch-name",
   "summary": "Short implementation summary",
+  "verification_profile": "",
   "files": ["path/or/File.kt"],
   "steps": ["Step one"],
   "risks": ["Risk to verify"],
@@ -264,6 +265,7 @@ Return only valid JSON with this shape:
 {{
   "branch": "feature/short-safe-branch-name",
   "summary": "Short implementation summary",
+  "verification_profile": "",
   "files": ["path/or/File.kt"],
   "steps": ["Step one"],
   "risks": ["Risk to verify"],

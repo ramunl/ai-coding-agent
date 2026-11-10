@@ -142,7 +142,25 @@ def lifecycle_execution(
             ci_key = attempt.state.get("latest", {}).get("ci")
             ci = attempt.state["events"].get(ci_key, {}).get("facts", {}).get("state")
             no_code = any(event["stage"] == "no_code" for event in events)
-            if no_code or not events:
+            verification = next(
+                (event for event in events if event["stage"] == "verification"), None
+            )
+            if verification and not no_code:
+                attempt.finish("succeeded")
+                if attempt.failed or attempt.state["terminal"] != "succeeded":
+                    raise ContextBlockedError(
+                        "Verification passed but its receipt could not be saved"
+                    )
+                from ai_agent.tasks import set_stage
+
+                for task in candidates:
+                    task["verification_completed"] = True
+                    set_stage(
+                        task,
+                        "done",
+                        "Approved verification checks passed; no PR required.",
+                    )
+            elif no_code or not events:
                 attempt.finish("blocked")
             elif ci in {"passed", "failed"}:
                 attempt.finish("succeeded" if ci == "passed" else "failed")

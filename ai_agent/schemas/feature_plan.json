@@ -10,7 +10,8 @@
     "risks",
     "repositories",
     "scope_assessment",
-    "repository_accounting"
+    "repository_accounting",
+    "verification_profile"
   ],
   "properties": {
     "branch": {
@@ -148,6 +149,16 @@
           }
         }
       }
+    },
+    "verification_profile": {
+      "type": "string",
+      "enum": [
+        "",
+        "ai-coding-agent:baseline-v1",
+        "ai-pm-agent:baseline-v1",
+        "ai-ops-agent:baseline-v1",
+        "ai-dashboard:baseline-v1"
+      ]
     }
   }
 }

@@ -134,6 +134,15 @@ def approve_plan(plan: object) -> None:
             + " ".join(problems)
             + " Revise the plan before approval."
         )
+    from ai_agent.plan_document import parse_plan_document
+    from ai_agent.verification import approved_profile
+
+    try:
+        approved_profile(
+            parse_plan_document(plan.plan_text, plan.feature), plan.repository_identity
+        )
+    except ValueError as error:
+        raise ContextBlockedError(str(error)) from error
     plan.approval_binding = plan_binding(plan)
     plan.approved = True
     plan.review_required = False
@@ -157,26 +166,32 @@ def require_plan_approval(plan: object) -> None:
 
 def run_binding(item: dict) -> str:
     """Seal the material run fields; provider choice is deliberately excluded."""
-    return digest(
-        {
-            key: item.get(key)
-            for key in (
-                "repository_identity",
-                "change",
-                "commit_type",
-                "pr_body_label",
-                "codex_prompt",
-                "branch_name",
-                "images",
-                "context_spec",
-                "approval_binding",
-            )
-        }
-    )
+    fields = {
+        key: item.get(key)
+        for key in (
+            "repository_identity",
+            "change",
+            "commit_type",
+            "pr_body_label",
+            "codex_prompt",
+            "branch_name",
+            "images",
+            "context_spec",
+            "approval_binding",
+        )
+    }
+    # Preserve the digest of legacy implementation runs.
+    if item.get("verification_profile"):
+        fields["verification_profile"] = item["verification_profile"]
+    return digest(fields)
 
 
 def require_run(item: dict) -> None:
     """Shared guard for queued, retried and automatically dispatched work."""
+    if item.get("verification_profile") and (
+        not item.get("run_binding") or not item.get("context_spec")
+    ):
+        raise ContextBlockedError("Verification requires a newly approved scoped plan")
     if item.get("run_binding") and len(str(item.get("codex_prompt") or "")) > 256_000:
         raise ContextBlockedError("Approved prompt exceeds storage limit; narrow plan")
     if item.get("run_binding") and item["run_binding"] != run_binding(item):

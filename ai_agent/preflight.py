@@ -220,11 +220,6 @@ _PROBES = {
             "Install or repair the Claude Code CLI on the worker PATH",
             "claude --version did not run",
         ),
-        (
-            ("claude", "config", "stat"),
-            "Complete Claude Code login and configuration for the worker",
-            "claude config stat did not report a readable configuration",
-        ),
     ),
 }
 
