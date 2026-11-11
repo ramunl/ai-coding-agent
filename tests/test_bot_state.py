@@ -70,5 +70,6 @@ class StateTests(TelegramTestCase):
                 "stage": "ci",
                 "elapsed": 100,
                 "last_activity": 10,
+                "finish_estimate": {"status": "insufficient_history", "samples": 0},
             },
         )

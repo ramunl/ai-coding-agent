@@ -679,3 +679,30 @@ def test_progress_projection_is_bounded_and_secret_free(setup):
     assert all(
         value is None or isinstance(value, (str, int)) for value in view.values()
     )
+
+
+@pytest.mark.parametrize("passed", [True, False])
+def test_execution_measures_successful_runs_only(setup, bot_modules, passed):
+    from ai_agent.bot.context_execution import lifecycle_execution
+    from ai_agent.finish_estimate import current_timing_key
+
+    spec, _ = setup
+    data = {}
+    item = {
+        "context_spec": spec,
+        "branch_name": "feature/a",
+        "implementation_agent": "claude",
+    }
+
+    @lifecycle_execution
+    async def execute(update, context, item):
+        assert current_timing_key.get() is not None
+        journal.checkpoint("ci", state="passed" if passed else "failed", sha="a" * 40)
+
+    asyncio.run(execute(None, SimpleNamespace(user_data=data), item))
+    assert current_timing_key.get() is None
+    if passed:
+        assert len(data["run_duration_history"]) == 1
+        assert data["run_duration_history"][0]["seconds"] > 0
+    else:
+        assert "run_duration_history" not in data
