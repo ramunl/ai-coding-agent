@@ -134,9 +134,7 @@ def test_repaired_merged_head_records_provenance_without_authorizing_dependents(
     scenario,
 ):
     task, child, data, record, facts = scenario
-    with patch.object(
-        recovery, "classify_head", return_value=HeadProvenance.REPAIRED
-    ):
+    with patch.object(recovery, "classify_head", return_value=HeadProvenance.REPAIRED):
         message = asyncio.run(recovery.reconcile(task, data))
     assert task["stage"] == "done"
     assert task["pr_evidence"]["provenance"] == "repaired"
@@ -277,12 +275,10 @@ def test_classify_head_distinguishes_exact_repaired_and_unrelated(tmp_path):
 
     assert recovery.classify_head(str(repo), {base}, base) is HeadProvenance.EXACT
     assert (
-        recovery.classify_head(str(repo), {base}, repaired)
-        is HeadProvenance.REPAIRED
+        recovery.classify_head(str(repo), {base}, repaired) is HeadProvenance.REPAIRED
     )
     assert (
-        recovery.classify_head(str(repo), {base}, unrelated)
-        is HeadProvenance.UNRELATED
+        recovery.classify_head(str(repo), {base}, unrelated) is HeadProvenance.UNRELATED
     )
     assert (
         recovery.classify_head(str(repo), {base}, "f" * 40)

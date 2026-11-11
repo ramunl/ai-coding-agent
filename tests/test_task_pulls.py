@@ -402,9 +402,6 @@ class TaskPullTests(unittest.IsolatedAsyncioTestCase):
             )
 
     def test_archived_attempt_rejects_attempt_ownership_mismatch(self) -> None:
-        from ai_agent.context_validation import decode_dependency
-        from ai_agent.context_store import ContextStore
-
         scope = Scope("123", RepositoryIdentity("repo", "/repo", "ramunl/repo"))
         dependency = SimpleNamespace(
             attempt=SimpleNamespace(record_id="archived", revision=1), scope=scope
@@ -468,8 +465,6 @@ class TaskPullTests(unittest.IsolatedAsyncioTestCase):
             HeadProvenance.EXACT,
         )
         self.assertIs(
-            evidence.classify_head(
-                "/nonexistent", {"a" * 40}, "b" * 40
-            ),
+            evidence.classify_head("/nonexistent", {"a" * 40}, "b" * 40),
             HeadProvenance.UNVERIFIABLE,
         )

@@ -78,9 +78,7 @@ def classify_head(repo_path: str, commits: set[str], head: str) -> HeadProvenanc
     """
     if not isinstance(commits, set) or not commits:
         raise ValueError("Missing archived commit evidence")
-    if not all(
-        isinstance(sha, str) and _SHA.fullmatch(sha) for sha in commits
-    ):
+    if not all(isinstance(sha, str) and _SHA.fullmatch(sha) for sha in commits):
         raise ValueError("Invalid archived commit")
     if not isinstance(head, str) or not _SHA.fullmatch(head):
         raise ValueError("Invalid PR head")
@@ -90,9 +88,7 @@ def classify_head(repo_path: str, commits: set[str], head: str) -> HeadProvenanc
         for commit in commits:
             if not _git_available(repo_path, "cat-file", "-e", commit + "^{commit}"):
                 return HeadProvenance.UNVERIFIABLE
-            if not _git_available(
-                repo_path, "cat-file", "-e", head + "^{commit}"
-            ):
+            if not _git_available(repo_path, "cat-file", "-e", head + "^{commit}"):
                 return HeadProvenance.UNVERIFIABLE
             if not _git_available(
                 repo_path, "merge-base", "--is-ancestor", commit, head
