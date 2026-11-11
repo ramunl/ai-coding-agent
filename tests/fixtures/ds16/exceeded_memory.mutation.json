@@ -1,0 +1,11 @@
+{
+  "path": [
+    "cases",
+    0,
+    "measurements",
+    "peak_memory",
+    "value"
+  ],
+  "value": 257,
+  "error": "cases[0].measurements.peak_memory.value"
+}

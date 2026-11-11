@@ -1,0 +1,9 @@
+{
+  "path": [
+    "evidence",
+    0,
+    "status"
+  ],
+  "value": "pending",
+  "error": "evidence[0].status"
+}

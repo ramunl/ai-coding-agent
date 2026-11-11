@@ -1,0 +1,461 @@
+{
+  "run_id": "synthetic-ds16-001",
+  "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "evidence_kind": "fixture",
+  "schema_version": 1,
+  "repository": "example/synthetic",
+  "started_at": "2026-11-11T10:00:00Z",
+  "finished_at": "2026-11-11T10:10:00Z",
+  "provider_route": {
+    "provider": "codex",
+    "model": "synthetic-model",
+    "route": "codex-cli",
+    "native_anthropic_status": "unavailable",
+    "native_anthropic_note": "Synthetic unavailable native route, not a tested route"
+  },
+  "environment": {
+    "host": "fixture-only",
+    "os": "synthetic",
+    "runtime": "synthetic",
+    "collector": "fixture generator"
+  },
+  "evidence": [
+    {
+      "run_id": "synthetic-ds16-001",
+      "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "evidence_kind": "fixture",
+      "id": "fixture-log",
+      "status": "verified",
+      "uri": "fixture://synthetic-log",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "captured_at": "2026-11-11T10:09:00Z",
+      "role": "observation"
+    },
+    {
+      "run_id": "synthetic-ds16-001",
+      "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "evidence_kind": "fixture",
+      "id": "backup",
+      "status": "verified",
+      "uri": "fixture://backup",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "captured_at": "2026-11-11T10:09:00Z",
+      "role": "backup"
+    },
+    {
+      "run_id": "synthetic-ds16-001",
+      "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "evidence_kind": "fixture",
+      "id": "release",
+      "status": "verified",
+      "uri": "fixture://release",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "captured_at": "2026-11-11T10:09:00Z",
+      "role": "release"
+    },
+    {
+      "run_id": "synthetic-ds16-001",
+      "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "evidence_kind": "fixture",
+      "id": "codex_rollback",
+      "status": "verified",
+      "uri": "fixture://codex_rollback",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "captured_at": "2026-11-11T10:09:00Z",
+      "role": "codex_rollback"
+    }
+  ],
+  "policy": {
+    "worker_count": {
+      "value": 1,
+      "evidence_ref": "fixture-log"
+    },
+    "memory_limit": {
+      "value": 256,
+      "evidence_ref": "fixture-log",
+      "unit": "MiB",
+      "source": "Synthetic fixture generator; not observed performance"
+    },
+    "memory_scope": "Worker process tree aggregate peak RSS; synthetic fixture only",
+    "measurement_methodology": "Synthetic values; completion is scenario completion, costs USD, monotonic wall seconds, corrections count interventions"
+  },
+  "cases": [
+    {
+      "case": "source_heavy_revision",
+      "outcomes": {
+        "sources_used": {
+          "value": 3,
+          "evidence_ref": "fixture-log"
+        },
+        "revisions_applied": {
+          "value": 1,
+          "evidence_ref": "fixture-log"
+        },
+        "build_exit_code": {
+          "value": 0,
+          "evidence_ref": "fixture-log"
+        },
+        "orphan_workers": {
+          "value": 0,
+          "evidence_ref": "fixture-log"
+        },
+        "lost_history_entries": {
+          "value": 0,
+          "evidence_ref": "fixture-log"
+        },
+        "worker_count": {
+          "value": 1,
+          "evidence_ref": "fixture-log"
+        }
+      },
+      "measurements": {
+        "completion": {
+          "value": 1,
+          "evidence_ref": "fixture-log",
+          "unit": "ratio",
+          "source": "Synthetic fixture generator; not observed performance"
+        },
+        "corrections": {
+          "value": 0,
+          "evidence_ref": "fixture-log",
+          "unit": "count",
+          "source": "Synthetic fixture generator; not observed performance"
+        },
+        "peak_memory": {
+          "value": 128,
+          "evidence_ref": "fixture-log",
+          "unit": "MiB",
+          "source": "Synthetic fixture generator; not observed performance"
+        },
+        "elapsed_time": {
+          "value": 10,
+          "evidence_ref": "fixture-log",
+          "unit": "s",
+          "source": "Synthetic fixture generator; not observed performance"
+        },
+        "actual_cost": {
+          "value": 0.02,
+          "evidence_ref": "fixture-log",
+          "unit": "USD",
+          "source": "Synthetic fixture generator; not observed performance"
+        },
+        "estimated_cost": {
+          "value": 0.03,
+          "evidence_ref": "fixture-log",
+          "unit": "USD",
+          "source": "Synthetic fixture generator; not observed performance"
+        }
+      }
+    },
+    {
+      "case": "failing_build_repair",
+      "outcomes": {
+        "initial_build_exit_code": {
+          "value": 1,
+          "evidence_ref": "fixture-log"
+        },
+        "repairs_applied": {
+          "value": 1,
+          "evidence_ref": "fixture-log"
+        },
+        "build_exit_code": {
+          "value": 0,
+          "evidence_ref": "fixture-log"
+        },
+        "orphan_workers": {
+          "value": 0,
+          "evidence_ref": "fixture-log"
+        },
+        "lost_history_entries": {
+          "value": 0,
+          "evidence_ref": "fixture-log"
+        },
+        "worker_count": {
+          "value": 1,
+          "evidence_ref": "fixture-log"
+        }
+      },
+      "measurements": {
+        "completion": {
+          "value": 1,
+          "evidence_ref": "fixture-log",
+          "unit": "ratio",
+          "source": "Synthetic fixture generator; not observed performance"
+        },
+        "corrections": {
+          "value": 0,
+          "evidence_ref": "fixture-log",
+          "unit": "count",
+          "source": "Synthetic fixture generator; not observed performance"
+        },
+        "peak_memory": {
+          "value": 128,
+          "evidence_ref": "fixture-log",
+          "unit": "MiB",
+          "source": "Synthetic fixture generator; not observed performance"
+        },
+        "elapsed_time": {
+          "value": 10,
+          "evidence_ref": "fixture-log",
+          "unit": "s",
+          "source": "Synthetic fixture generator; not observed performance"
+        },
+        "actual_cost": {
+          "value": 0.02,
+          "evidence_ref": "fixture-log",
+          "unit": "USD",
+          "source": "Synthetic fixture generator; not observed performance"
+        },
+        "estimated_cost": {
+          "value": 0.03,
+          "evidence_ref": "fixture-log",
+          "unit": "USD",
+          "source": "Synthetic fixture generator; not observed performance"
+        }
+      }
+    },
+    {
+      "case": "screenshot_delivery",
+      "outcomes": {
+        "supported": {
+          "value": true,
+          "evidence_ref": "fixture-log"
+        },
+        "delivered": {
+          "value": true,
+          "evidence_ref": "fixture-log"
+        },
+        "build_exit_code": {
+          "value": 0,
+          "evidence_ref": "fixture-log"
+        },
+        "orphan_workers": {
+          "value": 0,
+          "evidence_ref": "fixture-log"
+        },
+        "lost_history_entries": {
+          "value": 0,
+          "evidence_ref": "fixture-log"
+        },
+        "worker_count": {
+          "value": 1,
+          "evidence_ref": "fixture-log"
+        }
+      },
+      "measurements": {
+        "completion": {
+          "value": 1,
+          "evidence_ref": "fixture-log",
+          "unit": "ratio",
+          "source": "Synthetic fixture generator; not observed performance"
+        },
+        "corrections": {
+          "value": 0,
+          "evidence_ref": "fixture-log",
+          "unit": "count",
+          "source": "Synthetic fixture generator; not observed performance"
+        },
+        "peak_memory": {
+          "value": 128,
+          "evidence_ref": "fixture-log",
+          "unit": "MiB",
+          "source": "Synthetic fixture generator; not observed performance"
+        },
+        "elapsed_time": {
+          "value": 10,
+          "evidence_ref": "fixture-log",
+          "unit": "s",
+          "source": "Synthetic fixture generator; not observed performance"
+        },
+        "actual_cost": {
+          "value": 0.02,
+          "evidence_ref": "fixture-log",
+          "unit": "USD",
+          "source": "Synthetic fixture generator; not observed performance"
+        },
+        "estimated_cost": {
+          "value": 0.03,
+          "evidence_ref": "fixture-log",
+          "unit": "USD",
+          "source": "Synthetic fixture generator; not observed performance"
+        }
+      }
+    },
+    {
+      "case": "cancellation",
+      "outcomes": {
+        "cancel_requested": {
+          "value": true,
+          "evidence_ref": "fixture-log"
+        },
+        "terminal_state": {
+          "value": "cancelled",
+          "evidence_ref": "fixture-log"
+        },
+        "build_exit_code": {
+          "value": 0,
+          "evidence_ref": "fixture-log"
+        },
+        "orphan_workers": {
+          "value": 0,
+          "evidence_ref": "fixture-log"
+        },
+        "lost_history_entries": {
+          "value": 0,
+          "evidence_ref": "fixture-log"
+        },
+        "worker_count": {
+          "value": 1,
+          "evidence_ref": "fixture-log"
+        }
+      },
+      "measurements": {
+        "completion": {
+          "value": 1,
+          "evidence_ref": "fixture-log",
+          "unit": "ratio",
+          "source": "Synthetic fixture generator; not observed performance"
+        },
+        "corrections": {
+          "value": 0,
+          "evidence_ref": "fixture-log",
+          "unit": "count",
+          "source": "Synthetic fixture generator; not observed performance"
+        },
+        "peak_memory": {
+          "value": 128,
+          "evidence_ref": "fixture-log",
+          "unit": "MiB",
+          "source": "Synthetic fixture generator; not observed performance"
+        },
+        "elapsed_time": {
+          "value": 10,
+          "evidence_ref": "fixture-log",
+          "unit": "s",
+          "source": "Synthetic fixture generator; not observed performance"
+        },
+        "actual_cost": {
+          "value": 0.02,
+          "evidence_ref": "fixture-log",
+          "unit": "USD",
+          "source": "Synthetic fixture generator; not observed performance"
+        },
+        "estimated_cost": {
+          "value": 0.03,
+          "evidence_ref": "fixture-log",
+          "unit": "USD",
+          "source": "Synthetic fixture generator; not observed performance"
+        }
+      }
+    },
+    {
+      "case": "provider_outage",
+      "outcomes": {
+        "outage_observed": {
+          "value": true,
+          "evidence_ref": "fixture-log"
+        },
+        "terminal_state": {
+          "value": "handled",
+          "evidence_ref": "fixture-log"
+        },
+        "build_exit_code": {
+          "value": 0,
+          "evidence_ref": "fixture-log"
+        },
+        "orphan_workers": {
+          "value": 0,
+          "evidence_ref": "fixture-log"
+        },
+        "lost_history_entries": {
+          "value": 0,
+          "evidence_ref": "fixture-log"
+        },
+        "worker_count": {
+          "value": 1,
+          "evidence_ref": "fixture-log"
+        }
+      },
+      "measurements": {
+        "completion": {
+          "value": 1,
+          "evidence_ref": "fixture-log",
+          "unit": "ratio",
+          "source": "Synthetic fixture generator; not observed performance"
+        },
+        "corrections": {
+          "value": 0,
+          "evidence_ref": "fixture-log",
+          "unit": "count",
+          "source": "Synthetic fixture generator; not observed performance"
+        },
+        "peak_memory": {
+          "value": 128,
+          "evidence_ref": "fixture-log",
+          "unit": "MiB",
+          "source": "Synthetic fixture generator; not observed performance"
+        },
+        "elapsed_time": {
+          "value": 10,
+          "evidence_ref": "fixture-log",
+          "unit": "s",
+          "source": "Synthetic fixture generator; not observed performance"
+        },
+        "actual_cost": {
+          "value": 0.02,
+          "evidence_ref": "fixture-log",
+          "unit": "USD",
+          "source": "Synthetic fixture generator; not observed performance"
+        },
+        "estimated_cost": {
+          "value": 0.03,
+          "evidence_ref": "fixture-log",
+          "unit": "USD",
+          "source": "Synthetic fixture generator; not observed performance"
+        }
+      }
+    }
+  ],
+  "rollback": {
+    "run_id": "synthetic-ds16-001",
+    "target": "codex",
+    "status": "verified",
+    "completed_at": "2026-11-11T10:08:00Z",
+    "backup_ref": "backup",
+    "release_ref": "release",
+    "execution_ref": "codex_rollback",
+    "state": {
+      "expected_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "restored_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "evidence_ref": "fixture-log"
+    },
+    "config": {
+      "expected_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "restored_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "evidence_ref": "fixture-log"
+    },
+    "release": {
+      "expected_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "restored_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "evidence_ref": "fixture-log"
+    },
+    "post_rollback_probes": {
+      "codex_route": {
+        "value": "codex",
+        "evidence_ref": "fixture-log"
+      },
+      "build_exit_code": {
+        "value": 0,
+        "evidence_ref": "fixture-log"
+      },
+      "orphan_workers": {
+        "value": 0,
+        "evidence_ref": "fixture-log"
+      },
+      "lost_history_entries": {
+        "value": 0,
+        "evidence_ref": "fixture-log"
+      }
+    }
+  }
+}

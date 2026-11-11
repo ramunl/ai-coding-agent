@@ -1,0 +1,8 @@
+{
+  "path": [
+    "rollback",
+    "completed_at"
+  ],
+  "value": "2026-11-11T10:09:30Z",
+  "error": "rollback.post_rollback_probes"
+}

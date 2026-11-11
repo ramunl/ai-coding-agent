@@ -1,0 +1,11 @@
+{
+  "path": [
+    "cases",
+    1,
+    "outcomes",
+    "build_exit_code",
+    "value"
+  ],
+  "value": 1,
+  "error": "cases[1].outcomes.build_exit_code.value"
+}
