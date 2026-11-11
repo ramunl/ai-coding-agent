@@ -16,6 +16,7 @@ from collections.abc import Iterable, MutableMapping
 from ai_agent.config import CHAT_ID
 from ai_agent.plan_state import PlanDocument, PlanState, parse_plan_document
 from ai_agent.projects import active_project, list_projects
+from ai_agent.task_groups import split_title
 from ai_agent.task_milestones import milestone_repositories, split_milestones
 from ai_agent.tasks import add_task, tasks_of
 
@@ -142,6 +143,7 @@ def split_plan(
             task["autopilot"] = True  # an Autopilot task's parts stay on autopilot
         task.update(
             group=plan.id,
+            group_title=split_title(plan.feature, source),
             part=index,
             parts=len(parts),
             after=created[-1]["id"] if created else None,
