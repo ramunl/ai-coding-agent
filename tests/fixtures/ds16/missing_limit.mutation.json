@@ -1,0 +1,8 @@
+{
+  "path": [
+    "policy",
+    "memory_limit"
+  ],
+  "value": null,
+  "error": "policy.memory_limit"
+}

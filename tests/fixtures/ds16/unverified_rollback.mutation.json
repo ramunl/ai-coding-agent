@@ -1,0 +1,8 @@
+{
+  "path": [
+    "rollback",
+    "status"
+  ],
+  "value": "pending",
+  "error": "rollback.status"
+}

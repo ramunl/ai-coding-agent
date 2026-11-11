@@ -1,0 +1,9 @@
+{
+  "path": [
+    "cases",
+    0,
+    "measurements"
+  ],
+  "value": {},
+  "error": "cases[0].measurements.completion"
+}

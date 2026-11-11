@@ -1,0 +1,9 @@
+{
+  "path": [
+    "rollback",
+    "state",
+    "restored_sha256"
+  ],
+  "value": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "error": "rollback.state"
+}
