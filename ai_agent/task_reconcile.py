@@ -1,4 +1,10 @@
-"""Owner-requested recovery of identity-bound merged task attempts."""
+"""Owner-requested recovery of identity-bound open and merged task attempts.
+
+Merged attempts are restored to Done, never Deployed. A repaired head (the live
+PR head is a descendant of the archived commit, but not the archived commit
+itself) is recorded with explicit provenance and left for owner review; it does
+not authorize dependents, which still require fresh archived evidence.
+"""
 
 from __future__ import annotations
 
@@ -12,7 +18,8 @@ from ai_agent.context_store import ContextStore
 from ai_agent.context_validation import decode_dependency
 from ai_agent.dependency_evidence import CHAT_ID
 from ai_agent.projects import get_project
-from ai_agent.task_pulls import verified_pull
+from ai_agent.task_pull_evidence import HeadProvenance, classify_head
+from ai_agent.task_pulls import pull_facts
 from ai_agent.tasks import set_stage
 
 
@@ -65,7 +72,7 @@ def _candidate(task: dict, data: dict) -> dict:
     return candidate
 
 
-def _completion(task: dict) -> tuple[dict, dict]:
+def _completion(task: dict) -> tuple[dict, dict, HeadProvenance, set[str]]:
     """Verify a concrete archived PR and head, never a branch-only search."""
     ref = task["context_handoff"]
     dep = decode_dependency(
@@ -92,10 +99,17 @@ def _completion(task: dict) -> tuple[dict, dict]:
     urls = {e.locator for e in record.evidence if e.source == "pull_request"}
     if len(urls) != 1 or not heads:
         raise ValueError("Missing or ambiguous archived PR evidence")
-    facts = verified_pull(repository.github_repository, next(iter(urls)), heads)
-    if not facts["merged"] or not facts.get("merge_commit"):
-        raise ValueError("The verified PR is not merged; no task state was changed")
-    return facts, deepcopy(ref)
+    facts = pull_facts(repository.github_repository, next(iter(urls)))
+    provenance = classify_head(repository.repo_path, heads, facts["head"])
+    if provenance is HeadProvenance.UNRELATED:
+        raise ValueError("The PR head is unrelated to the archived attempt")
+    if provenance is HeadProvenance.UNVERIFIABLE:
+        raise ValueError(
+            "The PR head differs from the archived attempt and its ancestry "
+            "cannot be verified from the checkout; fetch the head and reconcile "
+            "later with fresh archived evidence"
+        )
+    return facts, deepcopy(ref), provenance, heads
 
 
 def _binding(task: dict, data: dict) -> str:
@@ -174,10 +188,16 @@ def _restore_edges(task: dict, data: dict, ref: dict) -> list[str]:
 
 
 async def reconcile(task: dict, data: dict) -> str:
-    """Restore a verified completion; leave normal fresh dependency admission intact."""
+    """Restore a verified open or merged completion without weakening admission.
+
+    A merged PR is restored to Done, never Deployed. Only an exact archived
+    head authorizes unchanged, unstarted dependents; a repaired head records
+    explicit provenance and leaves dependents for the later archived-evidence
+    reconciliation. Recovery refs, saved edits and attempt history are kept.
+    """
     candidate = _candidate(task, data)
     binding = _binding(task, data)
-    facts, ref = await asyncio.to_thread(_completion, candidate)
+    facts, ref, provenance, heads = await asyncio.to_thread(_completion, candidate)
     if binding != _binding(task, data) or not any(
         t is task for t in data.get("tasks", [])
     ):
@@ -185,6 +205,13 @@ async def reconcile(task: dict, data: dict) -> str:
             "Task or dependencies changed during verification; check again"
         )
     _candidate(task, data)
+    merged = bool(facts.get("merged"))
+    if merged and not facts.get("merge_commit"):
+        raise ValueError("The verified merged PR lacks a merge commit")
+    if not merged and not facts.get("reviewable"):
+        raise ValueError(
+            "The verified PR is neither open nor merged; no task state was changed"
+        )
     task.setdefault("completion_reviews", []).append(
         {
             "at": time.time(),
@@ -193,22 +220,48 @@ async def reconcile(task: dict, data: dict) -> str:
             "attempt": deepcopy(ref),
             "pr_url": facts["url"],
             "head": facts["head"],
+            "provenance": provenance.value,
+            "archived_heads": sorted(heads),
         }
     )
     task.update(
         context_handoff=ref,
         branch=candidate.get("branch"),
         pr_url=facts["url"],
-        merged_at=facts["merged_at"],
-        merge_commit=facts["merge_commit"],
         autopilot=False,
     )
+    if merged:
+        task["merged_at"] = facts.get("merged_at")
+        task["merge_commit"] = facts.get("merge_commit")
+    else:
+        task.pop("merged_at", None)
+        task.pop("merge_commit", None)
+    task["pr_evidence"] = {
+        "status": "verified",
+        "provenance": provenance.value,
+        "url": facts["url"],
+        "head": facts["head"],
+        "archived_heads": sorted(heads),
+        "merged": merged,
+        "checked_at": facts.get("checked_at", time.time()),
+    }
     task.pop("start_next", None)
     task.pop("dependency_check", None)
-    set_stage(task, "done")
-    reviewed = _restore_edges(task, data, ref)
+    set_stage(task, "done" if merged else "pr")
+    if merged and provenance is HeadProvenance.EXACT:
+        reviewed = _restore_edges(task, data, ref)
+        return (
+            f"Confirmed merged: {facts['url']}. Task restored to Done. "
+            f"Reviewed {len(reviewed)} unchanged dependent link(s); "
+            "fresh prerequisite verification is still required before execution."
+        )
+    if merged:
+        return (
+            f"Confirmed merged repaired head: {facts['url']}. Task restored to "
+            "Done; the repaired head is recorded, but dependents still require "
+            "fresh archived evidence before they can proceed."
+        )
     return (
-        f"Confirmed merged: {facts['url']}. Task restored to Done. "
-        f"Reviewed {len(reviewed)} unchanged dependent link(s); "
-        "fresh prerequisite verification is still required before execution."
+        f"Confirmed open: {facts['url']}. Task restored to PR; tracking continues. "
+        "Fresh merged evidence is still required before dependents can proceed."
     )

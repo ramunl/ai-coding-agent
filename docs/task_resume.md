@@ -73,6 +73,31 @@ An attempt may contain several commits from CI repairs. Dependency verification
 checks the live PR head against those archived commits and still requires one
 identity-bound PR; unrelated heads remain blocked.
 
+## PR evidence and reconciliation
+
+Every PR lookup is classified into one of four states — `absent` (GitHub
+answered and there is no PR), `verified` (an exact archived PR still matches),
+`mismatched` (a PR exists but does not match the archived attempt) or
+`unavailable` (the lookup failed or was malformed). Only `absent` settles a
+task; the other two leave it for the next poll or owner review. An archived PR
+URL is re-checked exactly; branch searches only discover a candidate and never
+bind a completion by themselves.
+
+`reconcile_task` restores a verified **open** PR to `pr` and a verified
+**merged** PR to `done` — never `deployed`. Before binding a late PR it
+re-validates repository, task and attempt ownership. A repaired head (the live
+PR head is a descendant of, but not equal to, the archived commit) is recorded
+with explicit persisted provenance and leaves dependents blocked; only an exact
+archived head may re-review unchanged dependents. Unrelated or unverifiable
+heads are rejected with an actionable reason. Recovery refs, saved edits and
+attempt history are preserved, and the restored `pr_url`/`pr_evidence` survive
+a restart so tracking resumes.
+
+Later DS03 reconciliation is intentionally **not** implemented here: the
+repaired head must first be re-verified against fresh GitHub and archived
+evidence and re-archived so strict dependency verification can pass, without
+reopening or re-running the attempt.
+
 The planner checks current and historical task branch names before displaying
 or approving a plan. A first attempt whose proposed branch belongs to another
 task receives a task-specific branch; reopened attempts retain their distinct
