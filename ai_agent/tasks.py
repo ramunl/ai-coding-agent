@@ -268,6 +268,7 @@ def view(task: dict, data: MutableMapping, *, now: int | None = None) -> dict:
         "pr_url": task.get("pr_url"),
         "merged_at": task.get("merged_at"),
         "merge_commit": task.get("merge_commit"),
+        "pr_evidence": task.get("pr_evidence"),
         "created_at": task.get("created_at"),
         "source": task.get("source"),
         "evidence": list(task.get("evidence") or []),

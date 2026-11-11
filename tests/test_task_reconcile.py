@@ -1,4 +1,4 @@
-"""Merged work recovers without duplicating an implementation or bypassing admission."""
+"""Merged and open work recovers without duplicating or bypassing admission."""
 
 import asyncio
 from copy import deepcopy
@@ -16,6 +16,7 @@ from ai_agent.context_models import (
     RepositoryIdentity,
     Scope,
 )
+from ai_agent.task_pull_evidence import HeadProvenance
 
 
 @pytest.fixture
@@ -90,26 +91,111 @@ def scenario(monkeypatch):
     )
     facts = {
         "merged": True,
+        "reviewable": False,
         "merge_commit": "b" * 40,
         "merged_at": 100,
         "head": "a" * 40,
         "url": "https://github.com/owner/repo/pull/1",
     }
+    monkeypatch.setattr(recovery, "pull_facts", lambda repo, url: dict(facts))
+    monkeypatch.setattr(
+        recovery,
+        "classify_head",
+        lambda path, heads, head: HeadProvenance.EXACT,
+    )
     return task, child, data, record, facts
 
 
 def test_owner_restores_merged_attempt_and_exact_unstarted_dependency(scenario):
     task, child, data, record, facts = scenario
-    with patch.object(recovery, "verified_pull", return_value=facts) as check:
-        message = asyncio.run(recovery.reconcile(task, data))
-    check.assert_called_once_with("owner/repo", facts["url"], {"a" * 40})
+    message = asyncio.run(recovery.reconcile(task, data))
     assert task["stage"] == "done" and task["pr_url"] == facts["url"]
     assert task["attempt"] == 2 and task["attempt_history"][0]["attempt"] == 1
+    assert task["pr_evidence"]["provenance"] == "exact"
     assert "dependency_invalidations" not in child
     assert "dependency_check" not in child  # fresh evidence is still required
     assert child["stage"] == "planned"
     assert "1 unchanged" in message
     assert child["dependency_reviews"][0]["source"] == "reconcile_task"
+
+
+def test_owner_restores_open_pr_without_authorizing_dependents(scenario):
+    task, child, data, record, facts = scenario
+    facts.update(merged=False, reviewable=True, merge_commit=None, merged_at=None)
+    message = asyncio.run(recovery.reconcile(task, data))
+    assert task["stage"] == "pr" and task["pr_url"] == facts["url"]
+    assert "merged_at" not in task and "merge_commit" not in task
+    assert task["pr_evidence"]["merged"] is False
+    assert child["dependency_invalidations"]  # open PR never authorizes dependents
+    assert "Confirmed open" in message
+
+
+def test_repaired_merged_head_records_provenance_without_authorizing_dependents(
+    scenario,
+):
+    task, child, data, record, facts = scenario
+    with patch.object(recovery, "classify_head", return_value=HeadProvenance.REPAIRED):
+        message = asyncio.run(recovery.reconcile(task, data))
+    assert task["stage"] == "done"
+    assert task["pr_evidence"]["provenance"] == "repaired"
+    assert child["dependency_invalidations"]  # repaired head is not archived evidence
+    assert "repaired head" in message
+
+
+def test_unrelated_head_is_rejected(scenario):
+    task, child, data, record, facts = scenario
+    before = deepcopy(data["tasks"])
+    with (
+        patch.object(recovery, "classify_head", return_value=HeadProvenance.UNRELATED),
+        pytest.raises(ValueError, match="unrelated"),
+    ):
+        asyncio.run(recovery.reconcile(task, data))
+    assert data["tasks"] == before
+
+
+def test_unverifiable_head_is_rejected_with_actionable_reason(scenario):
+    task, child, data, record, facts = scenario
+    before = deepcopy(data["tasks"])
+    with (
+        patch.object(
+            recovery, "classify_head", return_value=HeadProvenance.UNVERIFIABLE
+        ),
+        pytest.raises(ValueError, match="cannot be verified"),
+    ):
+        asyncio.run(recovery.reconcile(task, data))
+    assert data["tasks"] == before
+
+
+def test_late_merged_pr_on_stopped_attempt_restores_done(scenario):
+    task, child, data, record, facts = scenario
+    task["stage"] = "stopped"
+    task["context_handoff"] = deepcopy(task["context_handoffs"][-1])
+    task["branch"] = task["attempt_history"][-1]["branch"]
+    message = asyncio.run(recovery.reconcile(task, data))
+    assert task["stage"] == "done"
+    assert "Confirmed merged" in message
+
+
+def test_contradictory_github_state_is_rejected(scenario):
+    task, child, data, record, facts = scenario
+    facts.update(merged=False, reviewable=False)
+    before = deepcopy(data["tasks"])
+    with pytest.raises(ValueError, match="neither open nor merged"):
+        asyncio.run(recovery.reconcile(task, data))
+    assert data["tasks"] == before
+
+
+def test_reconcile_preserves_recovery_refs_and_saved_edits(scenario):
+    task, child, data, record, facts = scenario
+    task["stage"] = "stopped"
+    task["context_handoff"] = deepcopy(task["context_handoffs"][-1])
+    task["branch"] = task["attempt_history"][-1]["branch"]
+    task["run"] = {"codex_prompt": "kept", "recovery_refs": ["refs/recovery/1"]}
+    task["attempt_history"][0]["saved_edits"] = ["x"]
+    asyncio.run(recovery.reconcile(task, data))
+    assert task["run"] == {"codex_prompt": "kept", "recovery_refs": ["refs/recovery/1"]}
+    assert task["attempt_history"][0]["saved_edits"] == ["x"]
+    assert task["context_handoffs"]
 
 
 @pytest.mark.parametrize(
@@ -130,7 +216,7 @@ def test_refuses_replacement_work_without_querying_github(scenario, change):
     if change == "recovery":
         data["context_recovery_pending"] = True
     before = deepcopy(task)
-    with patch.object(recovery, "verified_pull") as check, pytest.raises(ValueError):
+    with patch.object(recovery, "pull_facts") as check, pytest.raises(ValueError):
         asyncio.run(recovery.reconcile(task, data))
     assert task == before
     check.assert_not_called()
@@ -155,7 +241,7 @@ def test_bad_or_missing_pr_evidence_leaves_all_tasks_unchanged(
     with (
         patch.object(
             recovery,
-            "verified_pull",
+            "pull_facts",
             side_effect=ValueError("offline") if change == "offline" else None,
             return_value=facts,
         ),
@@ -165,15 +251,50 @@ def test_bad_or_missing_pr_evidence_leaves_all_tasks_unchanged(
     assert data["tasks"] == before
 
 
+def test_classify_head_distinguishes_exact_repaired_and_unrelated(tmp_path):
+    import subprocess
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    def git(*args):
+        return subprocess.check_output(
+            ["git", "-C", str(repo), *args], text=True
+        ).strip()
+
+    git("init", "-q")
+    git("config", "user.email", "test@example.org")
+    git("config", "user.name", "Test")
+    git("commit", "--allow-empty", "-qm", "base")
+    base = git("rev-parse", "HEAD")
+    git("commit", "--allow-empty", "-qm", "repair")
+    repaired = git("rev-parse", "HEAD")
+    git("checkout", "--orphan", "unrelated")
+    git("commit", "--allow-empty", "-qm", "unrelated root")
+    unrelated = git("rev-parse", "HEAD")
+
+    assert recovery.classify_head(str(repo), {base}, base) is HeadProvenance.EXACT
+    assert (
+        recovery.classify_head(str(repo), {base}, repaired) is HeadProvenance.REPAIRED
+    )
+    assert (
+        recovery.classify_head(str(repo), {base}, unrelated) is HeadProvenance.UNRELATED
+    )
+    assert (
+        recovery.classify_head(str(repo), {base}, "f" * 40)
+        is HeadProvenance.UNVERIFIABLE
+    )
+
+
 def test_async_dependency_change_refuses_stale_result(scenario):
     task, child, data, record, facts = scenario
 
-    def changed(*args):
+    def changed(repo, url):
         child["dependencies"][0]["revision"] = 2
-        return facts
+        return dict(facts)
 
     with (
-        patch.object(recovery, "verified_pull", changed),
+        patch.object(recovery, "pull_facts", changed),
         pytest.raises(ValueError, match="changed during"),
     ):
         asyncio.run(recovery.reconcile(task, data))
@@ -193,6 +314,5 @@ def test_does_not_rebind_changed_or_started_consumers(scenario, change):
         data["pending_plan"].approved = True
     if change == "other_reason":
         child["dependency_invalidations"][task["id"]] = "manual block"
-    with patch.object(recovery, "verified_pull", return_value=facts):
-        asyncio.run(recovery.reconcile(task, data))
+    asyncio.run(recovery.reconcile(task, data))
     assert child["dependency_invalidations"]

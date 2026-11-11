@@ -4,6 +4,11 @@ Every few minutes this asks GitHub about the branch of each task in the "pr"
 or "ended" stage: merged -> "done", closed or confirmed absent -> "stopped",
 open -> "pr". Failed or malformed lookups leave the task unchanged.
 Read-only requests.
+
+Each lookup is classified into an explicit evidence state (see
+task_pull_evidence): absent, verified, mismatched or unavailable. Only an
+absent answer (GitHub confirmed no pull request) may settle a task; a failed
+lookup or an unmatched PR is left for the next pass or owner reconciliation.
 """
 
 from __future__ import annotations
@@ -18,6 +23,7 @@ from typing import Any
 
 from ai_agent.github import github_request
 from ai_agent.projects import get_project
+from ai_agent.task_pull_evidence import EvidenceStatus, PullEvidence
 from ai_agent.tasks import set_stage, tasks_of
 
 logger = logging.getLogger(__name__)
@@ -66,7 +72,12 @@ def pull_state(repository: str, branch: str) -> dict | None:
 
 
 def apply_pull(task: dict, pull: dict | None) -> bool:
-    """Move a task by its pull request's state; True if anything changed."""
+    """Move a task by its pull request's state; True if anything changed.
+
+    Accepts both the branch-search shape (``state`` in open/closed/merged) and
+    the exact-PR facts shape (``merged`` bool plus ``state`` open/closed), so a
+    verified archived PR can be applied without weakening its identity checks.
+    """
     before = dict(task)
     if pull is None:
         if task.get("stage") not in ("pr", "ended"):
@@ -79,33 +90,31 @@ def apply_pull(task: dict, pull: dict | None) -> bool:
             "the run ended without a pull request; GitHub confirmed none",
         )
         return True
-    if not isinstance(pull, dict) or pull.get("state") not in (
-        "open",
-        "closed",
-        "merged",
-    ):
+    if not isinstance(pull, dict):
+        raise ValueError("Invalid pull request state")
+    state = pull.get("state")
+    merged = pull.get("merged")
+    if isinstance(merged, bool) and state in ("open", "closed"):
+        state = "merged" if merged else state
+    if state not in ("open", "closed", "merged"):
         raise ValueError("Invalid pull request state")
     if pull.get("url"):
         task["pr_url"] = pull["url"]
-    if pull["state"] == "merged":
+    if state == "merged":
         task["merged_at"] = pull.get("merged_at")
         task["merge_commit"] = pull.get("merge_commit")
         set_stage(task, "done")
-    elif pull["state"] == "closed":
+    elif state == "closed":
         set_stage(task, "stopped", "the pull request was closed without merging")
-    elif pull["state"] == "open" and task.get("stage") in {"ended", "stopped"}:
+    elif state == "open" and task.get("stage") in {"ended", "stopped"}:
         set_stage(task, "pr")
     return task != before
 
 
-def attempt_pull(task: dict, repository: str, pull: dict | None) -> dict | None:
-    """Bind modern task tracking to archived work, never just a reused branch."""
-    if pull is None:
-        return None
+def archived_attempt(task: dict) -> tuple[Any, Any]:
+    """Decode and re-read the pinned attempt; raises on ownership mismatch."""
     if not task.get("context_handoff"):
-        # Modern runs require their own archived result. A branch-only lookup
-        # cannot establish completion while that result is missing.
-        return None if (task.get("run") or {}).get("context_spec") else pull
+        raise ValueError("No archived attempt")
     from ai_agent.context_models import AttemptSnapshot
     from ai_agent.context_store import ContextStore
     from ai_agent.context_validation import decode_dependency
@@ -116,18 +125,112 @@ def attempt_pull(task: dict, repository: str, pull: dict | None) -> dict | None:
         {"task_id": task["id"], "scope": ref["scope"], "attempt": ref},
         str(CHAT_ID),
     )
-    if dependency.scope.repository.github_repository != repository:
-        raise ValueError("Attempt repository mismatch")
     record = ContextStore(dependency.scope).get(
         "attempt", dependency.attempt.record_id, dependency.attempt.revision
     )
-    if not isinstance(record, AttemptSnapshot) or record.task_id != task["id"]:
+    if not isinstance(record, AttemptSnapshot):
+        raise ValueError("Attempt record missing or invalid")
+    if record.task_id != task["id"]:
         raise ValueError("Attempt task identity mismatch")
+    if record.attempt_id != dependency.attempt.record_id:
+        raise ValueError("Attempt ownership mismatch")
+    return dependency.scope.repository, record
+
+
+def attempt_pull(task: dict, repository: str, pull: dict | None) -> dict | None:
+    """Bind modern task tracking to archived work, never just a reused branch."""
+    if pull is None:
+        return None
+    if not task.get("context_handoff"):
+        # Modern runs require their own archived result. A branch-only lookup
+        # cannot establish completion while that result is missing.
+        return None if (task.get("run") or {}).get("context_spec") else pull
+    archived_repository, record = archived_attempt(task)
+    if (
+        archived_repository is None
+        or archived_repository.github_repository != repository
+    ):
+        raise ValueError("Attempt repository mismatch")
     commits = {e.locator for e in record.evidence if e.source == "commit"}
     urls = {e.locator for e in record.evidence if e.source == "pull_request"}
     if pull.get("head_sha") not in commits or (urls and pull["url"] not in urls):
         return None
     return pull
+
+
+def evidence_for(task: dict, repository: str) -> PullEvidence:
+    """Classify this task's PR lookup into one explicit evidence state.
+
+    An archived PR URL is authoritative: that exact PR is re-checked. Branch
+    searches only discover a candidate when no archived URL is recorded, and a
+    discovered PR still has to match the archived attempt before it may apply.
+    """
+    if task.get("context_handoff"):
+        try:
+            archived_repository, record = archived_attempt(task)
+        except Exception as error:
+            return PullEvidence(EvidenceStatus.UNAVAILABLE, reason=str(error))
+        if (
+            archived_repository is None
+            or archived_repository.github_repository != repository
+        ):
+            return PullEvidence(
+                EvidenceStatus.MISMATCHED, reason="Attempt repository mismatch"
+            )
+        commits = {e.locator for e in record.evidence if e.source == "commit"}
+        urls = {e.locator for e in record.evidence if e.source == "pull_request"}
+        if urls:
+            url = next(iter(urls))
+            try:
+                facts = pull_facts(repository, url)
+            except Exception as error:
+                return PullEvidence(EvidenceStatus.UNAVAILABLE, reason=str(error))
+            if not commits:
+                return PullEvidence(
+                    EvidenceStatus.MISMATCHED,
+                    pull=facts,
+                    reason=(
+                        "archived attempt lacks commit evidence; "
+                        "owner reconciliation required"
+                    ),
+                )
+            if facts["head"] not in commits:
+                return PullEvidence(
+                    EvidenceStatus.MISMATCHED,
+                    pull=facts,
+                    reason=(
+                        "PR head differs from the archived attempt; "
+                        "use reconcile_task for owner review of the repaired head"
+                    ),
+                )
+            return PullEvidence(
+                EvidenceStatus.VERIFIED,
+                pull=facts,
+                reason="exact archived PR verified",
+            )
+    try:
+        discovered = pull_state(repository, task["branch"])
+    except Exception as error:
+        return PullEvidence(EvidenceStatus.UNAVAILABLE, reason=str(error))
+    if discovered is None:
+        return PullEvidence(
+            EvidenceStatus.ABSENT, reason="GitHub confirmed no pull request"
+        )
+    try:
+        bound = attempt_pull(task, repository, discovered)
+    except Exception as error:
+        return PullEvidence(EvidenceStatus.UNAVAILABLE, reason=str(error))
+    if bound is None:
+        return PullEvidence(
+            EvidenceStatus.MISMATCHED,
+            pull=discovered,
+            reason="existing PR does not match the archived attempt",
+        )
+    return PullEvidence(
+        EvidenceStatus.VERIFIED,
+        pull=bound,
+        reason="branch-discovered PR bound to the attempt",
+    )
 
 
 async def check_once(data: MutableMapping) -> bool:
@@ -146,11 +249,7 @@ async def check_once(data: MutableMapping) -> bool:
             repository = (
                 await asyncio.to_thread(get_project, task["repo"])
             ).github_repository
-            pull = await asyncio.to_thread(pull_state, repository, identity[1])
-            bound = await asyncio.to_thread(attempt_pull, task, repository, pull)
-            if pull is not None and bound is None:
-                raise ValueError("Existing PR does not match the archived attempt")
-            pull = bound
+            evidence = await asyncio.to_thread(evidence_for, task, repository)
         except Exception as error:  # one repo failing must not stop the others
             logger.warning(
                 "Task %s: pull request check failed: %s", task.get("id"), error
@@ -162,7 +261,17 @@ async def check_once(data: MutableMapping) -> bool:
             task.get("stage"),
         ):
             continue
-        changed |= apply_pull(task, pull)
+        if evidence.status is EvidenceStatus.VERIFIED:
+            changed |= apply_pull(task, evidence.pull)
+        elif evidence.status is EvidenceStatus.ABSENT:
+            changed |= apply_pull(task, None)
+        else:
+            logger.warning(
+                "Task %s: PR evidence %s: %s",
+                task.get("id"),
+                evidence.status.value,
+                evidence.reason,
+            )
     return changed
 
 
@@ -182,24 +291,12 @@ async def track_forever(
         await asyncio.sleep(min(interval, ENDED_POLL_SECONDS) if waiting else interval)
 
 
-def verified_pull(repository: str, url: str, head_sha: str | set[str]) -> dict:
-    """Fresh exact-PR facts; branch names and cached display stages are insufficient.
-
-    Reviewable means open, explicitly non-draft, and bound to the archived
-    attempt head in the captured repository. It does not claim CI or approval.
-    """
+def pull_facts(repository: str, url: str) -> dict:
+    """Fresh exact-PR facts by number/URL/repository; no archived-head binding."""
     match = re.fullmatch(
         r"https://github\.com/" + re.escape(repository) + r"/pull/([1-9][0-9]*)", url
     )
-    heads = {head_sha} if isinstance(head_sha, str) else head_sha
-    if (
-        not match
-        or not isinstance(heads, set)
-        or not heads
-        or not all(
-            isinstance(sha, str) and re.fullmatch(r"[0-9a-f]{40}", sha) for sha in heads
-        )
-    ):
+    if not match:
         raise ValueError("Missing identity-bound PR evidence")
     number = int(match[1])
     pull = github_request(
@@ -210,7 +307,8 @@ def verified_pull(repository: str, url: str, head_sha: str | set[str]) -> dict:
         or pull.get("html_url") != url
         or pull.get("base", {}).get("repo", {}).get("full_name") != repository
         or pull.get("head", {}).get("repo", {}).get("full_name") != repository
-        or pull.get("head", {}).get("sha") not in heads
+        or not isinstance(pull.get("head", {}).get("sha"), str)
+        or not re.fullmatch(r"[0-9a-f]{40}", pull["head"]["sha"])
         or pull.get("state") not in {"open", "closed"}
         or type(pull.get("draft")) is not bool
         or type(pull.get("merged")) is not bool
@@ -229,7 +327,31 @@ def verified_pull(repository: str, url: str, head_sha: str | set[str]) -> dict:
         "merged": merged,
         "merge_commit": pull.get("merge_commit_sha"),
         "merged_at": merged_at,
+        "state": pull["state"],
         "head": pull["head"]["sha"],
         "url": url,
         "checked_at": time.time(),
     }
+
+
+def verified_pull(repository: str, url: str, head_sha: str | set[str]) -> dict:
+    """Fresh exact-PR facts; branch names and cached display stages are insufficient.
+
+    Reviewable means open, explicitly non-draft, and bound to the archived
+    attempt head in the captured repository. It does not claim CI or approval.
+    Kept strict for dependency callers: the live head must still be one of the
+    archived attempt commits.
+    """
+    heads = {head_sha} if isinstance(head_sha, str) else head_sha
+    if (
+        not isinstance(heads, set)
+        or not heads
+        or not all(
+            isinstance(sha, str) and re.fullmatch(r"[0-9a-f]{40}", sha) for sha in heads
+        )
+    ):
+        raise ValueError("Missing identity-bound PR evidence")
+    facts = pull_facts(repository, url)
+    if facts["head"] not in heads:
+        raise ValueError("PR head does not match the archived identity")
+    return facts
