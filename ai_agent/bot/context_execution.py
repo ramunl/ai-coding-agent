@@ -1,12 +1,13 @@
 """Execution boundary shared by chat, inbox, worker and PR repair."""
 
 import asyncio
+import time
 from collections.abc import Awaitable, Callable
 from functools import wraps
 from typing import Any
 
 from ai_agent.bot.transport import require_authorized
-from ai_agent.config import CHAT_ID
+from ai_agent.config import CHAT_ID, IMPLEMENTATION_AGENT
 from ai_agent.context_attempts import (
     Attempt,
     current_attempt,
@@ -21,6 +22,7 @@ from ai_agent.context_lifecycle import (
 )
 from ai_agent.context_sources import ContextBlockedError
 from ai_agent.dependency_evidence import refresh as refresh_dependencies
+from ai_agent.finish_estimate import current_timing_key, remember, timing_key
 from ai_agent.plan_state import capture_repository_identity
 from ai_agent.run_outcomes import NoCodeOutcomeError
 
@@ -105,6 +107,18 @@ def lifecycle_execution(
         control = execution_control.get()
         if control is not None:
             control["attempt"] = attempt
+        measured_key = timing_key(
+            spec["scope"]["repository"],
+            str(
+                item.get("implementation_agent")
+                or data.get("implementation_agent")
+                or IMPLEMENTATION_AGENT
+            )
+            .strip()
+            .lower(),
+        )
+        timing_token = current_timing_key.set(measured_key)
+        measured_start = time.monotonic()
         token = current_attempt.set(attempt)
         context_token = current_context.set(attempt.request)
         try:
@@ -166,8 +180,16 @@ def lifecycle_execution(
                 attempt.finish("succeeded" if ci == "passed" else "failed")
             else:
                 data["context_recovery_pending"] = True
+            if (
+                args
+                and not item.get("verification_profile")
+                and attempt.state.get("terminal") == "succeeded"
+                and not attempt.failed
+            ):
+                remember(data, measured_key, time.monotonic() - measured_start)
             return result
         finally:
+            current_timing_key.reset(timing_token)
             current_context.reset(context_token)
             current_attempt.reset(token)
 

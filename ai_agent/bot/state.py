@@ -29,6 +29,7 @@ from ai_agent.context_lifecycle import (
     run_binding,
 )
 from ai_agent.context_projection import initiative_statuses
+from ai_agent.finish_estimate import current_timing_key, estimate
 from ai_agent.plan_scope import assess_scope
 from ai_agent.plan_state import (
     ExecutionState,
@@ -55,6 +56,7 @@ PERSISTENT_KEYS = frozenset(
     {
         "context_recovery_pending",
         "context_sources",
+        "run_duration_history",
         "pending_plan",
         "pending_implementation",
         "pending_bugfix_clarification",  # Includes owned bug-report image references.
@@ -308,6 +310,7 @@ def set_active_execution(
         "phase": phase,
         "status": status_text,
         "stage": stage_label(phase),
+        "timing_key": current_timing_key.get(),
         "task_id": attempt.request.task_id if attempt is not None else None,
         "attempt_id": attempt.state["attempt_id"] if attempt is not None else None,
         "started_at": started_at,
@@ -411,11 +414,18 @@ def snapshot(context: Any) -> dict:
     execution = data.get("active_execution")
     last = last_execution(context)
     now = int(time.time())
+    live_progress = progress(execution, now=now)
+    if live_progress is not None:
+        live_progress["finish_estimate"] = estimate(
+            data.get("run_duration_history"),
+            execution.get("timing_key"),
+            live_progress.get("elapsed"),
+        )
     return {
         "initiatives": initiative_statuses(data, now=now),
         "context_recovery_pending": bool(data.get("context_recovery_pending")),
         "running": dict(execution) if isinstance(execution, dict) else None,
-        "progress": progress(execution, now=now),
+        "progress": live_progress,
         "queue": [
             {
                 "id": task.get("id"),

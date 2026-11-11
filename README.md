@@ -496,3 +496,18 @@ Preflight requires scripts/baseline.sh only when the execution checkout provides
 or tracks it. A tracked missing script still blocks; a repository that never
 tracked it uses the existing pytest/Ruff checks without a baseline-script
 permission requirement. Git metadata failures remain blockers.
+
+### Estimated run completion
+
+Live progress includes an approximate remaining time after five successful
+implementation runs with the same repository identity and implementation
+provider. It uses the median of the latest 20 matching durations, with at most
+100 samples retained across repositories in owner state. Only elapsed seconds
+and hashed comparison keys are retained; history survives normal restarts.
+Timing covers the active run through CI and cleanup, including CI repairs;
+approval waits, merging and deployment are excluded. Failed, interrupted,
+verification-only and standalone PR-repair runs do not train the estimate.
+Old runs are not backfilled from task creation timestamps. Until enough measured
+history exists, the dashboard shows "Not enough history". Beyond the historical
+median it shows "Taking longer than usual", never a false zero-minute finish.
+Task complexity and model changes can affect accuracy; this is not a timeout.
