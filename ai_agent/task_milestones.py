@@ -6,6 +6,7 @@ from copy import deepcopy
 
 from ai_agent.config import CHAT_ID
 from ai_agent.plan_state import PlanDocument, PlanState
+from ai_agent.task_groups import split_title
 from ai_agent.tasks import add_task, tasks_of
 
 
@@ -87,6 +88,7 @@ def split_milestones(
         )[:4000]
         task.update(
             group=plan.id,
+            group_title=split_title(plan.feature, source),
             part=index,
             parts=len(milestones),
             after=created[-1]["id"] if created else (source or {}).get("after"),

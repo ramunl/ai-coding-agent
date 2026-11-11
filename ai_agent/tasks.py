@@ -22,6 +22,7 @@ from collections.abc import MutableMapping
 from typing import Any
 
 from ai_agent.context_projection import task_context_status
+from ai_agent.task_groups import group_title
 from ai_agent.task_images import remove
 from ai_agent.task_reopen import attempt_history, can_reopen
 
@@ -271,6 +272,7 @@ def view(task: dict, data: MutableMapping, *, now: int | None = None) -> dict:
         "source": task.get("source"),
         "evidence": list(task.get("evidence") or []),
         "group": task.get("group"),
+        "group_title": group_title(task),
         "part": task.get("part"),
         "parts": task.get("parts"),
         "waiting_for": (waiting_for(task, data) or {}).get("title"),

@@ -224,6 +224,8 @@ class MilestoneSplitTests(unittest.TestCase):
         first, last = self.split()
         self.assertEqual([first["repo"], last["repo"]], ["ai-coding-agent"] * 2)
         self.assertEqual(first["title"], "Manage revisions")
+        self.assertEqual(first["group_title"], "context controls")
+        self.assertEqual(last["group_title"], "context controls")
         self.assertIn("Acceptance: Reject stale revisions", first["text"])
         self.assertEqual(first["after"], previous["id"])
         self.assertEqual(last["after"], first["id"])
