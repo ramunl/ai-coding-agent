@@ -130,15 +130,17 @@ class Attempt:
         evidence = tuple(
             EvidenceReference(
                 evidence_id=digest(entry),
-                source={"pr": "pull_request", "ci": "test"}.get(
-                    entry["stage"], "commit"
-                ),
+                source={
+                    "pr": "pull_request",
+                    "ci": "test",
+                    "ci_resolution": "test",
+                }.get(entry["stage"], "commit"),
                 locator=str(entry["facts"].get("url") or entry["facts"].get("sha")),
                 summary=f"Application observed {entry['stage']}: "
                 + str(entry["facts"].get("state", "")),
             )
             for entry in facts
-            if entry["stage"] in {"pr", "commit", "push", "ci"}
+            if entry["stage"] in {"pr", "commit", "push", "ci", "ci_resolution"}
         )
         evidence += tuple(
             EvidenceReference(
@@ -177,6 +179,9 @@ class Attempt:
                 if outcome != "succeeded"
                 else "Verification checks observed by application; no PR required."
                 if "verification" in observed
+                else "Original CI unresolved; superseded by verified "
+                "default-branch checks."
+                if "ci_resolution" in observed
                 else "CI observed by application; local build claims unverified."
             )
         )
