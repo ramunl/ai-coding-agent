@@ -226,6 +226,23 @@ def waiting_for(task: dict, data: MutableMapping) -> dict | None:
     return {"title": reason} if reason else None
 
 
+def can_resolve_blockage(task: dict, data: dict) -> bool:
+    """Advertise an evidence check, not a promise that resolution will succeed."""
+    return bool(
+        task.get("stage") in {"ended", "pr", "stopped", "blocked"}
+        and task.get("pr_url")
+        and task.get("branch")
+        and (task.get("run") or {}).get("context_spec")
+        and (
+            data.get("context_recovery_pending")
+            or task.get("stage") == "ended"
+            or not task.get("context_handoff")
+        )
+        and not data.get("active_execution")
+        and data.get("planning_task") != task.get("id")
+    )
+
+
 def view(task: dict, data: MutableMapping, *, now: int | None = None) -> dict:
     """What the dashboard shows for one task."""
     pending = data.get("pending_plan")
@@ -281,6 +298,8 @@ def view(task: dict, data: MutableMapping, *, now: int | None = None) -> dict:
         or (task.get("dependency_check") or {}).get("reason"),
         "can_retry": can_retry(task),
         "can_reopen": can_reopen(task, data),
+        "can_resolve_blockage": can_resolve_blockage(task, data),
+        "blockage_resolved": bool(task.get("blockage_resolution")),
         "can_reconcile": bool(
             task.get("context_handoff") or task.get("context_handoffs")
         )

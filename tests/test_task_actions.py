@@ -261,3 +261,29 @@ def test_owner_completion_review_dispatch_preserves_action_errors(actions, monke
         asyncio.run(
             actions.run_task_action(app, 123, "reconcile_task", {"task": task["id"]})
         )
+
+
+def test_blockage_resolution_dispatch_preserves_refusal(actions, monkeypatch):
+    from ai_agent import task_blockage
+
+    task = {"id": "abcd1234", "stage": "ended"}
+    data = {"tasks": [task]}
+    app = SimpleNamespace(user_data={123: data})
+    resolve = AsyncMock(return_value="Blockage resolved")
+    monkeypatch.setattr(task_blockage, "resolve", resolve)
+    assert (
+        asyncio.run(
+            actions.run_task_action(
+                app, 123, "resolve_task_blockage", {"task": task["id"]}
+            )
+        )
+        == "Blockage resolved"
+    )
+    resolve.assert_awaited_once_with(task, data)
+    resolve.side_effect = ValueError("No covering CI")
+    with pytest.raises(actions.ActionError, match="No covering CI"):
+        asyncio.run(
+            actions.run_task_action(
+                app, 123, "resolve_task_blockage", {"task": task["id"]}
+            )
+        )

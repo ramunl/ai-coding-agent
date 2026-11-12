@@ -666,3 +666,12 @@ class ContextInboxTests(ProcessTests):
             "/context_approve SCOPE KIND ID REV DECISION_ID\n"
             "/context_reject SCOPE KIND ID REV DECISION_ID",
         )
+
+
+class BlockageActionTests(InboxTestCase):
+    def test_resolution_has_fixed_task_only_schema(self):
+        request = self.request("resolve_task_blockage", {"task": "11111111"})
+        assert self.inbox.validate(request)[1] == "resolve_task_blockage"
+        for args in ({}, {"task": "bad"}, {"task": "11111111", "run": "fake"}):
+            with self.assertRaises(self.actions.ActionError):
+                self.inbox.validate(self.request("resolve_task_blockage", args))

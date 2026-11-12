@@ -511,3 +511,21 @@ Old runs are not backfilled from task creation timestamps. Until enough measured
 history exists, the dashboard shows "Not enough history". Beyond the historical
 median it shows "Taking longer than usual", never a false zero-minute finish.
 Task complexity and model changes can affect accuracy; this is not a timeout.
+
+### Resolving an orphaned CI blockage
+
+The dashboard's **Resolve blockage** action checks one idle task's saved
+execution journal. It requires the exact PR head to be merged and every
+unfinished PR workflow to have a newer successful push run of the same
+workflow on the repository's default branch. GitHub ancestry must prove those
+checks include the merge commit; actual completed jobs must be present. A
+failed, skipped, missing or still-pending successor is refused.
+
+The owner-only `resolve_task_blockage` inbox action accepts only a task ID.
+It records the owner decision, original run links and verified successor
+checks durably before restoring **Done**. Original CI remains unresolved;
+recovery refs and edits are preserved. It never claims **Deployed**, cancels
+GitHub runs, implements work, changes unrelated tasks, or overrides dependency
+checks. Other unfinished/invalid attempts keep the recovery gate closed.
+A repeated request is safe, including after an archive/state persistence gap.
+Deploy the coding agent before its companion dashboard UI.
