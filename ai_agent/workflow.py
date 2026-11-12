@@ -321,6 +321,9 @@ def run_implementation_agent(
     """
     selected = normalize_implementation_agent(agent)
     preflight(selected)  # block before any paid work on a missing prerequisite
+    from ai_agent.task_ai import record_execution
+
+    record_execution(selected)
     intent("implementation")
     attempt_id = current_attempt_id()
     call_id = new_call_id()
@@ -385,6 +388,8 @@ def run_implementation_agent(
                 raise _claude_failure(prose) from None
         raise
     finally:
+        if usage is not None and usage.model:
+            record_execution(selected, usage.model)
         _record_implementer_detail(
             selected, attempt_id, call_id, started, result, tokens, usage, opencode_run
         )

@@ -62,6 +62,7 @@ class PlanState:
     context_spec: dict | None = None
     approval_binding: dict | None = None
     review_required: bool = False
+    planning_ai: dict | None = None
 
 
 @dataclass(frozen=True)

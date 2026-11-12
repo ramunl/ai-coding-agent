@@ -51,6 +51,7 @@ from ai_agent.planner import (
     revise_feature_plan,
 )
 from ai_agent.projects import active_project
+from ai_agent.task_ai import capture
 from ai_agent.task_reopen import enforce_attempt_branch
 from ai_agent.task_split import SplitError, split_pending
 from ai_agent.tasks import find_task
@@ -77,11 +78,13 @@ async def plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         task = find_task(context.user_data, context.user_data.get("planning_task", ""))
         images = (task or {}).get("images", [])
         await report_missing(update, images)
+        planning_ai = capture(provider, "planner")
         plan_text = await think(
             context, "plan", feature, invoke, images, plan_feature, feature, provider
         )
         await report_missing(update, images)
         plan_state = new_plan_state(feature, plan_text, identity)
+        plan_state.planning_ai = planning_ai
         enforce_attempt_branch(task, plan_state, context.user_data.get("tasks", []))
         plan_state.images = list(images)
         context.user_data["pending_plan"] = plan_state
@@ -121,6 +124,7 @@ async def discuss(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             update, f"Revising plan with {planning_agent_label(provider)}..."
         )
         await report_missing(update, plan_state.images)
+        planning_ai = capture(provider, "planner")
         plan_text = await think(
             context,
             "revise",
@@ -135,6 +139,7 @@ async def discuss(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         await report_missing(update, plan_state.images)
         revised = revise_plan_state(plan_state, plan_text)
+        revised.planning_ai = planning_ai
         task = next(
             (
                 t
@@ -143,6 +148,8 @@ async def discuss(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             ),
             None,
         )
+        if task is not None:
+            task["planning_ai"] = planning_ai
         enforce_attempt_branch(task, revised, context.user_data.get("tasks", []))
         context.user_data["pending_plan"] = revised
         forget_pending_implementation(context)
@@ -254,10 +261,12 @@ async def implement_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         identity = capture_repository_identity()
         provider = current_planning_agent(context)
         await reply_chunks(update, f"Planning with {planning_agent_label(provider)}...")
+        planning_ai = capture(provider, "planner")
         plan_text = await think(
             context, "implement", feature, plan_feature, feature, provider
         )
         plan_state = new_plan_state(feature, plan_text, identity)
+        plan_state.planning_ai = planning_ai
         refusal = repository_mismatch(plan_state.repository_identity) or _not_here(
             plan_state
         )

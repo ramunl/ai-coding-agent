@@ -67,6 +67,7 @@ RUN_KEYS = (
     "confirmation_label",
     "implementation_agent",
     "implementation_model",
+    "implementation_ai",
 )
 RUN_PROMPT_LIMIT = 20000
 RETRYABLE = ("stopped", "ended", "blocked", "ops_required")
@@ -210,6 +211,7 @@ def remember_run(data: MutableMapping, item: dict) -> None:
         # Legacy records keep their existing preview bound. Sealed approvals
         # must retain exact requirements for future Resume/Start fresh actions.
         run["codex_prompt"] = str(run.get("codex_prompt") or "")[:RUN_PROMPT_LIMIT]
+    task.pop("implementation_ai", None)
     task["run"] = run
 
 
@@ -260,7 +262,17 @@ def view(task: dict, data: MutableMapping, *, now: int | None = None) -> dict:
     stop = stop_status(task.get("id", ""), task.get("branch", ""))
     if stopping:
         stop.update(can_stop=True, stopping=True)
+    from ai_agent.task_ai import task_ai
+
+    ai = task_ai(task)
+    if is_own_plan:
+        from ai_agent.task_ai import public_selection
+
+        ai["planner"] = (
+            public_selection(getattr(pending, "planning_ai", None)) or ai["planner"]
+        )
     return {
+        "ai": ai,
         **stop,
         **(
             task_status(task)

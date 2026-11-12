@@ -206,7 +206,10 @@ def enqueue_pending_implementation(
         model = pending.get("implementation_model") or resolved_model(
             agent, "executor", data
         )
+    from ai_agent.task_ai import capture
+
     task = {
+        "implementation_ai": capture(agent, "executor"),
         "context_spec": pending.get("context_spec"),
         "context_packet": pending.get("context_packet"),
         "packet_metadata": pending.get("packet_metadata"),
