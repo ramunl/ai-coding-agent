@@ -182,6 +182,9 @@ class Attempt:
                 else "Original CI unresolved; superseded by verified "
                 "default-branch checks."
                 if "ci_resolution" in observed
+                else "CI not configured; no CI checks ran. "
+                "Local build claims unverified."
+                if observed.get("ci", {}).get("state") == "not_configured"
                 else "CI observed by application; local build claims unverified."
             )
         )

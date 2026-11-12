@@ -176,8 +176,27 @@ def lifecycle_execution(
                     )
             elif no_code or not events:
                 attempt.finish("blocked")
-            elif ci in {"passed", "failed"}:
-                attempt.finish("succeeded" if ci == "passed" else "failed")
+            elif ci in {"passed", "failed", "not_configured"}:
+                attempt.finish("failed" if ci == "failed" else "succeeded")
+                if ci == "not_configured" and not attempt.failed:
+                    from ai_agent.tasks import set_stage
+
+                    pr_key = attempt.state.get("latest", {}).get("pr")
+                    published = (
+                        attempt.state["events"]
+                        .get(pr_key, {})
+                        .get("facts", {})
+                        .get("url")
+                    )
+                    for task in candidates:
+                        if task.get("context_handoff") and published:
+                            task["pr_url"] = published
+                            set_stage(
+                                task,
+                                "pr",
+                                "CI not configured; CI was not run. "
+                                "Local checks unverified.",
+                            )
             else:
                 data["context_recovery_pending"] = True
             if (

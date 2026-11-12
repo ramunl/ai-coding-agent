@@ -10,8 +10,11 @@ from ai_agent.ci import (
 
 
 class CiTests(unittest.TestCase):
+    @patch("ai_agent.ci.no_actions_workflows", return_value=False)
     @patch("ai_agent.ci.list_workflow_runs", return_value=[])
-    def test_evaluate_ci_waits_when_no_runs_exist(self, _mock_runs) -> None:
+    def test_evaluate_ci_waits_when_no_runs_exist(
+        self, _mock_runs, _mock_config
+    ) -> None:
         result = evaluate_ci("abc123")
 
         self.assertEqual(result.state, "waiting")

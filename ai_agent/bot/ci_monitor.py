@@ -119,7 +119,7 @@ async def watch_ci(update: Update, head_sha: str) -> CiResult:
             await reply_chunks(update, message)
             last_summary = result.summary
 
-        if result.state in {"passed", "failed"}:
+        if result.state in {"passed", "failed", "not_configured"}:
             return result
 
         if asyncio.get_running_loop().time() >= deadline:

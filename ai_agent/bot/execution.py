@@ -263,7 +263,7 @@ async def run_queued_implementation(
         ci_result, repair_attempt = await _repair_failed_ci(
             update, context, request, ci_result
         )
-        if ci_result.state == "passed":
+        if ci_result.state in {"passed", "not_configured"}:
             await asyncio.to_thread(mark_complete)
         if await _report_execution(update, context, ci_result, repair_attempt):
             return
@@ -508,6 +508,8 @@ async def fixpr(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await reply_chunks(
                 update, f"PR #{pr_number} CI is already passing.\n{pr_url}"
             )
+        elif ci_result.state == "not_configured":
+            await reply_chunks(update, f"{ci_result.summary}\n{pr_url}")
         else:
             await reply_chunks(
                 update,
@@ -650,7 +652,7 @@ async def _report_execution(
     tests = {"passed": "PASS", "failed": "FAIL"}.get(ci_result.state, "UNKNOWN")
     execution = replace(execution, tests=tests)
     context.user_data["last_execution"] = execution
-    if ci_result.state == "passed":
+    if ci_result.state in {"passed", "not_configured"}:
         await reply_chunks(update, final_ci_status_message(ci_result))
     if ci_result.state == "failed":
         await reply_chunks(
