@@ -535,3 +535,10 @@ GitHub runs, implements work, changes unrelated tasks, or overrides dependency
 checks. Other unfinished/invalid attempts keep the recovery gate closed.
 A repeated request is safe, including after an archive/state persistence gap.
 Deploy the coding agent before its companion dashboard UI.
+
+Task cards expose retained planner/split-planner and implementer model selections, plus
+the creation timestamp. Unstarted split parts are planned separately using the settings
+at their start; splitting does not pin their implementer. Queuing captures the implementer,
+and CI repair keeps that run’s tool. Changing Setup does not switch an active run.
+Historical missing model metadata stays unknown; configured CLI defaults do not claim
+an exact model. Claude Code reported models update the task after an invocation.

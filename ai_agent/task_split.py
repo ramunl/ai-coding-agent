@@ -141,6 +141,7 @@ def split_plan(
         task["text"] = part_text(plan.feature, document, index, repository)
         if source is not None and source.get("autopilot"):
             task["autopilot"] = True  # an Autopilot task's parts stay on autopilot
+        task["split_ai"] = getattr(plan, "planning_ai", None)
         task.update(
             group=plan.id,
             group_title=split_title(plan.feature, source),

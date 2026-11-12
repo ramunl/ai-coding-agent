@@ -86,6 +86,7 @@ def split_milestones(
             f"Whole change (context only): {document.summary}\n"
             f"Original request (context only): {plan.feature}"
         )[:4000]
+        task["split_ai"] = getattr(plan, "planning_ai", None)
         task.update(
             group=plan.id,
             group_title=split_title(plan.feature, source),

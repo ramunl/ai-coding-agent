@@ -156,6 +156,7 @@ async def _plan_task(
         after = data.get("pending_plan")
         if after is not None and after is not before:
             enforce_attempt_branch(task, after, data.get("tasks", []))
+            task["planning_ai"] = getattr(after, "planning_ai", None)
             task["plan_id"] = after.id
             task["branch"] = parse_plan_document(after.plan_text, after.feature).branch
             set_stage(task, "planned")

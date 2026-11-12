@@ -24,6 +24,8 @@ ATTEMPT_FIELDS = (
     "archived_at",
 )
 CLEAR_FIELDS = (
+    "planning_ai",
+    "implementation_ai",
     "blockage_resolution",
     "verification_completed",
     "context_handoff",

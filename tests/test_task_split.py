@@ -38,6 +38,15 @@ class SplitTests(unittest.TestCase):
             self.data, plan, parse_plan_document(plan.plan_text), KNOWN
         )
 
+    def test_split_keeps_parent_planner_separate_from_child_planning(self) -> None:
+        plan = _plan()
+        plan.planning_ai = {"tool": "codex", "model": "gpt-6.1-sol"}
+        first, second = self.split(plan)
+        self.assertEqual(first["split_ai"], plan.planning_ai)
+        self.assertEqual(second["split_ai"], plan.planning_ai)
+        self.assertNotIn("planning_ai", first)
+        self.assertNotIn("run", first)
+
     def test_one_todo_task_per_repository_in_order_each_after_the_last(self) -> None:
         first, second = self.split()
         self.assertEqual(
