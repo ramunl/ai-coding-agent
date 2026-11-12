@@ -124,6 +124,12 @@ on the same pushed branch to repair the errors, pushes the fix, and polls CI aga
 attempt still fails, the bot reports the exhausted repair count and marks the implementation as failed.
 `/implement` keeps the old shortcut behavior by creating an approved plan and waiting for `/confirm`.
 
+When GitHub confirms that no Actions workflows are registered and none exist at the exact PR
+commit, polling finishes with **PR open** and an explicit **CI not configured** message. This does
+not mark tests as passed or the task as deployed. Configured workflows still wait for their runs;
+API errors never count as evidence that CI is absent. Restart recovery applies the same check to
+unfinished attempts without rerunning implementation.
+
 The queue is intentionally sequential because the bot uses one git working tree. `/queue` shows the
 running task and pending FIFO tasks. `/cancel <task-id>` removes a queued task that has not started.
 

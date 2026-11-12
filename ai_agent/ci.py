@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from pathlib import Path
 
+from ai_agent.ci_configuration import no_actions_workflows
 from ai_agent.github import github_request
 from ai_agent.projects import active_project
 from ai_agent.verification_summary import summarize_verification
@@ -24,7 +25,13 @@ def list_workflow_runs(head_sha: str, repository: str | None = None) -> list[dic
         f"/repos/{repository or active_project().github_repository}/actions/runs",
         query={"head_sha": head_sha, "per_page": "20"},
     )
-    return response.get("workflow_runs", [])
+    if (
+        not isinstance(response, dict)
+        or not isinstance(response.get("workflow_runs"), list)
+        or (not response["workflow_runs"] and response.get("total_count") != 0)
+    ):
+        raise ValueError("GitHub workflow run evidence is unavailable")
+    return response["workflow_runs"]
 
 
 def list_workflow_jobs(run_id: int, repository: str | None = None) -> list[dict]:
@@ -108,6 +115,13 @@ def evaluate_ci(head_sha: str, *, repository: str | None = None) -> CiResult:
         else list_workflow_runs(head_sha)
     )
     if not runs:
+        selected = repository or active_project().github_repository
+        if no_actions_workflows(selected, head_sha):
+            return CiResult(
+                "not_configured",
+                "CI not configured: no GitHub Actions workflows. PR is open for "
+                "review; CI was not run. Local verification is reported separately.",
+            )
         return CiResult("waiting", "CI has not started yet")
 
     active = [

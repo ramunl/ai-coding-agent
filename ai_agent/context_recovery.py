@@ -129,8 +129,27 @@ def _observe(state: dict, data: dict, root: Path) -> None:
             task["pr_url"] = pr["html_url"]
     ci = evaluate_ci(sha, repository=repository)
     attempt.checkpoint("ci", {"state": ci.state, "sha": sha, "url": ci.url})
-    if ci.state in {"passed", "failed"}:
-        attempt.finish("succeeded" if ci.state == "passed" else "failed")
+    if ci.state in {"passed", "failed", "not_configured"}:
+        attempt.finish("failed" if ci.state == "failed" else "succeeded")
+        if (
+            ci.state == "not_configured"
+            and not attempt.failed
+            and pr.get("state") == "open"
+        ):
+            from ai_agent.tasks import set_stage
+
+            for task in data.get("tasks", []):
+                if (
+                    task.get("id") == spec["task_id"]
+                    and task.get("repo") == identity["project_name"]
+                    and task.get("branch") == branch
+                    and task.get("context_handoff")
+                ):
+                    set_stage(
+                        task,
+                        "pr",
+                        "CI not configured; CI was not run. Local checks unverified.",
+                    )
 
 
 def reconcile(data: dict, owner_id: int) -> bool:
