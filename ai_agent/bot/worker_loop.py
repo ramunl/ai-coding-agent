@@ -113,8 +113,9 @@ async def _settle(
     if outcome == "gone":
         return
     if outcome == "ok":
-        worker["failures"] = 0
         done = "planned" if current.get("phase") == "planning" else "pr"
+        if done == "pr":
+            worker["failures"] = 0
         record(worker, current, done, task["title"], now)
         return
     if await _limit_failure(ptb_app, owner_id, data, worker, current, task):
