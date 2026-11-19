@@ -318,7 +318,87 @@ class TickTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.data["worker"]["enabled"])
         self.assertIn("switched off after 3 failed tasks", self.said()[-1])
 
-    async def test_a_success_resets_the_failure_count(self) -> None:
+    async def test_three_plan_success_run_failure_cycles_switch_it_off(self) -> None:
+        worker = self.data["worker"]
+        worker["max_runs"] = 0
+        self.data["implementation_agent"] = "codex"
+        start = AsyncMock()
+        run = AsyncMock()
+        with (
+            patch.object(self.loop.task_actions, "start", start),
+            patch.object(
+                self.loop.task_actions, "start_queued", AsyncMock(return_value=None)
+            ),
+            patch.object(self.loop.work_actions, "run_work_action", run),
+            patch.object(self.loop.work_actions, "_starting", set()),
+            patch.object(self.loop, "refresh_dependencies", AsyncMock()),
+            patch.object(self.loop.auth_cache, "snapshot", return_value={}),
+            patch.object(self.loop.log_scan, "is_due", return_value=False),
+        ):
+            for attempt in range(3):
+                task = (
+                    self.task
+                    if attempt == 0
+                    else self.tasks.add_task(self.data, f"t{attempt}", "repo", None)
+                )
+                now = NOW + attempt * 180
+                await self.loop.tick(self.app, OWNER, now)
+                self.assertEqual(worker["current"]["task"], task["id"])
+                self.assertEqual(worker["current"]["phase"], "planning")
+                task.update(stage="planned", plan_id=f"p{attempt}")
+                self.data["pending_plan"] = SimpleNamespace(
+                    id=task["plan_id"], approved=True, feature=task["title"]
+                )
+                self.data["pending_implementation"] = {"branch_name": "b"}
+                await self.loop.tick(self.app, OWNER, now + 60)
+                self.assertEqual(worker["current"]["phase"], "running")
+                self.data.pop("pending_plan")
+                self.data.pop("pending_implementation")
+                self.tasks.set_stage(task, "stopped", "implementation failed: boom")
+                status = await self.loop.tick(self.app, OWNER, now + 120)
+                self.assertTrue(task["worker_failed"])
+                self.assertIsNone(worker["current"])
+        self.assertEqual(start.await_count, 3)
+        self.assertEqual(run.await_count, 3)
+        self.assertEqual(len(worker["runs"]), 3)
+        self.assertEqual(worker["failures"], 3)
+        self.assertFalse(worker["enabled"])
+        self.assertEqual(status, "off")
+        self.assertIn("switched off after 3 failed tasks", self.said()[-1])
+        self.assertEqual(
+            [item["outcome"] for item in worker["history"]],
+            ["planned", "failed"] * 3,
+        )
+
+    async def test_planning_success_preserves_failure_count_and_history(self) -> None:
+        worker = self.data["worker"]
+        worker.update(
+            failures=2,
+            current={"task": self.task["id"], "phase": "planning", "tool": "codex"},
+        )
+        self.task.update(stage="planned", plan_id="p1")
+        self.data["pending_plan"] = SimpleNamespace(
+            id="p1", approved=False, feature=self.task["title"]
+        )
+        with patch.object(self.loop, "refresh_dependencies", AsyncMock()):
+            await self.loop.tick(self.app, OWNER, NOW)
+        self.assertEqual(worker["failures"], 2)
+        self.assertTrue(worker["enabled"])
+        self.assertIsNone(worker["current"])
+        self.assertEqual(
+            worker["history"],
+            [
+                {
+                    "at": NOW,
+                    "phase": "planning",
+                    "tool": "codex",
+                    "outcome": "planned",
+                    "title": self.task["title"],
+                }
+            ],
+        )
+
+    async def test_implementation_success_resets_the_failure_count(self) -> None:
         self.data["worker"].update(
             failures=2, current={"task": self.task["id"], "phase": "running"}
         )
