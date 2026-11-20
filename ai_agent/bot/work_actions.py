@@ -45,6 +45,7 @@ WORK_ACTIONS = (
     "approve_plan",
     "confirm_work",
     "cancel_pending",
+    "stop_work",
     "remove_queued",
     "start_work",
     "discuss_plan",
@@ -91,6 +92,8 @@ def chat_update(bot: Any, chat_id: int) -> SimpleNamespace:
 
 def refusal(action: str, args: dict[str, Any], user_data: MutableMapping) -> str | None:
     """Why the request makes no sense in the current state, or None."""
+    if action == "stop_work":
+        return None  # Validated atomically against the provider below.
     pending_plan = user_data.get("pending_plan")
     pending = user_data.get("pending_implementation")
     queue = user_data.get("task_queue") or []
@@ -220,6 +223,19 @@ async def run_work_action(
     reason = refusal(action, args, ptb_app.user_data[owner_id])
     if reason:
         raise ActionError(reason)
+    if action == "stop_work":
+        from ai_agent.implementation_stop import request_current
+
+        data = ptb_app.user_data[owner_id]
+        try:
+            task_id = request_current(data.get("active_execution"), args["token"])
+        except ValueError as error:
+            raise ActionError(str(error)) from error
+        for task in data.get("tasks", []):
+            if task_id and task.get("id") == task_id:
+                task.update(stop_requested=True, autopilot=False, worker_failed=True)
+        ptb_app.mark_data_for_update_persistence(user_ids=owner_id)
+        return "Stopping implementation; recovering saved work. Remaining queue pauses."
     update = chat_update(ptb_app.bot, owner_id)
     context = CallbackContext(ptb_app, chat_id=owner_id, user_id=owner_id)
     if action == "confirm_work":

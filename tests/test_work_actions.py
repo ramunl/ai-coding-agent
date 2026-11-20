@@ -44,6 +44,42 @@ class WorkActionTests(unittest.IsolatedAsyncioTestCase):
             mark_data_for_update_persistence=MagicMock(),
         )
 
+    async def test_stop_work_bridge_validates_live_attempt(self):
+        from ai_agent import implementation_stop as stop
+
+        run = stop.register("", "feature/direct")
+        self.data["active_execution"] = {"branch": run.branch}
+        try:
+            request = {
+                "id": "deadbeef",
+                "action": "stop_work",
+                "args": {"token": run.token},
+            }
+            _, action, args = self.inbox.validate(request)
+            for _ in range(2):
+                result = await self.inbox.execute(
+                    action,
+                    args,
+                    self.data,
+                    work=lambda action, args: self.work.run_work_action(
+                        self.app, OWNER, action, args
+                    ),
+                )
+                self.assertIn("Stopping", result)
+            self.assertTrue(run.stop.is_set())
+            self.data.pop("active_execution")
+            with self.assertRaises(self.work.ActionError):
+                await self.work.run_work_action(self.app, OWNER, action, args)
+            for invalid in (
+                {},
+                {"token": "bad"},
+                {"token": run.token, "task": "abc12345"},
+            ):
+                with self.assertRaises(self.work.ActionError):
+                    self.inbox.validate({**request, "args": invalid})
+        finally:
+            stop.unregister(run)
+
     async def test_approval_refusal_is_an_action_error(self):
         self.data["pending_plan"] = self.plan
         with (

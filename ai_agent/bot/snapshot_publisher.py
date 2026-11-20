@@ -26,6 +26,7 @@ from ai_agent.bot.atomic_file import write_json_atomic
 from ai_agent.bot.setup_view import ModelChoices, files_part, state_part
 from ai_agent.bot.state import snapshot
 from ai_agent.config import ACTION_RESULTS_FILE, IMAGE_STORAGE_CAP_BYTES
+from ai_agent.implementation_stop import current_status
 from ai_agent.provider_limits import limits_snapshot, poll_limits
 from ai_agent.task_images import usage
 from ai_agent.task_pulls import track_forever as track_pulls
@@ -77,6 +78,9 @@ def build_content(
     """Everything the Coding window shows, minus the timestamps."""
     content = {
         "format": SNAPSHOT_FORMAT,
+        "implementation_stop": current_status(user_data.get("active_execution")),
+        "queue_paused": bool(user_data.get("task_queue"))
+        and not user_data.get("queue_runner_active", False),
         "image_storage": (
             image_storage
             if image_storage is not None
