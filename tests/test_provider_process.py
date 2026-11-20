@@ -92,14 +92,15 @@ def test_grouped_provider_can_read_private_memory_attachment(repo):
 
 
 @pytest.mark.parametrize("via_shell", [False, True])
-def test_owner_stop_kills_descendants_and_preserves_edits(repo, via_shell):
+@pytest.mark.parametrize("task_id", ["task1", ""])
+def test_owner_stop_kills_descendants_and_preserves_edits(repo, via_shell, task_id):
     import contextvars
     from concurrent.futures import ThreadPoolExecutor
 
     from ai_agent.git_recovery import RecoverySession, _session
     from ai_agent.implementation_stop import ImplementationStoppedError, request, status
 
-    token = _session.set(RecoverySession(task_id="task1", branch="feature/test"))
+    token = _session.set(RecoverySession(task_id=task_id, branch="feature/test"))
     script = (
         "import subprocess,sys,time,pathlib; pathlib.Path('saved').write_text('keep'); "
         "subprocess.Popen([sys.executable,'-c',"
@@ -124,19 +125,19 @@ def test_owner_stop_kills_descendants_and_preserves_edits(repo, via_shell):
             deadline = time.monotonic() + 5
             while not (repo / "saved").exists() and time.monotonic() < deadline:
                 time.sleep(0.01)
-            info = status("task1", "feature/test")
+            info = status(task_id, "feature/test")
             assert info["can_stop"]
             with pytest.raises(ValueError):
-                request("task1", "feature/test", "stale")
-            request("task1", "feature/test", info["stop_token"])
-            request("task1", "feature/test", info["stop_token"])
+                request(task_id, "feature/test", "stale")
+            request(task_id, "feature/test", info["stop_token"])
+            request(task_id, "feature/test", info["stop_token"])
             with pytest.raises(ImplementationStoppedError):
                 future.result(timeout=5)
         provider_process.require_no_writer(repo)
         assert (repo / "saved").read_text() == "keep"
         time.sleep(1.6)
         assert not (repo / "late").exists()
-        assert not status("task1", "feature/test")["can_stop"]
+        assert not status(task_id, "feature/test")["can_stop"]
     finally:
         _session.reset(token)
 
@@ -289,3 +290,25 @@ def test_output_bound_without_task_session(repo, text_mode):
     assert len(result.stderr) <= 1024
     assert result.stdout.endswith("tail\n")
     provider_process.require_no_writer()
+
+
+def test_stop_accepted_at_provider_eof_still_cancels(repo, monkeypatch):
+    from ai_agent.git_recovery import RecoverySession, _session
+    from ai_agent.implementation_stop import ImplementationStoppedError
+
+    token = _session.set(RecoverySession(branch="feature/direct"))
+
+    def collect(process, args, timeout, run, *rest):
+        process.communicate(timeout=5)
+        run.stop.set()  # Owner request arrives after the collector's last check.
+        return "", "", False
+
+    monkeypatch.setattr(provider_process, "_collect_streaming", collect)
+    try:
+        with pytest.raises(ImplementationStoppedError):
+            provider_process.grouped_run(
+                [sys.executable, "-c", "pass"], cwd=repo, timeout=5, text=True
+            )
+        provider_process.require_no_writer(repo)
+    finally:
+        _session.reset(token)

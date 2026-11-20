@@ -263,7 +263,7 @@ def grouped_run(
 
     ``isolated`` is the implementer path: the child drops to the worker user
     (a no-op when the service already runs as that user) and inherits only the
-    memfd image descriptors it actually references. Task-bound runs stream the
+    memfd image descriptors it actually references. Bound implementations stream the
     child's stdout through the denial-loop detector so a repeated identical
     permission denial stops the paid run at the configured threshold.
 
@@ -286,7 +286,11 @@ def grouped_run(
     from ai_agent import denial_loop
     from ai_agent.git_recovery import _session
     from ai_agent.image_delivery import open_fds
-    from ai_agent.implementation_stop import register, unregister
+    from ai_agent.implementation_stop import (
+        ImplementationStoppedError,
+        register,
+        unregister,
+    )
     from ai_agent.usage_details import current_attempt_id
 
     session = _session.get()
@@ -330,6 +334,12 @@ def grouped_run(
         else:
             stdout, stderr = process.communicate(input=input_text, timeout=timeout)
             truncated = False
+        # Retire the capability atomically with the final cancellation check.
+        # A stop accepted at EOF must still prevent publication.
+        if unregister(stop_run):
+            raise ImplementationStoppedError(
+                "Implementation stopped by owner; saved work is preserved."
+            )
 
     except BaseException:
         try:
