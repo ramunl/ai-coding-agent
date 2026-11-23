@@ -83,3 +83,28 @@ Cache state is memory-only and starts empty after restart. Account identifiers,
 credential paths, keys, key fragments, tokens, raw errors, and raw CLI output
 are excluded by adapter field/value allow-lists. Check timestamps are separate
 from the setup and snapshot publication timestamps.
+
+## Coding stop and queue contract
+
+The additive `implementation_stop` object is always present. It contains
+`can_stop`, `stopping`, and `queue_policy: "pause"`. A live provider also exposes
+`stop_token` (32 lowercase hex characters); unavailable states instead carry a
+`reason`. This covers both task-backed and direct Coding implementations.
+Planning, publishing and CI waiting have no stop capability. A provider invoked
+for CI repair can be stopped while that provider is running.
+
+After owner confirmation, the dashboard bridge sends `stop_work` with exactly
+`{"token": "<stop_token from the displayed snapshot>"}`. The backend checks the
+live branch and token, rejects stale attempts, and accepts repeated requests for
+the same live attempt harmlessly. `stop_task` remains supported. Retired tokens
+are rejected, including during recovery; clients should refresh after a timeout
+rather than send a new attempt's token on behalf of an older confirmation.
+`stopping` remains true through recovery, when `can_stop` is false.
+
+Stopping terminates the provider group before recovery preserves saved work.
+The current queue entry is not requeued automatically. Remaining entries stay in
+FIFO order and require the existing `confirm_work` action to resume. The additive
+`queue_paused` flag means entries exist but no queue runner is active. Existing
+`running`, `queue`, start, approval, cancellation and queue-removal contracts are
+unchanged. The dashboard bridge allow-list, confirmed Stop UI and browser checks
+must be implemented separately in ai-dashboard, using this contract.
