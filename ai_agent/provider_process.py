@@ -206,7 +206,7 @@ def _collect_streaming(
         while True:
             if stop_run is not None and stop_run.stop.is_set():
                 raise ImplementationStoppedError(
-                    "Implementation stopped by owner; saved work is preserved."
+                    "Implementation stopped by owner; recovery is required."
                 )
             if deadline is not None and time.monotonic() >= deadline:
                 raise subprocess.TimeoutExpired(args, timeout)
@@ -238,7 +238,7 @@ def _collect_streaming(
         while True:
             if stop_run is not None and stop_run.stop.is_set():
                 raise ImplementationStoppedError(
-                    "Implementation stopped by owner; saved work is preserved."
+                    "Implementation stopped by owner; recovery is required."
                 )
             if deadline is not None and time.monotonic() >= deadline:
                 raise subprocess.TimeoutExpired(args, timeout)
@@ -289,12 +289,17 @@ def grouped_run(
     from ai_agent.implementation_stop import (
         ImplementationStoppedError,
         register,
+        retire,
         unregister,
     )
     from ai_agent.usage_details import current_attempt_id
 
     session = _session.get()
-    stop_run = register(session.task_id, session.branch) if session else None
+    stop_run = (
+        register(session.task_id, session.branch, current_attempt_id())
+        if session
+        else None
+    )
     runner = _runner_name(args)
     # A crash between launch and recording the PID must fail closed too.
     try:
@@ -336,12 +341,13 @@ def grouped_run(
             truncated = False
         # Retire the capability atomically with the final cancellation check.
         # A stop accepted at EOF must still prevent publication.
-        if unregister(stop_run):
+        if retire(stop_run):
             raise ImplementationStoppedError(
-                "Implementation stopped by owner; saved work is preserved."
+                "Implementation stopped by owner; recovery is required."
             )
 
     except BaseException:
+        retire(stop_run)
         try:
             os.killpg(process.pid, signal.SIGKILL)
         except ProcessLookupError:

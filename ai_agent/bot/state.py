@@ -411,6 +411,8 @@ def snapshot(context: Any) -> dict:
     a UI needs to render and deliberately omits bulky or sensitive fields
     (full diffs, logs, generated prompts).
     """
+    from ai_agent.implementation_stop import running_snapshot
+
     data = _data(context)
     plan = data.get("pending_plan")
     pending = data.get("pending_implementation")
@@ -427,7 +429,7 @@ def snapshot(context: Any) -> dict:
     return {
         "initiatives": initiative_statuses(data, now=now),
         "context_recovery_pending": bool(data.get("context_recovery_pending")),
-        "running": dict(execution) if isinstance(execution, dict) else None,
+        "running": running_snapshot(execution),
         "progress": live_progress,
         "queue": [
             {

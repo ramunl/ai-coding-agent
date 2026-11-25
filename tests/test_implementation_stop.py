@@ -44,6 +44,11 @@ def test_stop_status_waits_for_cleanup_and_does_not_publish(
     async def cleanup(update):
         assert task["stage"] == "implementing"
         assert "Stopping" in data["active_execution"]["phase"]
+        from ai_agent.bot.state import snapshot
+
+        running = snapshot(data)["running"]
+        assert running["stopping"] and not running["can_stop"]
+        assert "stop_token" not in running
         return restored
 
     monkeypatch.setattr(execution, "reset_to_base_branch", cleanup)
@@ -127,7 +132,7 @@ def test_snapshot_unavailable_phases_and_recovery(phase):
     capability = content["implementation_stop"]
     assert not capability["can_stop"]
     assert "stop_token" not in capability
-    assert capability["stopping"] is phase.startswith("Stopping")
+    assert not capability["stopping"]
 
 
 def test_snapshot_live_direct_capability_preserves_queue():
@@ -181,3 +186,39 @@ def test_unbound_planning_session_has_no_stop_capability():
 
     assert stop.register("", "") is None
     assert not stop.current_status(None)["can_stop"]
+
+
+def test_stop_error_does_not_claim_recovery_succeeded():
+    from ai_agent.implementation_stop import ImplementationStoppedError, ProviderRun
+    from ai_agent.provider_process import _collect_streaming
+
+    run = ProviderRun("", "feature/direct")
+    run.stop.set()
+    process = SimpleNamespace(
+        stdin=None,
+        stdout=SimpleNamespace(readline=lambda: ""),
+        stderr=SimpleNamespace(readline=lambda: ""),
+    )
+    with pytest.raises(ImplementationStoppedError) as caught:
+        _collect_streaming(process, [], 5, run, None, None, "codex", None)
+    assert "preserved" not in str(caught.value)
+    assert "recovery is required" in str(caught.value)
+
+
+def test_cleanup_failure_is_reported_without_success(monkeypatch):
+    from ai_agent.bot import execution
+
+    def fail():
+        raise RuntimeError("checkout unavailable")
+
+    reply = AsyncMock()
+    monkeypatch.setattr(execution, "cleanup_recovery", fail)
+    monkeypatch.setattr(execution, "recovery_details", lambda: "")
+    monkeypatch.setattr(execution, "reply_chunks", reply)
+    checkout = MagicMock()
+    monkeypatch.setattr(execution, "return_to_base_branch", checkout)
+    assert not asyncio.run(execution.reset_to_base_branch(None))
+    checkout.assert_not_called()
+    message = reply.call_args.args[1]
+    assert "Cleanup failed" in message
+    assert "saved work preserved" not in message
