@@ -83,15 +83,12 @@ def _commit_tree(source: Path, tree: str, parents: tuple[str, ...]) -> str:
     return _must(source, *args).strip()
 
 
-def _verify_commit(
-    source: Path, sha: str, tree: str, parents: tuple[str, ...]
-) -> None:
+def _verify_commit(source: Path, sha: str, tree: str, parents: tuple[str, ...]) -> None:
     """Fail unless the commit's tree and parents match the outcome."""
     actual_tree = _must(source, "rev-parse", f"{sha}^{{tree}}").strip()
     if actual_tree != tree:
         raise MergeConflictPublishError(
-            f"Merge commit tree {actual_tree} does not match the validated "
-            f"tree {tree}"
+            f"Merge commit tree {actual_tree} does not match the validated tree {tree}"
         )
     result = _git(source, "rev-parse", f"{sha}^@")
     if result.returncode != 0:

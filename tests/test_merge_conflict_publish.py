@@ -50,13 +50,17 @@ def _resolved_tree(source, head):
             capture_output=True,
             env=env,
         )
-        blob = subprocess.run(
-            ["git", "-C", str(source), "hash-object", "-w", "--stdin"],
-            input=b"resolved\n",
-            check=True,
-            capture_output=True,
-            env=env,
-        ).stdout.decode().strip()
+        blob = (
+            subprocess.run(
+                ["git", "-C", str(source), "hash-object", "-w", "--stdin"],
+                input=b"resolved\n",
+                check=True,
+                capture_output=True,
+                env=env,
+            )
+            .stdout.decode()
+            .strip()
+        )
         subprocess.run(
             [
                 "git",
@@ -84,16 +88,18 @@ def _resolved_tree(source, head):
 
 def _make_unmerged(source, path):
     """Stage three index stages for a path to simulate an unresolved merge."""
-    blob = subprocess.run(
-        ["git", "-C", str(source), "hash-object", "-w", "--stdin"],
-        input=b"unresolved\n",
-        check=True,
-        capture_output=True,
-    ).stdout.decode().strip()
+    blob = (
+        subprocess.run(
+            ["git", "-C", str(source), "hash-object", "-w", "--stdin"],
+            input=b"unresolved\n",
+            check=True,
+            capture_output=True,
+        )
+        .stdout.decode()
+        .strip()
+    )
     info = (
-        f"100644 {blob} 1\t{path}\n"
-        f"100644 {blob} 2\t{path}\n"
-        f"100644 {blob} 3\t{path}\n"
+        f"100644 {blob} 1\t{path}\n100644 {blob} 2\t{path}\n100644 {blob} 3\t{path}\n"
     )
     subprocess.run(
         ["git", "-C", str(source), "update-index", "--index-info"],
