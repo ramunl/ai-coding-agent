@@ -59,6 +59,7 @@ PERSISTENT_KEYS = frozenset(
         "run_duration_history",
         "pending_plan",
         "pending_implementation",
+        "pending_merge_conflict",  # Pinned base/head refs+SHAs survive a restart.
         "pending_bugfix_clarification",  # Includes owned bug-report image references.
         "task_queue",
         "next_task_id",

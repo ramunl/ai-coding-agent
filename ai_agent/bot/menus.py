@@ -229,6 +229,8 @@ async def more(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 " - GitHub Actions result for a PR\n",
                 _cmd("/fixpr <pr-number>"),
                 " - repair failed CI on an existing same-repository PR branch\n",
+                _cmd("/fixmerge <pr-url>"),
+                " - fix merge conflicts on an open same-repository PR\n",
                 "Git commands act on the ",
                 {"type": "bold", "text": "active project"},
                 " - never on this agent's own code.",

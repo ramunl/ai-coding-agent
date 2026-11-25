@@ -46,6 +46,7 @@ class ApplicationTests(TelegramTestCase):
                 "cancel",
                 "ci",
                 "fixpr",
+                "fixmerge",
                 "diff",
                 "show",
                 "pr",

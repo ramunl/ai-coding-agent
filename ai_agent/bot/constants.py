@@ -26,6 +26,7 @@ BOT_COMMANDS = [
     BotCommand("planner", "Choose Codex or Claude for planning"),
     BotCommand("agent", "Choose Codex or Claude for implementation"),
     BotCommand("fixpr", "Repair failed CI on an existing PR"),
+    BotCommand("fixmerge", "Fix merge conflicts on an open PR"),
     BotCommand("cancel", "Discard pending work"),
     BotCommand("ci", "Show PR CI status"),
     BotCommand("diff", "Show last changed files"),
