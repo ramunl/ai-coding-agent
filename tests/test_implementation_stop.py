@@ -1,6 +1,7 @@
 """Owner cancellation uses the existing cleanup and checkpoint boundaries."""
 
 import asyncio
+from copy import deepcopy
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -128,6 +129,12 @@ def test_snapshot_unavailable_phases_and_recovery(phase):
     assert not capability["can_stop"]
     assert "stop_token" not in capability
     assert capability["stopping"] is phase.startswith("Stopping")
+    assert content["running"] == {
+        "branch": "x",
+        "phase": phase,
+        "can_stop": False,
+        "stopping": phase.startswith("Stopping"),
+    }
 
 
 def test_snapshot_live_direct_capability_preserves_queue():
@@ -181,3 +188,93 @@ def test_unbound_planning_session_has_no_stop_capability():
 
     assert stop.register("", "") is None
     assert not stop.current_status(None)["can_stop"]
+
+
+@pytest.mark.parametrize("task_id", ["abc12345", ""])
+def test_snapshot_running_token_lifetime_and_stop_work(task_id):
+    from ai_agent import implementation_stop as stop
+    from ai_agent.actions import ActionError
+    from ai_agent.bot.snapshot_publisher import build_content
+    from ai_agent.bot.work_actions import run_work_action
+
+    data = {
+        "active_execution": {"branch": "feature/lifetime", "phase": "Implementing"},
+        "tasks": [{"id": task_id, "images": []}] if task_id else [],
+        "task_queue": [],
+    }
+    original = deepcopy(data)
+    app = SimpleNamespace(
+        user_data={42: data}, mark_data_for_update_persistence=MagicMock()
+    )
+    run = stop.register(task_id, data["active_execution"]["branch"])
+    try:
+        content = build_content(data, {}, {})
+        running = content["running"]
+        assert running == {
+            **data["active_execution"],
+            "can_stop": True,
+            "stopping": False,
+            "stop_token": run.token,
+        }
+        assert content["implementation_stop"] == {
+            "can_stop": True,
+            "stopping": False,
+            "stop_token": running["stop_token"],
+            "queue_policy": "pause",
+        }
+        assert data == original
+        assert running is not data["active_execution"]
+        args = {"token": running["stop_token"]}
+        asyncio.run(run_work_action(app, 42, "stop_work", args))
+        assert run.stop.is_set()
+        assert build_content(data, {}, {})["running"]["stopping"]
+    finally:
+        stop.unregister(run)
+
+    data["active_execution"]["phase"] = "Stopping; preserving saved work"
+    recovery = build_content(data, {}, {})["running"]
+    assert recovery["stopping"] and not recovery["can_stop"]
+    assert "stop_token" not in recovery
+    with pytest.raises(ActionError):
+        asyncio.run(run_work_action(app, 42, "stop_work", args))
+
+    data["active_execution"]["phase"] = "Implementing"
+    replacement = stop.register(task_id, run.branch)
+    try:
+        fresh = build_content(data, {}, {})["running"]
+        assert fresh["stop_token"] != running["stop_token"]
+        with pytest.raises(ActionError):
+            asyncio.run(run_work_action(app, 42, "stop_work", args))
+        assert not replacement.stop.is_set()
+        asyncio.run(
+            run_work_action(app, 42, "stop_work", {"token": fresh["stop_token"]})
+        )
+        assert replacement.stop.is_set()
+    finally:
+        stop.unregister(replacement)
+    retired = build_content(data, {}, {})["running"]
+    assert not retired["can_stop"] and not retired["stopping"]
+    assert "stop_token" not in retired
+
+
+def test_snapshot_idle_keeps_running_null():
+    from ai_agent.bot.snapshot_publisher import build_content
+
+    content = build_content({}, {}, {})
+    assert content["running"] is None
+    assert not content["implementation_stop"]["can_stop"]
+    assert "stop_token" not in content["implementation_stop"]
+
+
+def test_snapshot_stop_views_share_one_status_read(monkeypatch):
+    from ai_agent.bot import snapshot_publisher
+
+    active = {"branch": "feature/test"}
+    status = MagicMock(
+        return_value={"can_stop": False, "stopping": True, "queue_policy": "pause"}
+    )
+    monkeypatch.setattr(snapshot_publisher, "current_status", status)
+    content = snapshot_publisher.build_content({"active_execution": active}, {}, {})
+    status.assert_called_once_with(active)
+    assert content["running"]["can_stop"] == content["implementation_stop"]["can_stop"]
+    assert content["running"]["stopping"] == content["implementation_stop"]["stopping"]

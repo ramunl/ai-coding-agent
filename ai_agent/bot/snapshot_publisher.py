@@ -76,9 +76,10 @@ def build_content(
     usage_details: dict | None = None,
 ) -> dict:
     """Everything the Coding window shows, minus the timestamps."""
+    stop_status = current_status(user_data.get("active_execution"))
     content = {
         "format": SNAPSHOT_FORMAT,
-        "implementation_stop": current_status(user_data.get("active_execution")),
+        "implementation_stop": stop_status,
         "queue_paused": bool(user_data.get("task_queue"))
         and not user_data.get("queue_runner_active", False),
         "image_storage": (
@@ -91,6 +92,14 @@ def build_content(
         "limits": limits_snapshot(),
         **versions,
     }
+    running = content["running"]
+    if running is not None:
+        running["can_stop"] = stop_status["can_stop"]
+        running["stopping"] = stop_status["stopping"]
+        if "stop_token" in stop_status:
+            running["stop_token"] = stop_status["stop_token"]
+        else:
+            running.pop("stop_token", None)
     if setup is not None:
         content["setup"] = setup
     if token_usage is not None:

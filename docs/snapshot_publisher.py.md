@@ -26,7 +26,7 @@ dashboard should not see, and it deliberately never stores the running task
 
 ## Format
 
-Carries `"format": 2`. Changing the shape incompatibly means bumping it and
+Carries `"format": 3`. Changing the shape incompatibly means bumping it and
 updating the dashboard first, which reports unknown formats instead of
 misreading them. Full field list: the ai-dashboard README.
 
@@ -93,8 +93,22 @@ The additive `implementation_stop` object is always present. It contains
 Planning, publishing and CI waiting have no stop capability. A provider invoked
 for CI repair can be stopped while that provider is running.
 
+When `running` is an object, it also includes additive `can_stop` and `stopping`
+booleans and an optional `stop_token`. These fields and `implementation_stop`
+come from one live registry status read; the existing top-level contract,
+including `queue_policy` and unavailable `reason`, is preserved. The running
+object is copied without changing `user_data`; when idle, `running` stays null.
+Without a live capability, `stop_token` is omitted. Recovery keeps `stopping`
+true even after the provider token is retired.
+
+Tokens belong to a single in-memory provider attempt, for either a task-backed
+or direct run. Retirement removes the capability; a replacement attempt gets a
+new token even on the same branch. Snapshot publication does not extend token
+lifetime, and a snapshot may be stale by the time an action arrives. Live backend
+validation remains authoritative.
+
 After owner confirmation, the dashboard bridge sends `stop_work` with exactly
-`{"token": "<stop_token from the displayed snapshot>"}`. The backend checks the
+`{"token": "<running.stop_token or implementation_stop.stop_token>"}`. The backend checks the
 live branch and token, rejects stale attempts, and accepts repeated requests for
 the same live attempt harmlessly. `stop_task` remains supported. Retired tokens
 are rejected, including during recovery; clients should refresh after a timeout
@@ -105,6 +119,9 @@ Stopping terminates the provider group before recovery preserves saved work.
 The current queue entry is not requeued automatically. Remaining entries stay in
 FIFO order and require the existing `confirm_work` action to resume. The additive
 `queue_paused` flag means entries exist but no queue runner is active. Existing
-`running`, `queue`, start, approval, cancellation and queue-removal contracts are
-unchanged. The dashboard bridge allow-list, confirmed Stop UI and browser checks
+`running` fields, `queue`, start, approval, cancellation and queue-removal
+contracts remain compatible. The dashboard bridge allow-list, confirmed Stop UI and browser checks
 must be implemented separately in ai-dashboard, using this contract.
+
+Dashboard consumption and GUI controls are a separate ai-dashboard follow-up;
+this backend change does not implement or verify them.
