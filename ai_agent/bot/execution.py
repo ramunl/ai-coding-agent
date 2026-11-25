@@ -215,7 +215,10 @@ async def run_queued_implementation(
     bind_checkpoint(
         checkpoint_task, branch_name, task.get("execution_mode") == "resume"
     )
-    from ai_agent.implementation_stop import ImplementationStoppedError
+    from ai_agent.implementation_stop import (
+        ImplementationStoppedError,
+        stopping_cleanup,
+    )
 
     no_code = False
     stopped = False
@@ -324,6 +327,9 @@ async def run_queued_implementation(
             if task not in task_queue(context):
                 task_queue(context).insert(0, task)
             await reply_chunks(update, refusal)
+        elif stopped:
+            with stopping_cleanup(context.user_data["active_execution"]):
+                restored = await reset_to_base_branch(update)
         else:
             restored = await reset_to_base_branch(update)
         if task.get("verification_profile") and (refusal or not restored):
