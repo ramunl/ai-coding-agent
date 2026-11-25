@@ -49,6 +49,7 @@ from ai_agent.bot.maintenance import (
 )
 from ai_agent.bot.maintenance import core_version_line as core_version_line
 from ai_agent.bot.menus import more, start
+from ai_agent.bot.merge_conflicts import _on_fixmerge_tap, fix_merge_conflicts
 from ai_agent.bot.planning import (
     answer,
     approve,
@@ -266,6 +267,7 @@ async def argument_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         "discuss": discuss,
         "answer": answer,
         "repo_add": repo_add,
+        "fixmerge": fix_merge_conflicts,
         "core release": core,
     }
     handler = handlers.get(command)
@@ -302,6 +304,9 @@ _callback_router.register("ci", _on_pull_request_tap)
 
 
 _callback_router.register("fixpr", _on_pull_request_tap)
+
+
+_callback_router.register("fixmerge", _on_fixmerge_tap)
 
 
 _callback_router.register("repo_use", _on_repo_use_tap)
@@ -354,6 +359,7 @@ def command_handlers() -> dict:
         "cancel": cancel,
         "ci": ci,
         "fixpr": fixpr,
+        "fixmerge": fix_merge_conflicts,
         "diff": diff,
         "show": show,
         "pr": pr,
