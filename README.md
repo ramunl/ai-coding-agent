@@ -576,3 +576,10 @@ Busy, missing, changed or ineligible tasks are refused. The task stays at PR ope
 and its latest conflict-fix progress/result is associated through
 `snapshot.merge_conflict.task_id`. Per-task `can_fix_conflicts` enables the button
 only on agents supporting this action.
+
+The conflict resolver edits files only: provider Git-index writes are not
+required. After the provider exits, the controller verifies the pinned merge
+parents and stages only changed, marker-free conflict paths (including explicit
+deletions). Untouched conflicts are never silently accepted; the failure names
+unresolved paths. Existing checks still reject unrelated edits, remaining markers,
+and moved refs before publication. No broader provider Git permissions are needed.

@@ -43,7 +43,8 @@ def wired(repo, monkeypatch):
         assert "shared.txt" in prompt
         assert git(checkout, "rev-parse", "HEAD") == repo.head
         (checkout / "shared.txt").write_text("combined intent\n")
-        git(checkout, "add", "shared.txt")
+        # Providers may edit files but cannot write the Git index.
+        assert "Do not stage files" in prompt
 
     monkeypatch.setattr(workflow, "run_implementation_agent", provider)
     return project, target, checks
