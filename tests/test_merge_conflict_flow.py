@@ -116,3 +116,51 @@ def test_provider_checkout_supports_a_clone_git_directory(tmp_path, monkeypatch)
         assert isolation.current_sandbox().path == tmp_path
     assert tmp_path / ".git" in owned
     assert isolation.current_sandbox() is None
+
+
+def test_stale_pr_base_payload_still_resolves_against_live_main(
+    repo, wired, monkeypatch
+):
+    from ai_agent import merge_conflict
+
+    project, target, checks = wired
+    old_base = git(repo.source, "rev-parse", f"{repo.head}^1")
+    assert old_base != repo.base
+    payload = {
+        "state": "open",
+        "html_url": target.url,
+        "title": target.title,
+        "mergeable": False,
+        "base": {"ref": "main", "sha": old_base, "repo": {"full_name": "owner/repo"}},
+        "head": {
+            "ref": "feature",
+            "sha": repo.head,
+            "repo": {"full_name": "owner/repo"},
+        },
+    }
+
+    def request(method, path):
+        if path.endswith("/pulls/1"):
+            return payload
+        ref = path.split("/git/ref/heads/", 1)[1]
+        return {
+            "ref": f"refs/heads/{ref}",
+            "object": {
+                "type": "commit",
+                "sha": repo.base if ref == "main" else repo.head,
+            },
+        }
+
+    monkeypatch.setattr(merge_conflict, "active_project", lambda: project)
+    monkeypatch.setattr(merge_conflict, "ensure_github_configured", lambda: None)
+    monkeypatch.setattr(merge_conflict, "github_request", request)
+    monkeypatch.setattr(
+        flow, "validate_merge_conflict_pr", merge_conflict.validate_merge_conflict_pr
+    )
+    pinned = merge_conflict.validate_merge_conflict_pr(target.url)
+    assert pinned.base_sha == repo.base
+    result = flow.fix_pinned_conflicts(project, pinned)
+    assert "Updated PR #1" in result
+    assert len(checks) == 1
+    head = git(repo.source, "ls-remote", repo.remote, "refs/heads/feature").split()[0]
+    assert git(repo.source, "rev-parse", f"{head}^2") == repo.base
