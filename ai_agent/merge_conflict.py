@@ -129,3 +129,16 @@ def validate_merge_conflict_pr(text: str) -> MergeConflictTarget:
         head_sha=head_sha,
         merge_commit_sha=str(pull_data.get("merge_commit_sha") or ""),
     )
+
+
+def task_merge_conflict_url(task: dict) -> str | None:
+    """Expose resolution only for a PR-open task with a saved GitHub PR URL."""
+    url = task.get("pr_url")
+    if task.get("stage") != "pr" or not isinstance(url, str):
+        return None
+    if not url.startswith(("https://github.com/", "https://www.github.com/")):
+        return None
+    reference = parse_github_reference(url)
+    if reference is None or reference.kind != "pull" or not reference.number:
+        return None
+    return url

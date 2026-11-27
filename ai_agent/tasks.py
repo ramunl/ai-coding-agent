@@ -22,6 +22,7 @@ from collections.abc import MutableMapping
 from typing import Any
 
 from ai_agent.context_projection import task_context_status
+from ai_agent.merge_conflict import task_merge_conflict_url
 from ai_agent.task_groups import group_title
 from ai_agent.task_images import remove
 from ai_agent.task_reopen import attempt_history, can_reopen
@@ -310,6 +311,7 @@ def view(task: dict, data: MutableMapping, *, now: int | None = None) -> dict:
         or (task.get("dependency_check") or {}).get("reason"),
         "can_retry": can_retry(task),
         "can_reopen": can_reopen(task, data),
+        "can_fix_conflicts": task_merge_conflict_url(task) is not None,
         "can_resolve_blockage": can_resolve_blockage(task, data),
         "blockage_resolved": bool(task.get("blockage_resolution")),
         "can_reconcile": bool(

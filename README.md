@@ -567,3 +567,12 @@ Roll out the coding agent before the dashboard. The new snapshot always includes
 `merge_conflict` (an empty object before the first run), which enables the new
 control; older agent snapshots hide it. The mirrored inbox action is
 `fix_merge_conflicts` with one `url` argument.
+
+The Tasks list and each split task's Subtasks page also show **Solve conflicts**
+for tasks at **PR open**. This sends `fix_task_conflicts` with only the task ID;
+the agent reads the saved PR URL, validates it against the task's registered
+repository, selects that project while idle, and invokes the same resolver.
+Busy, missing, changed or ineligible tasks are refused. The task stays at PR open,
+and its latest conflict-fix progress/result is associated through
+`snapshot.merge_conflict.task_id`. Per-task `can_fix_conflicts` enables the button
+only on agents supporting this action.
