@@ -148,6 +148,12 @@ def test_test_environment_strips_model_credentials_and_python_redirection(monkey
             "PIP_TARGET": "/production",
             "PIP_PREFIX": "/production",
             "PIP_USER": "true",
+            "CODEX_MODEL": "production-model",
+            "CLAUDE_CODE_AUTH": "api_key",
+            "IMPLEMENTATION_AGENT": "claude",
+            "AGENT_STATE_FILE": "/production/state.json",
+            "PYTEST_ADDOPTS": "--lf",
+            "LC_ALL": "C",
             "PATH": "/usr/bin",
         },
     )
@@ -155,6 +161,7 @@ def test_test_environment_strips_model_credentials_and_python_redirection(monkey
     env = setup.command_environment(python)
     assert set(env) == {
         "PATH",
+        "LC_ALL",
         "PYTHONNOUSERSITE",
         "PIP_REQUIRE_VIRTUALENV",
         "VIRTUAL_ENV",

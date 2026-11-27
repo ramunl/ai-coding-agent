@@ -4,7 +4,7 @@ import json
 import subprocess
 from pathlib import Path
 
-from ai_agent.config import WORKER_ISOLATION_ENABLED
+from ai_agent.config import WORKER_ISOLATION_ENABLED, redact_sensitive
 from ai_agent.provider_process import grouped_run
 from ai_agent.verification import commands_for
 from ai_agent.verification_environment import (
@@ -12,6 +12,15 @@ from ai_agent.verification_environment import (
     python_environment,
     verification_argv,
 )
+
+
+def _failure_detail(output: str) -> str:
+    """Keep pytest failure names visible in the dashboard's bounded message."""
+    lines = redact_sensitive(output).splitlines()
+    failures = [line for line in lines if line.startswith(("FAILED ", "ERROR "))]
+    if failures:
+        return "\n".join(line[:240] for line in failures[:6])
+    return "\n".join(lines[-12:])[-1400:] or "No output."
 
 
 def check_merge(checkout: Path, project: str) -> None:
@@ -33,9 +42,9 @@ def check_merge(checkout: Path, project: str) -> None:
                 "No supported verification profile for this project."
             ) from None
 
-    def checked(argv: list[str], python: Path | None = None) -> None:
+    def checked(command: tuple[str, ...], python: Path | None = None) -> None:
         result = grouped_run(
-            argv,
+            verification_argv(command, python),
             cwd=checkout,
             env=command_environment(python),
             isolated=WORKER_ISOLATION_ENABLED,
@@ -46,12 +55,12 @@ def check_merge(checkout: Path, project: str) -> None:
         )
         if result.returncode:
             raise RuntimeError(
-                f"Merge verification failed: {' '.join(argv)}\n"
-                f"{result.stdout or result.stderr or 'No output.'}"
+                f"Merge verification failed: {' '.join(command)}\n"
+                f"{_failure_detail(result.stdout or result.stderr or '')}"
             )
 
     if any(command[0] == "npm" for command in commands):
-        checked(["npm", "ci", "--ignore-scripts"])
+        checked(("npm", "ci", "--ignore-scripts"))
     with python_environment(checkout, commands) as python:
         for command in commands:
-            checked(verification_argv(command, python), python)
+            checked(command, python)

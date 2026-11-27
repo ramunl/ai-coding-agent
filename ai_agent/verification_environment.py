@@ -10,24 +10,38 @@ from contextlib import contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from ai_agent.claude_env import API_VARIABLES, provider_env
+from ai_agent.claude_env import provider_env
 from ai_agent.config import WORKER_GROUP, WORKER_ISOLATION_ENABLED, WORKER_USER
 from ai_agent.context_attempts import current_attempt
 from ai_agent.run_outcomes import NoCodeOutcomeError, blocked_report
 
+# Keep executable lookup, locale, temporary paths and network trust settings.
+# Service configuration (including model overrides and live state paths) must
+# never affect repository tests or package setup.
+_PROCESS_VARIABLES = {
+    "PATH",
+    "HOME",
+    "LANG",
+    "LANGUAGE",
+    "TZ",
+    "TMPDIR",
+    "TMP",
+    "TEMP",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+    "REQUESTS_CA_BUNDLE",
+    "CURL_CA_BUNDLE",
+    "NODE_EXTRA_CA_CERTS",
+}
+
 
 def command_environment(python: Path | None = None) -> dict[str, str]:
-    """Test/package commands receive no model credentials or external Python paths."""
-    env = provider_env(worker=WORKER_ISOLATION_ENABLED)
-    for name in (
-        *API_VARIABLES,
-        "PYTHONPATH",
-        "PYTHONHOME",
-        "PIP_TARGET",
-        "PIP_PREFIX",
-        "PIP_USER",
-    ):
-        env.pop(name, None)
+    """Build a test environment independent of the agent service settings."""
+    env = {
+        name: value
+        for name, value in provider_env(worker=WORKER_ISOLATION_ENABLED).items()
+        if name in _PROCESS_VARIABLES or name.startswith("LC_")
+    }
     env["PYTHONNOUSERSITE"] = "1"
     if python is not None:
         env["PIP_REQUIRE_VIRTUALENV"] = "true"
