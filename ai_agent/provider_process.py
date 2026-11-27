@@ -19,7 +19,7 @@ def _marker(repo: Path | None = None) -> Path:
     # Keep this outside the worktree; the Git run lease serializes writers.
     repo = repo or active_project().repo_path
     result = subprocess.run(
-        ["git", "rev-parse", "--git-common-dir"],
+        ["git", "-c", f"safe.directory={repo}", "rev-parse", "--git-common-dir"],
         cwd=repo,
         capture_output=True,
         text=True,

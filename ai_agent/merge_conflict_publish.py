@@ -116,9 +116,17 @@ def _ls_remote_head(source: Path, remote: str, head_ref: str) -> str | None:
     return lines[0].split()[0]
 
 
-def _push_head(source: Path, remote: str, head_ref: str, sha: str) -> None:
+def _push_head(
+    source: Path, remote: str, head_ref: str, sha: str, expected: str
+) -> None:
     """Push exactly the merge commit to the PR head ref and nothing else."""
-    result = _git(source, "push", remote, f"{sha}:refs/heads/{head_ref}")
+    result = _git(
+        source,
+        "push",
+        f"--force-with-lease=refs/heads/{head_ref}:{expected}",
+        remote,
+        f"{sha}:refs/heads/{head_ref}",
+    )
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip()
         raise MergeConflictPublishError(f"Push failed: {detail}")
@@ -174,5 +182,5 @@ def publish_merge_commit(
             f"{remote_head or '(deleted)'}; refusing to push"
         )
 
-    _push_head(source, remote, head_ref, commit_sha)
+    _push_head(source, remote, head_ref, commit_sha, head_sha)
     return commit_sha

@@ -82,6 +82,7 @@ PERSISTENT_KEYS = frozenset(
 # active_execution would report work that died with the old process.
 TRANSIENT_KEYS = frozenset(
     {
+        "merge_conflict_active",
         "active_execution",
         "queue_runner_active",
         "argument_prompt",
@@ -105,6 +106,8 @@ def planning_guard(
 ) -> Iterator[None]:
     """Block project switches across the whole planning flow, including replies."""
     data = _data(context)
+    if data.get("merge_conflict_active"):
+        raise RuntimeError("A merge conflict fix is running; wait for it to finish.")
     token = None
     receipt_token = None
     if current_context.get() is None and identity is not None:
@@ -413,6 +416,14 @@ def snapshot(context: Any) -> dict:
     (full diffs, logs, generated prompts).
     """
     data = _data(context)
+    merge_conflict = dict(data.get("pending_merge_conflict") or {})
+    if merge_conflict.get("status") == "running" and not data.get(
+        "merge_conflict_active"
+    ):
+        merge_conflict.update(
+            status="interrupted",
+            message="Agent restarted during this fix. Check the PR before retrying.",
+        )
     plan = data.get("pending_plan")
     pending = data.get("pending_implementation")
     execution = data.get("active_execution")
@@ -465,6 +476,7 @@ def snapshot(context: Any) -> dict:
         "bugfix_questions": _bugfix_questions(data),
         "tasks": [task_view(task, data, now=now) for task in data.get("tasks") or []],
         "worker": worker_view(data, time.time()),
+        "merge_conflict": merge_conflict,
         "thinking": dict(data["thinking"])
         if isinstance(data.get("thinking"), dict)
         else None,

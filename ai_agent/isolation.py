@@ -89,6 +89,8 @@ def _chown_tree(path: Path, uid: int, gid: int) -> None:
 
 def _linked_gitdir(path: Path) -> Path:
     """The per-worktree gitdir referenced by a linked worktree's ``.git`` file."""
+    if (path / ".git").is_dir():
+        return (path / ".git").resolve()
     marker = (path / ".git").read_text().strip()
     if marker.startswith("gitdir:"):
         value = marker.split(":", 1)[1].strip()
@@ -239,3 +241,15 @@ def sandbox_for(repo: Path, task_id: str, branch: str) -> Iterator[Sandbox]:
     finally:
         _active_sandbox.reset(token)
         remove_sandbox(repo, sandbox)
+
+
+@contextlib.contextmanager
+def provider_checkout(path: Path, baseline: str) -> Iterator[Sandbox]:
+    """Use an existing disposable checkout for a provider without copying edits."""
+    _prepare_ownership(path)
+    sandbox = Sandbox(path=path, baseline=baseline)
+    token = _active_sandbox.set(sandbox)
+    try:
+        yield sandbox
+    finally:
+        _active_sandbox.reset(token)

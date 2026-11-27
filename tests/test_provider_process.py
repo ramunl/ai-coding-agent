@@ -312,3 +312,8 @@ def test_stop_accepted_at_provider_eof_still_cancels(repo, monkeypatch):
         provider_process.require_no_writer(repo)
     finally:
         _session.reset(token)
+
+
+def test_marker_accepts_worker_owned_checkout(repo, monkeypatch):
+    monkeypatch.setenv("GIT_TEST_ASSUME_DIFFERENT_OWNER", "1")
+    assert provider_process._marker(repo) == repo / ".git/ai-agent-provider.json"

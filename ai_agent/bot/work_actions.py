@@ -42,6 +42,7 @@ logger = logging.getLogger(__name__)
 FIRST_REPLY_SECONDS = 15
 SUMMARY_LENGTH = 200
 WORK_ACTIONS = (
+    "fix_merge_conflicts",
     "approve_plan",
     "confirm_work",
     "cancel_pending",
@@ -92,6 +93,10 @@ def chat_update(bot: Any, chat_id: int) -> SimpleNamespace:
 
 def refusal(action: str, args: dict[str, Any], user_data: MutableMapping) -> str | None:
     """Why the request makes no sense in the current state, or None."""
+    if action == "fix_merge_conflicts":
+        from ai_agent.actions import busy_reason
+
+        return busy_reason(user_data)
     if action == "stop_work":
         return None  # Validated atomically against the provider below.
     pending_plan = user_data.get("pending_plan")
@@ -238,6 +243,12 @@ async def run_work_action(
         return "Stopping implementation; recovering saved work. Remaining queue pauses."
     update = chat_update(ptb_app.bot, owner_id)
     context = CallbackContext(ptb_app, chat_id=owner_id, user_id=owner_id)
+    if action == "fix_merge_conflicts":
+        from ai_agent.bot.merge_conflicts import fix_merge_conflicts
+
+        context.args = [args["url"]]
+        await _start(fix_merge_conflicts, update, context)
+        return summary(update.message, "Resolving conflicts; progress is in Coding.")
     if action == "confirm_work":
         # /confirm also runs the queue, which can take an hour: start it and
         # answer as soon as it has said what it queued.

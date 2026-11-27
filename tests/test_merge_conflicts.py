@@ -505,3 +505,19 @@ def test_stop_group_kills_and_reaps_a_session():
     assert process.poll() is not None
     with pytest.raises(ProcessLookupError):
         os.kill(process.pid, 0)
+
+
+def test_resolver_can_delete_conflicted_path(conflicted):
+    def delete(checkout, conflicts):
+        git(checkout, "rm", "--", conflicted.shared)
+
+    outcome = mc.resolve_merge_conflicts(
+        conflicted.source, conflicted.head, conflicted.base, delete
+    )
+    assert outcome.state == mc.RESOLVED
+    assert (
+        conflicted.shared
+        not in git(
+            conflicted.source, "ls-tree", "--name-only", outcome.tree
+        ).splitlines()
+    )

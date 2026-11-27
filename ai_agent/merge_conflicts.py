@@ -67,7 +67,11 @@ class MergeCheckout:
 
 def _git(cwd: Path | None, *args: str) -> subprocess.CompletedProcess[str]:
     """Run git (optionally in a checkout) and return the raw result."""
-    command = ["git", *args] if cwd is None else ["git", "-C", str(cwd), *args]
+    command = (
+        ["git", *args]
+        if cwd is None
+        else ["git", "-c", f"safe.directory={cwd}", "-C", str(cwd), *args]
+    )
     return subprocess.run(
         command,
         capture_output=True,
@@ -140,6 +144,8 @@ def resolve_merge_conflicts(
     head_sha: str,
     base_sha: str,
     resolver: Resolver,
+    *,
+    validate: Resolver | None = None,
 ) -> MergeOutcome:
     """Investigate, resolve, validate, and hand off a pinned merge.
 
@@ -155,6 +161,13 @@ def resolve_merge_conflicts(
         else:
             outcome = _resolve(checkout, investigated, resolver)
         if outcome.tree is not None:
+            if validate is not None:
+                validate(checkout.path, [])
+                _validate_state(checkout)
+                if _write_tree(checkout) != outcome.tree:
+                    raise MergeConflictResolutionError(
+                        "Checks changed the resolved tree"
+                    )
             _persist_tree(source, checkout, outcome.tree)
         return outcome
 
@@ -290,7 +303,16 @@ def _untracked(checkout: MergeCheckout) -> list[str]:
 
 def _blob_bytes(checkout: MergeCheckout, path: str) -> bytes:
     result = subprocess.run(
-        ["git", "-C", str(checkout.path), "cat-file", "blob", f":{path}"],
+        [
+            "git",
+            "-c",
+            f"safe.directory={checkout.path}",
+            "-C",
+            str(checkout.path),
+            "cat-file",
+            "blob",
+            f":{path}",
+        ],
         capture_output=True,
         check=False,
         stdin=subprocess.DEVNULL,
@@ -305,7 +327,10 @@ def _reject_conflict_markers(
     checkout: MergeCheckout, conflicts: list[Conflict]
 ) -> None:
     """Reject resolved text that still carries git conflict markers."""
+    index = _stage0_index(checkout)
     for conflict in conflicts:
+        if conflict.path not in index:
+            continue
         content = _blob_bytes(checkout, conflict.path)
         try:
             text = content.decode("utf-8")
@@ -332,7 +357,16 @@ def _persist_tree(source: Path, checkout: MergeCheckout, tree: str) -> None:
     reference = "refs/ai-agent/merge-conflict/result"
     _must(checkout.path, "update-ref", reference, tree)
     try:
-        _must(source, "fetch", "--quiet", "--no-tags", str(checkout.path), reference)
+        _must(
+            source,
+            "-c",
+            f"safe.directory={checkout.path}",
+            "fetch",
+            "--quiet",
+            "--no-tags",
+            str(checkout.path),
+            reference,
+        )
     finally:
         _git(checkout.path, "update-ref", "-d", reference)
 
