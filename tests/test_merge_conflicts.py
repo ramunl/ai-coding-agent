@@ -325,7 +325,9 @@ def test_resolution_with_unmerged_leftovers_raises(conflicted):
     def noop(checkout, conflicts):
         return None
 
-    with pytest.raises(mc.MergeConflictResolutionError, match="Unmerged index"):
+    with pytest.raises(
+        mc.MergeConflictResolutionError, match="unresolved paths.*shared.txt"
+    ):
         mc.resolve_merge_conflicts(
             conflicted.source, conflicted.head, conflicted.base, noop
         )
@@ -521,3 +523,96 @@ def test_resolver_can_delete_conflicted_path(conflicted):
             conflicted.source, "ls-tree", "--name-only", outcome.tree
         ).splitlines()
     )
+
+
+def test_controller_stages_edit_only_resolution(conflicted):
+    def edit(checkout, conflicts):
+        (checkout / conflicted.shared).write_text("combined intent\n")
+        assert git(checkout, "ls-files", "--unmerged")
+
+    outcome = mc.resolve_merge_conflicts(
+        conflicted.source, conflicted.head, conflicted.base, edit
+    )
+    assert outcome.state == mc.RESOLVED
+    assert (
+        git(conflicted.source, "show", f"{outcome.tree}:{conflicted.shared}")
+        == "combined intent"
+    )
+
+
+def test_controller_stages_edit_only_deletion(conflicted):
+    def delete(checkout, conflicts):
+        (checkout / conflicted.shared).unlink()
+
+    outcome = mc.resolve_merge_conflicts(
+        conflicted.source, conflicted.head, conflicted.base, delete
+    )
+    assert (
+        conflicted.shared
+        not in git(
+            conflicted.source, "ls-tree", "--name-only", outcome.tree
+        ).splitlines()
+    )
+
+
+def test_controller_rejects_partial_marker_edits(conflicted):
+    def partial(checkout, conflicts):
+        path = checkout / conflicted.shared
+        path.write_text(path.read_text().replace("head", "updated head"))
+
+    with pytest.raises(
+        mc.MergeConflictResolutionError, match="conflict markers remain"
+    ):
+        mc.resolve_merge_conflicts(
+            conflicted.source, conflicted.head, conflicted.base, partial
+        )
+
+
+def test_controller_does_not_stage_unrelated_edits(conflicted):
+    def edit(checkout, conflicts):
+        (checkout / conflicted.shared).write_text("resolved\n")
+        (checkout / conflicted.clean).write_text("unrelated edit\n")
+
+    with pytest.raises(
+        mc.MergeConflictResolutionError, match="Working tree does not match"
+    ):
+        mc.resolve_merge_conflicts(
+            conflicted.source, conflicted.head, conflicted.base, edit
+        )
+
+
+def test_controller_refuses_unchanged_binary_conflict(conflicted):
+    source = conflicted.source
+    git(source, "checkout", "feature")
+    (source / conflicted.shared).write_bytes(b"head\0binary")
+    git(source, "commit", "-qam", "head binary")
+    head = git(source, "rev-parse", "HEAD")
+    git(source, "checkout", "main")
+    (source / conflicted.shared).write_bytes(b"base\0binary")
+    git(source, "commit", "-qam", "base binary")
+    base = git(source, "rev-parse", "HEAD")
+    with pytest.raises(mc.MergeConflictResolutionError, match="no resolution edits"):
+        mc.resolve_merge_conflicts(source, head, base, lambda *_: None)
+
+
+def test_controller_uses_literal_conflict_pathspecs(tmp_path):
+    source = tmp_path / "source"
+    _init_repo(source)
+    name = ":(glob)*.txt"
+    (source / name).write_text("ancestor\n")
+    git(source, "add", "-A")
+    git(source, "commit", "-qm", "ancestor")
+    git(source, "checkout", "-qb", "feature")
+    (source / name).write_text("head\n")
+    git(source, "commit", "-qam", "head")
+    head = git(source, "rev-parse", "HEAD")
+    git(source, "checkout", "main")
+    (source / name).write_text("base\n")
+    git(source, "commit", "-qam", "base")
+    base = git(source, "rev-parse", "HEAD")
+
+    def edit(checkout, conflicts):
+        (checkout / name).write_text("combined\n")
+
+    outcome = mc.resolve_merge_conflicts(source, head, base, edit)
+    assert git(source, "show", f"{outcome.tree}:{name}") == "combined"

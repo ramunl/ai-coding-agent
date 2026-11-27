@@ -3,9 +3,10 @@
 The prerequisite (``ai_agent.merge_conflict``) pins the PR head and base SHAs
 and makes both available as objects in the production repository. This module
 checks the head out in a disposable clone of that repository, merges the base
-with ``--no-commit --no-ff``, hands conflict data to a resolver, validates the
-staged result, and returns the validated tree and parent ids. The production
-checkout's branch, HEAD, index and working tree are never modified; the
+with ``--no-commit --no-ff``, hands conflicts to a resolver, stages changed
+marker-free conflict files, validates the result, and returns its tree and
+parent ids. The production checkout's branch, HEAD, index and working tree
+are never modified; the
 validated tree is copied back into the production object store so the
 publishing milestone can create the merge commit, and the clone is removed on
 every exit path.
@@ -26,6 +27,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+from ai_agent.merge_conflict_files import CONFLICT_MARKER, changed_paths, state
 from ai_agent.merge_conflict_stages import Conflict, parse_index, parse_unmerged
 
 UP_TO_DATE = "up_to_date"
@@ -33,7 +35,6 @@ CLEAN = "clean"
 RESOLVED = "resolved"
 
 _COMMIT = re.compile(r"[0-9a-f]{40}\Z")
-_CONFLICT_MARKER = re.compile(r"^(?:<<<<<<<|>>>>>>>|=======\r?$)", re.MULTILINE)
 
 
 class MergeConflictResolutionError(RuntimeError):
@@ -41,10 +42,10 @@ class MergeConflictResolutionError(RuntimeError):
 
 
 class Resolver(Protocol):
-    """Resolve conflicts inside the isolated checkout and stage the result."""
+    """Edit conflict files inside the isolated checkout; staging is optional."""
 
     def __call__(self, checkout: Path, conflicts: list[Conflict]) -> None:
-        """Edit and stage a resolution for every conflict, or raise."""
+        """Edit a resolution for every conflict, or raise."""
 
 
 @dataclass(frozen=True)
@@ -239,9 +240,20 @@ def _resolve(
     conflicts: list[Conflict],
     resolver: Resolver,
 ) -> MergeOutcome:
-    """Run the resolver on the conflicts and validate its staged result."""
+    """Run the resolver, stage validated edits, and validate the resolved tree."""
     before = _stage0_index(checkout)
-    resolver(checkout.path, conflicts)
+    try:
+        files = {
+            conflict.path: state(checkout.path, conflict.path) for conflict in conflicts
+        }
+        resolver(checkout.path, conflicts)
+        _validate_identity(checkout)
+        remaining = _unmerged(checkout)
+        if remaining:
+            paths = changed_paths(checkout.path, remaining, files)
+            _must(checkout.path, "--literal-pathspecs", "add", "--all", "--", *paths)
+    except ValueError as error:
+        raise MergeConflictResolutionError(str(error)) from error
     _validate_resolution(checkout, conflicts, before)
     return MergeOutcome(
         state=RESOLVED,
@@ -250,8 +262,8 @@ def _resolve(
     )
 
 
-def _validate_state(checkout: MergeCheckout) -> None:
-    """Reject a checkout whose HEAD, MERGE_HEAD, index, or worktree drifted."""
+def _validate_identity(checkout: MergeCheckout) -> None:
+    """Refuse changed merge parents before staging any provider edits."""
     head = _git(checkout.path, "rev-parse", "HEAD")
     if head.returncode != 0 or head.stdout.strip() != checkout.head_sha:
         raise MergeConflictResolutionError(
@@ -259,6 +271,11 @@ def _validate_state(checkout: MergeCheckout) -> None:
         )
     if _merge_head(checkout) != checkout.base_sha:
         raise MergeConflictResolutionError("MERGE_HEAD is not the pinned base")
+
+
+def _validate_state(checkout: MergeCheckout) -> None:
+    """Reject a checkout whose HEAD, MERGE_HEAD, index, or worktree drifted."""
+    _validate_identity(checkout)
     if _unmerged(checkout):
         raise MergeConflictResolutionError(
             "Unmerged index entries remain after resolution"
@@ -332,11 +349,7 @@ def _reject_conflict_markers(
         if conflict.path not in index:
             continue
         content = _blob_bytes(checkout, conflict.path)
-        try:
-            text = content.decode("utf-8")
-        except UnicodeDecodeError:
-            continue
-        if _CONFLICT_MARKER.search(text):
+        if CONFLICT_MARKER.search(content):
             raise MergeConflictResolutionError(
                 f"Leftover conflict markers in {conflict.path}"
             )
