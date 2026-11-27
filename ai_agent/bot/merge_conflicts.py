@@ -74,6 +74,11 @@ async def fix_merge_conflicts(
         project = active_project()
         target = await asyncio.to_thread(validate_merge_conflict_pr, text)
         data["pending_merge_conflict"] = {**asdict(target), "status": "running"}
+        application = getattr(context, "application", None)
+        if application is not None:
+            application.mark_data_for_update_persistence(
+                user_ids=update.effective_chat.id
+            )
         await reply_chunks(update, _pinned_message(target) + "\n\nResolving conflicts…")
         work = asyncio.create_task(
             think(
