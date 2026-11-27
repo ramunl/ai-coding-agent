@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
+from urllib.parse import quote
 
 from ai_agent.github import ensure_github_configured, github_request
 from ai_agent.github_links import extract_urls, parse_github_reference
@@ -53,6 +55,25 @@ def _same_repo(full_name: object, repository: str) -> bool:
     return bool(full_name) and str(full_name).lower() == repository.lower()
 
 
+def _branch_tip(repository: str, ref: str) -> str:
+    """Read an exact live branch ref; PR payload SHAs can describe older tips."""
+    result = github_request(
+        "GET", f"/repos/{repository}/git/ref/heads/{quote(ref, safe='/')}"
+    )
+    if not isinstance(result, dict) or not isinstance(result.get("object"), dict):
+        raise MergeConflictError(f"Could not pin the current branch tip for {ref}.")
+    obj = result["object"]
+    sha = obj.get("sha")
+    if (
+        result.get("ref") != f"refs/heads/{ref}"
+        or obj.get("type") != "commit"
+        or not isinstance(sha, str)
+        or not re.fullmatch(r"[0-9a-f]{40}", sha)
+    ):
+        raise MergeConflictError(f"Could not pin the current branch tip for {ref}.")
+    return sha
+
+
 def validate_merge_conflict_pr(text: str) -> MergeConflictTarget:
     """Validate one PR URL and return its pinned base/head refs and SHAs.
 
@@ -89,11 +110,14 @@ def validate_merge_conflict_pr(text: str) -> MergeConflictTarget:
         )
 
     base_ref = str(base.get("ref") or "")
-    base_sha = str(base.get("sha") or "")
     head_ref = str(head.get("ref") or "")
-    head_sha = str(head.get("sha") or "")
-    if not (base_ref and base_sha and head_ref and head_sha):
+    if not (base_ref and head_ref):
         raise MergeConflictError(f"PR #{number} is missing its base or head refs.")
+
+    # GitHub can retain an old base.sha on an open PR after the base branch
+    # advances. Resolve both live refs for initial pinning AND revalidation.
+    base_sha = _branch_tip(active, base_ref)
+    head_sha = _branch_tip(active, head_ref)
 
     return MergeConflictTarget(
         number=number,
