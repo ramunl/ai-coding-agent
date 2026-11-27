@@ -239,3 +239,21 @@ def test_outcome_parents_mismatch_is_rejected(repo):
         )
 
     assert _remote_head(repo.source, repo.remote, repo.head_ref) == repo.head
+
+
+def test_head_move_between_check_and_push_is_rejected(repo, monkeypatch):
+    tree = _resolved_tree(repo.source, repo.head)
+    outcome = MergeOutcome(RESOLVED, tree, (repo.head, repo.base))
+    original = mcp._ls_remote_head
+
+    def race(source, remote, head_ref):
+        observed = original(source, remote, head_ref)
+        git(source, "push", "--force", remote, f"{repo.base}:refs/heads/{head_ref}")
+        return observed
+
+    monkeypatch.setattr(mcp, "_ls_remote_head", race)
+    with pytest.raises(mcp.MergeConflictPublishError, match="Push failed"):
+        mcp.publish_merge_commit(
+            repo.source, repo.remote, "feature", repo.head, repo.base, outcome
+        )
+    assert _remote_head(repo.source, repo.remote, "feature") == repo.base

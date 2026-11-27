@@ -158,6 +158,9 @@ async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def run_task_queue(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Drain queued tasks in FIFO order and release the runner flag."""
+    if context.user_data.get("merge_conflict_active"):
+        await reply_chunks(update, "Wait for the merge conflict fix to finish.")
+        return
     if context.user_data.get("queue_runner_active"):
         return
     context.user_data["queue_runner_active"] = True

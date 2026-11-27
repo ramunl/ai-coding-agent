@@ -392,3 +392,14 @@ def guarded_run(function: Callable[P, R]) -> Callable[P, R]:
         return function(*args, **kwargs)
 
     return wrapped
+
+
+@contextmanager
+def repository_lease() -> Iterator[None]:
+    """Hold the shared run lock without changing the production checkout."""
+    from ai_agent.provider_process import require_no_writer
+
+    with recovery_session() as state:
+        _lease(state)
+        require_no_writer(active_project().repo_path)
+        yield

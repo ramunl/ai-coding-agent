@@ -99,6 +99,11 @@ ACTIONS: dict[str, dict[str, Any]] = {
     "set_planner": {"value": _PLANNERS},
     "set_implementer": {"value": _IMPLEMENTERS},
     "switch_model": {"tool": _MODEL_TOOLS, "model": _MODEL},
+    "fix_merge_conflicts": {
+        "url": re.compile(
+            r"https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[1-9][0-9]*\Z"
+        )
+    },
     "approve_plan": {},
     "confirm_work": {},
     "cancel_pending": {},
@@ -130,6 +135,7 @@ ACTIONS: dict[str, dict[str, Any]] = {
     "worker_review": {},
 }
 WORK_ACTIONS = (
+    "fix_merge_conflicts",
     "approve_plan",
     "confirm_work",
     "cancel_pending",

@@ -328,6 +328,8 @@ def decide(
     worker = settings(data)
     if not worker["enabled"]:
         return Decision("wait", "off")
+    if data.get("merge_conflict_active"):
+        return Decision("wait", "waiting: a merge conflict fix is running")
     if data.get("planning_task") or data.get("thinking"):
         return Decision("wait", "waiting: the agent is planning")
     busy = data.get("active_execution") or data.get("task_queue")

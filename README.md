@@ -542,3 +542,28 @@ at their start; splitting does not pin their implementer. Queuing captures the i
 and CI repair keeps that run’s tool. Changing Setup does not switch an active run.
 Historical missing model metadata stays unknown; configured CLI defaults do not claim
 an exact model. Claude Code reported models update the task after an invocation.
+
+### Fix merge conflicts on an existing PR
+
+Use **Fix Merge Conflicts** in Telegram (or `/fixmerge <PR URL>`), or open
+**Coding → Merge conflicts** in the dashboard. Select the PR's registered
+project first. Only open, same-repository GitHub PRs are supported; fork PRs
+are rejected. The dashboard confirms token usage and the branch update.
+
+The agent pins the PR's base/head commits, holds the shared repository run
+lease, resolves in a disposable checkout with the selected implementation
+provider, and runs application-observed checks before publishing a merge
+commit to the existing PR branch. It preserves the production checkout,
+rejects unrelated edits and unresolved markers, and refuses publication if
+PR refs change. It never merges the PR into the base branch.
+
+The managed agent/dashboard repositories use their fixed verification profiles.
+Other repositories need an npm test script plus lockfile, or a pytest project
+with `requirements-dev.txt`. Unsupported checks and failed tests block the push.
+Progress and the final result appear in Telegram and the dashboard. A restarted
+run is shown as interrupted: inspect the PR before retrying.
+
+Roll out the coding agent before the dashboard. The new snapshot always includes
+`merge_conflict` (an empty object before the first run), which enables the new
+control; older agent snapshots hide it. The mirrored inbox action is
+`fix_merge_conflicts` with one `url` argument.

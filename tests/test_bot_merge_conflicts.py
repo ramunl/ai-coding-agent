@@ -67,10 +67,21 @@ class MergeConflictsBotTests(TelegramTestCase):
             args=["https://github.com/owner/repo/pull/5"], user_data={}
         )
 
-        with patch.object(bot, "validate_merge_conflict_pr", return_value=target):
+        with (
+            patch.object(bot, "validate_merge_conflict_pr", return_value=target),
+            patch.object(
+                bot, "fix_pinned_conflicts", return_value="Updated PR #5"
+            ) as fix,
+        ):
             asyncio.run(bot.fix_merge_conflicts(update, context))
 
-        self.assertEqual(context.user_data["pending_merge_conflict"], asdict(target))
+        self.assertEqual(
+            context.user_data["pending_merge_conflict"],
+            {**asdict(target), "status": "done", "message": "Updated PR #5"},
+        )
+        fix.assert_called_once()
+        self.assertNotIn("thinking", context.user_data)
+        self.assertNotIn("planning_active", context.user_data)
         reply = "\n".join(message.replies)
         for pinned in ("main (base-sha)", "fix/branch (head-sha)", "merge-sha"):
             self.assertIn(pinned, reply)
@@ -130,3 +141,23 @@ class MergeConflictsBotTests(TelegramTestCase):
             asyncio.run(bot._on_fixmerge_tap(update, context, ""))
 
         handler.assert_not_awaited()
+
+    def test_busy_request_does_not_validate_or_spend_tokens(self):
+        bot = importlib.import_module("ai_agent.bot.merge_conflicts")
+        message = FakeMessage()
+        update = types.SimpleNamespace(
+            effective_chat=types.SimpleNamespace(id=123), message=message
+        )
+        context = types.SimpleNamespace(
+            args=["https://github.com/owner/repo/pull/5"],
+            user_data={"merge_conflict_active": True},
+        )
+        with patch.object(bot, "validate_merge_conflict_pr") as validate:
+            asyncio.run(bot.fix_merge_conflicts(update, context))
+        validate.assert_not_called()
+        self.assertIn("running", message.replies[0])
+
+    def test_restarted_fix_is_reported_as_interrupted(self):
+        state = importlib.import_module("ai_agent.bot.state")
+        result = state.snapshot({"pending_merge_conflict": {"status": "running"}})
+        self.assertEqual(result["merge_conflict"]["status"], "interrupted")
