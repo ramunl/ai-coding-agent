@@ -269,7 +269,15 @@ def _baseline_required(policy: PreflightPolicy) -> bool:
         )
     try:
         result = subprocess.run(
-            [git, "ls-files", "--error-unmatch", "--", "scripts/baseline.sh"],
+            [
+                git,
+                "-c",
+                f"safe.directory={policy.cwd}",
+                "ls-files",
+                "--error-unmatch",
+                "--",
+                "scripts/baseline.sh",
+            ],
             cwd=policy.cwd,
             env=dict(policy.env),
             stdout=subprocess.DEVNULL,
