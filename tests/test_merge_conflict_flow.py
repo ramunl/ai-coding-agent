@@ -100,3 +100,19 @@ def test_repository_lease_rejects_another_run(repo, wired):
     with git_recovery.repository_lease():
         with pytest.raises(RuntimeError, match="active run"):
             flow.fix_pinned_conflicts(project, target)
+
+
+def test_provider_checkout_supports_a_clone_git_directory(tmp_path, monkeypatch):
+    (tmp_path / ".git").mkdir()
+    home = tmp_path / "worker-home"
+    monkeypatch.setattr(isolation, "WORKER_ISOLATION_ENABLED", True)
+    monkeypatch.setattr(isolation, "WORKER_HOME", home)
+    monkeypatch.setattr(isolation.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(isolation, "_uid", lambda _: 1000)
+    monkeypatch.setattr(isolation, "_gid", lambda _: 1000)
+    owned = []
+    monkeypatch.setattr(isolation, "_chown_tree", lambda path, *_: owned.append(path))
+    with isolation.provider_checkout(tmp_path, "a" * 40):
+        assert isolation.current_sandbox().path == tmp_path
+    assert tmp_path / ".git" in owned
+    assert isolation.current_sandbox() is None

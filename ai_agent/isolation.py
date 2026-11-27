@@ -89,6 +89,8 @@ def _chown_tree(path: Path, uid: int, gid: int) -> None:
 
 def _linked_gitdir(path: Path) -> Path:
     """The per-worktree gitdir referenced by a linked worktree's ``.git`` file."""
+    if (path / ".git").is_dir():
+        return (path / ".git").resolve()
     marker = (path / ".git").read_text().strip()
     if marker.startswith("gitdir:"):
         value = marker.split(":", 1)[1].strip()
