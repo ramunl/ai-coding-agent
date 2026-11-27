@@ -38,7 +38,7 @@ def _pinned_message(target: MergeConflictTarget) -> str:
 
 
 async def fix_merge_conflicts(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
+    update: Update, context: ContextTypes.DEFAULT_TYPE, *, task_id: str | None = None
 ) -> None:
     """Validate a PR URL, resolve conflicts in isolation and report publication."""
     if not require_authorized(update):
@@ -74,6 +74,8 @@ async def fix_merge_conflicts(
         project = active_project()
         target = await asyncio.to_thread(validate_merge_conflict_pr, text)
         data["pending_merge_conflict"] = {**asdict(target), "status": "running"}
+        if task_id is not None:
+            data["pending_merge_conflict"]["task_id"] = task_id
         application = getattr(context, "application", None)
         if application is not None:
             application.mark_data_for_update_persistence(

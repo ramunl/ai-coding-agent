@@ -161,3 +161,30 @@ class MergeConflictsBotTests(TelegramTestCase):
         state = importlib.import_module("ai_agent.bot.state")
         result = state.snapshot({"pending_merge_conflict": {"status": "running"}})
         self.assertEqual(result["merge_conflict"]["status"], "interrupted")
+
+    def test_task_fix_keeps_task_id_in_published_result(self):
+        bot = importlib.import_module("ai_agent.bot.merge_conflicts")
+        state = importlib.import_module("ai_agent.bot.state")
+        target = MergeConflictTarget(
+            5,
+            "https://github.com/owner/repo/pull/5",
+            "Fix",
+            "main",
+            "a" * 40,
+            "feature/fix",
+            "b" * 40,
+            "",
+        )
+        message = FakeMessage()
+        update = types.SimpleNamespace(
+            effective_chat=types.SimpleNamespace(id=123), message=message
+        )
+        context = types.SimpleNamespace(args=[target.url], user_data={})
+        with (
+            patch.object(bot, "validate_merge_conflict_pr", return_value=target),
+            patch.object(bot, "fix_pinned_conflicts", return_value="Updated PR #5"),
+        ):
+            asyncio.run(bot.fix_merge_conflicts(update, context, task_id="abcd1234"))
+        result = state.snapshot(context)["merge_conflict"]
+        self.assertEqual(result["task_id"], "abcd1234")
+        self.assertEqual(result["status"], "done")

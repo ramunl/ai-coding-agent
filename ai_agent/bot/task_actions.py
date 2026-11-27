@@ -40,6 +40,7 @@ from ai_agent.tasks import (
 logger = logging.getLogger(__name__)
 
 TASK_ACTIONS = (
+    "fix_task_conflicts",
     "create_task",
     "start_task",
     "reopen_task",
@@ -304,6 +305,10 @@ async def run_task_action(
     task = find_task(data, args["task"])
     if task is None:
         raise ActionError("That task no longer exists.")
+    if action == "fix_task_conflicts":
+        from ai_agent.bot.task_merge_conflicts import run
+
+        return await run(ptb_app, owner_id, task)
     if action in ("accept_task", "dismiss_task"):
         if task.get("stage") != "proposed":
             raise ActionError("That task is not a proposal any more.")
